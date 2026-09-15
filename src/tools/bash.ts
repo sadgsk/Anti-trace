@@ -26,6 +26,8 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema, BashTo
 				throw new Error("Invalid timeout: must be a positive number of seconds");
 			}
 
+			// Windows 走 cmd.exe（相对 Pi 的改动）。没有在 prompt / 工具说明里做 LLM 平台适配，
+			// 模型在 Windows 上仍可能发 rm/ls/find 等 bash 命令，导致失败或卡住。见 docs/future-issues.md No.1。
 			const child =
 				process.platform === "win32"
 					? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], {

@@ -8,6 +8,7 @@
 | 当前版本 | **v1.1** |
 | 阶段 | **第 4 步完成：下一步 §7 REPL 验收** |
 | 架构书 | [architecture.md](./architecture.md) |
+| 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
 | 最后更新 | 2026-09-15 |
 
@@ -21,6 +22,7 @@
    4. **相对 Pi 改了什么**（哪一刀先瘦、哪一刀补到产品级，写清楚）
 3. 已写好的函数后面不再改同一段。瘦实现和产品级补强是后一刀加在旁边或一次性换 execute 内部，不要反复改 schema 名字。
 4. 用户问概念时直接回答，不必套四段，也不改文件。
+5. 遇到 bug 但暂时不修：记到 [future-issues.md](./future-issues.md)，编号接着 `No.N`，写平台 / 日期 / 项目版本 / 现象，不要写修法。这份文档要进 git。
 
 ---
 
