@@ -3,5 +3,8 @@ export { runAgentLoop } from "./agent/loop.ts";
 export { streamOpenAIChat } from "./llm/openai-chat.ts";
 export { AssistantMessageEventStream, EventStream } from "./llm/event-stream.ts";
 export { createBashTool } from "./tools/bash.ts";
+export { createEditTool } from "./tools/edit.ts";
+export { createReadTool } from "./tools/read.ts";
+export { createWriteTool } from "./tools/write.ts";
 export { buildSystemPrompt, type BuildSystemPromptOptions } from "./prompt.ts";
 export type * from "./types.ts";

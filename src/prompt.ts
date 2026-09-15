@@ -15,7 +15,7 @@ Working directory: ${cwd}
 Available tools:
 ${toolsList}
 
-Use bash to list files, read files, and run commands.
+Use read to examine files. Use edit for unique text replacements in an existing file. Use write to create or overwrite a whole file. Use bash to list files and run commands.
 
 Be concise.`;
 }

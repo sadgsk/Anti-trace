@@ -5,12 +5,19 @@ import { getOpenAIConfig } from "../env.ts";
 import { streamOpenAIChat } from "../llm/openai-chat.ts";
 import { buildSystemPrompt } from "../prompt.ts";
 import { createBashTool } from "../tools/bash.ts";
+import { createEditTool } from "../tools/edit.ts";
+import { createReadTool } from "../tools/read.ts";
+import { createWriteTool } from "../tools/write.ts";
 import type { Model } from "../types.ts";
 import { renderEvent } from "./render.ts";
 
 const cwd = process.cwd();
 const { apiKey, baseUrl, modelId } = getOpenAIConfig();
+const read = createReadTool(cwd);
 const bash = createBashTool(cwd);
+const edit = createEditTool(cwd);
+const write = createWriteTool(cwd);
+const tools = [read, bash, edit, write];
 const model: Model = {
 	id: modelId,
 	name: modelId,
@@ -23,9 +30,9 @@ const agent = new Agent({
 	streamFn: streamOpenAIChat,
 	apiKey,
 	initialState: {
-		systemPrompt: buildSystemPrompt({ cwd, toolNames: [bash.name] }),
+		systemPrompt: buildSystemPrompt({ cwd, toolNames: tools.map((tool) => tool.name) }),
 		model,
-		tools: [bash],
+		tools,
 	},
 });
 agent.subscribe(renderEvent);

@@ -37,7 +37,7 @@ REPL 里模型可以读文件、整文件写、按精确文本改一处或多处
 
 - `AgentTool = 说明书 + execute(toolCallId, params, signal, onUpdate)`
 - 参数用 TypeBox schema
-- 路径解析后落在工作区里（Pi 用 harness `env.absolutePath`；这边用 Node `path` + `cwd` 做出同效果）
+- 路径相对 `cwd` resolve 成绝对路径（Pi 用 harness `env.absolutePath`；这边用 Node `path` + `cwd`。不拦工作区外，和 Pi 一样）
 - 业务失败（找不到文件、`oldText` 不唯一）**throw**，loop 已有的协议会变成 `isError` toolResult
 - `signal` abort 时 throw
 
@@ -48,7 +48,7 @@ REPL 里模型可以读文件、整文件写、按精确文本改一处或多处
 新建：
 
 ```
-src/tools/path.ts       路径解析（给三个文件工具共用）
+src/tools/path-utils.ts 路径解析（给三个文件工具共用，不是独立工具）
 src/tools/read.ts
 src/tools/write.ts
 src/tools/edit.ts
@@ -87,18 +87,16 @@ Agent / loop   （已有，源码里读）
 
 ---
 
-### 5.0 `src/tools/path.ts`
+### 5.0 `src/tools/path-utils.ts`
 
 **做什么：** `resolveCwdPath(cwd, inputPath, signal?): string`（或 async，若你要跟 Pi 一样可中断）。
 
-Pi 的 `env.absolutePath` 负责：规范化、变成绝对路径、限制在工作区。这边没有 harness env，用 `node:path`：
+Pi 的 `env.absolutePath` 负责：规范化、变成绝对路径。不限制必须在工作区里。这边没有 harness env，用 `node:path`：
 
-1. 去掉模型偶尔带的 `@` 前缀（Pi `normalizeToolPath`）。
-2. `path.resolve(cwd, input)`。
-3. 解析结果必须落在 `cwd` 下，否则 throw。
-4. 返回绝对路径。
+1. `path.resolve(cwd, input)`。相对路径锚在 `cwd`，绝对路径原样规范化。
+2. 返回绝对路径。
 
-**对照：** `pi/packages/agent/src/harness/tools/path-utils.ts` 的 `normalizeToolPath`、`resolveToolPath`。第一刀不必抄 Unicode 空格 / NFD 那一串变体（`resolveReadToolPath`）；那是分级里的后一刀，接口仍是同一个 `resolveCwdPath`。
+**对照：** `pi/packages/agent/src/harness/tools/path-utils.ts` 的 `normalizeToolPath`、`resolveToolPath`；`env/nodejs.ts` 的 `resolvePath`。第一刀不剥 `@`（这边还没有 `@` mention），不展开 `~` / `file://`，也不抄 Unicode 空格 / NFD 变体。后一刀仍加在同一个 `resolveCwdPath` 上。不额外加工作区铁墙。
 
 ---
 
@@ -179,8 +177,8 @@ Type.Object({
 
 | 步 | 做哪些文件 | 做完时你应该能证明什么 | 主要对照 |
 |---|---|---|---|
-| 0 | `src/tools/path.ts` | 相对路径能 resolve；逃出 `cwd` throw | `path-utils.ts` `normalizeToolPath` / `resolveToolPath` |
-| 1 | `read.ts` + `test/probe-read.ts` | 读小文件带行号；缺文件 throw；逃出 throw；超大截断 | `read.ts` 文本 execute + `truncate.ts` 上限 |
+| 0 | `src/tools/path-utils.ts` | 相对路径能 resolve；绝对路径 / `..` 不因越界 throw | `path-utils.ts` `normalizeToolPath` / `resolveToolPath` |
+| 1 | `read.ts` + `test/probe-read.ts` | 读小文件带行号；缺文件 throw；cwd 外绝对路径能读；超大截断 | `read.ts` 文本 execute + `truncate.ts` 上限 |
 | 2 | `write.ts` + `test/probe-write.ts` | 临时目录写入再读回 | `write.ts` |
 | 3 | `edit.ts` + `test/probe-edit.ts` | 一处成功；0 次 / 2 次 throw；两项不重叠能都换上 | `edit.ts` schema + validate |
 | 4 | `main.ts` `prompt.ts` `index.ts` | REPL 里 `read` `package.json` 能看到 `[read]` | 现有 main 装配 |
@@ -199,7 +197,7 @@ write/edit 探针只用临时目录，不要改 `src/` 里的真源码。
 2. 「write 一个 `tmp-v1.1-note.txt`，内容 hello」→ `[write]`，磁盘上有文件。
 3. 「把 hello 改成 world」→ `[edit]`，文件变成 world。
 4. bash 再读这个文件，和 edit 一致。
-5. 让它读工作区外面的路径 → 工具 error，工作区外没有新文件。
+5. 让它读工作区外面一份存在的文件 → `[read]` 能读到，不报越界。
 6. `/reset` 之后工具还能用。
 
 测完删掉临时文件。
@@ -234,7 +232,7 @@ write/edit 探针只用临时目录，不要改 `src/` 里的真源码。
 ```
 这一版                         Pi
 ──────────────────────────────────────────────
-src/tools/path.ts              harness/tools/path-utils.ts
+src/tools/path-utils.ts        harness/tools/path-utils.ts
 src/tools/read.ts              harness/tools/read.ts
 src/tools/write.ts             harness/tools/write.ts
 src/tools/edit.ts              harness/tools/edit.ts

@@ -6,10 +6,10 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.1** |
-| 阶段 | **未开工：下一步 path.ts** |
+| 阶段 | **第 4 步完成：下一步 §7 REPL 验收** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-13 |
+| 最后更新 | 2026-09-15 |
 
 **协作约定（带着写源码时必须按这个格式，换对话不用用户再重复）：**
 
@@ -39,21 +39,28 @@
 
 要做：按 Pi harness 加上 `read` / `write` / `edit`，装配进 REPL。`bash` 留下。
 
-**下一步：** 第 0 步，带着写 `src/tools/path.ts` 的 `resolveCwdPath`。对照架构书 §5.0。
+**下一步：** 第 5 步，架构书 §7 REPL 验收。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
-| 0 | `src/tools/path.ts` | [ ] |
-| 1 | `src/tools/read.ts` + `test/probe-read.ts` | [ ] |
-| 2 | `src/tools/write.ts` + `test/probe-write.ts` | [ ] |
-| 3 | `src/tools/edit.ts` + `test/probe-edit.ts` | [ ] |
-| 4 | 装配：`main.ts` `prompt.ts` `index.ts` | [ ] |
+| 0 | `src/tools/path-utils.ts` | [x] |
+| 1 | `src/tools/read.ts` + `test/probe-read.ts` | [x] |
+| 2 | `src/tools/write.ts` + `test/probe-write.ts` | [x] |
+| 3 | `src/tools/edit.ts` + `test/probe-edit.ts` | [x] |
+| 4 | 装配：`main.ts` `prompt.ts` `index.ts` | [x] |
 | 5 | 架构书 §7 REPL 验收 | [ ] |
 
 ### v1.1 更新记录
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-15 | 装配：`main.ts` 挂上 read/bash/edit/write；`prompt.ts` 写清四个工具用途；`index.ts` 导出三个 create 函数。 |
+| 2026-09-15 | 写入 `createEditTool` + `probe-edit.ts`：一处成功、0 次 / 2 次 throw、两项不重叠、abort。prepareArguments / 换行归一 / diff 后一刀。 |
+| 2026-09-14 | 拿掉 `resolveCwdPath` 的工作区铁墙：对齐 Pi，相对 `cwd` resolve 即可，不因在 cwd 外 throw。 |
+| 2026-09-14 | 写入 `createReadTool`（文本第一刀）+ `probe-read.ts`：小文件带行号、缺文件 throw、超大截断、abort。图片后一刀。 |
+| 2026-09-14 | `resolveCwdPath` 去掉剥 `@`：这边还没有 `@` mention，留给后一刀。 |
+| 2026-09-14 | 非独立工具辅助改名：`path.ts` → `path-utils.ts`，对齐 Pi 的 `path-utils.ts`。函数未改。 |
+| 2026-09-14 | 写入 `resolveCwdPath`：resolve 到 cwd、越界 throw、abort throw。 |
 | 2026-09-13 | 开 v1.1。架构书收成一份，施工从 `path.ts` 起。 |
 
 ---
