@@ -1,23 +1,13 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { Agent } from "../agent/agent.ts";
 import { getOpenAIConfig } from "../env.ts";
+import { Harness } from "../harness/harness.ts";
 import { streamOpenAIChat } from "../llm/openai-chat.ts";
-import { buildSystemPrompt } from "../prompt.ts";
-import { createBashTool } from "../tools/bash.ts";
-import { createEditTool } from "../tools/edit.ts";
-import { createReadTool } from "../tools/read.ts";
-import { createWriteTool } from "../tools/write.ts";
 import type { Model } from "../types.ts";
 import { renderEvent } from "./render.ts";
 
 const cwd = process.cwd();
 const { apiKey, baseUrl, modelId } = getOpenAIConfig();
-const read = createReadTool(cwd);
-const bash = createBashTool(cwd);
-const edit = createEditTool(cwd);
-const write = createWriteTool(cwd);
-const tools = [read, bash, edit, write];
 const model: Model = {
 	id: modelId,
 	name: modelId,
@@ -26,16 +16,13 @@ const model: Model = {
 	api: "openai-completions",
 };
 
-const agent = new Agent({
-	streamFn: streamOpenAIChat,
+const harness = new Harness({
+	cwd,
 	apiKey,
-	initialState: {
-		systemPrompt: buildSystemPrompt({ cwd, toolNames: tools.map((tool) => tool.name) }),
-		model,
-		tools,
-	},
+	model,
+	streamFn: streamOpenAIChat,
 });
-agent.subscribe(renderEvent);
+harness.subscribe(renderEvent);
 
 const rl = createInterface({ input: stdin, output: stdout });
 let exiting = false;
@@ -47,8 +34,8 @@ function shutdown(): void {
 }
 
 process.on("SIGINT", () => {
-	if (agent.state.isStreaming) {
-		agent.abort();
+	if (harness.agent.state.isStreaming) {
+		harness.abort();
 		return;
 	}
 	shutdown();
@@ -77,7 +64,7 @@ while (!exiting) {
 	}
 	if (line === "/reset") {
 		try {
-			agent.reset();
+			harness.reset();
 			console.log("reset");
 		} catch (error) {
 			console.error(error instanceof Error ? error.message : error);
@@ -85,7 +72,7 @@ while (!exiting) {
 		continue;
 	}
 	try {
-		await agent.prompt(line);
+		await harness.prompt(line);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);
 	}

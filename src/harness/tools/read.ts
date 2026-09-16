@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { type Static, Type } from "typebox";
-import type { AgentTool } from "../types.ts";
+import type { AgentTool } from "../../types.ts";
 import { resolveCwdPath } from "./path-utils.ts";
 
 const DEFAULT_MAX_LINES = 2000;

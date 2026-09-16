@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { type Static, Type } from "typebox";
-import type { AgentTool } from "../types.ts";
+import type { AgentTool } from "../../types.ts";
 import { resolveCwdPath } from "./path-utils.ts";
 
 export const writeSchema = Type.Object({

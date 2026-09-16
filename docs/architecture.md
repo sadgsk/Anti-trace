@@ -21,7 +21,7 @@
 
 ## 1. 现在有什么 / 这一版做什么
 
-**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/reset` `/exit`。装配现在写在 `main.ts` 里。消息不落盘。思考等级类型有，没接到模型。没有上下文窗口配置，也不计量、不显示、不压缩。
+**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/reset` `/exit`。工具和系统提示在 `src/harness/`，装配在 `Harness` 里，`main` 只做人机（读行、斜杠命令、订阅打印、SIGINT）。消息不落盘。思考等级类型有，没接到模型。没有上下文窗口配置，也不计量、不显示、不压缩。`newSession` / `resumeRecent` / 思考 / 上下文 / 压缩方法已定名，调用会 throw「未接上」。
 
 **这一版（v1.2）做管家框架 + 基本功能：**
 

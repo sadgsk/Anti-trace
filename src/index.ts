@@ -1,10 +1,11 @@
 export { Agent, type AgentOptions } from "./agent/agent.ts";
 export { runAgentLoop } from "./agent/loop.ts";
+export { Harness, type HarnessOptions } from "./harness/harness.ts";
 export { streamOpenAIChat } from "./llm/openai-chat.ts";
 export { AssistantMessageEventStream, EventStream } from "./llm/event-stream.ts";
-export { createBashTool } from "./tools/bash.ts";
-export { createEditTool } from "./tools/edit.ts";
-export { createReadTool } from "./tools/read.ts";
-export { createWriteTool } from "./tools/write.ts";
-export { buildSystemPrompt, type BuildSystemPromptOptions } from "./prompt.ts";
+export { createBashTool } from "./harness/tools/bash.ts";
+export { createEditTool } from "./harness/tools/edit.ts";
+export { createReadTool } from "./harness/tools/read.ts";
+export { createWriteTool } from "./harness/tools/write.ts";
+export { buildSystemPrompt, type BuildSystemPromptOptions } from "./harness/prompt.ts";
 export type * from "./types.ts";

@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { type Static, Type } from "typebox";
-import type { AgentTool } from "../types.ts";
+import type { AgentTool } from "../../types.ts";
 import { resolveCwdPath } from "./path-utils.ts";
 
 const replaceEditSchema = Type.Object({

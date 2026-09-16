@@ -33,3 +33,5 @@ macOS 上同一操作（删除本地文件）一次通过，无卡死。
 **问题原因**
 
 `src/tools/bash.ts` 在 Windows 上把 shell 改成了 `cmd.exe`（Pi 原版是找真正的 bash）。工具仍叫 `bash`，系统提示也没按平台告诉模型用 cmd 语法，所以 LLM 会发 `rm` / `ls` / `find` 这类 bash 命令。cmd 执行失败或挂起，删除就走不通。
+
+（v1.2 第 0 步搬家后，该文件在 `src/harness/tools/bash.ts`，函数体未改。）

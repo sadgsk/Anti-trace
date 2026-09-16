@@ -13,6 +13,7 @@
 		"probe:edit": "tsx test/probe-edit.ts",
 		"probe:loop": "tsx test/probe-loop.ts",
 		"probe:agent": "tsx test/probe-agent.ts",
+		"probe:harness": "tsx test/probe-harness.ts",
 		"typecheck": "tsc --noEmit",
 		"build": "tsc"
 	},

@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { type Static, Type } from "typebox";
-import type { AgentTool } from "../types.ts";
+import type { AgentTool } from "../../types.ts";
 
 export const bashSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),

@@ -6,7 +6,7 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **开写：第 0 步搬家（tools / prompt → harness）** |
+| 阶段 | **第 1 步已完成；下一步第 2 步：session 记忆** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
@@ -41,12 +41,12 @@
 
 要做：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 思考等级。基本能用即可。
 
-**下一步：** 第 0 步，架构书 §6：搬家。
+**下一步：** 第 2 步，架构书 §6：`session.ts` + probe；Harness 写入 / `/new` / `/resume`。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
-| 0 | 搬家：`src/tools/*` → `src/harness/tools/`，`prompt.ts` → `src/harness/prompt.ts`，改 import | [ ] |
-| 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [ ] |
+| 0 | 搬家：`src/tools/*` → `src/harness/tools/`，`prompt.ts` → `src/harness/prompt.ts`，改 import | [x] |
+| 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [x] |
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / `/new` / `/resume` | [ ] |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context` `/compact` | [ ] |
 | 4 | 思考等级：`createLoopConfig`、`openai-chat`、`/thinking`、session 行 | [ ] |
@@ -56,6 +56,8 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-16 | 第 1 步完成：Harness 框架；`main.ts` 不再 createXxxTool / new Agent；`probe-harness` 假 stream 能 prompt。 |
+| 2026-09-16 | 第 0 步搬家完成：`src/harness/tools/*`、`src/harness/prompt.ts`；import 已改。`tsc --noEmit` 与 probe-read/write/edit/bash/agent/loop 通过。 |
 | 2026-09-16 | 第 3 步从「只压缩」改为上下文容量：窗口设置、用量记录、CLI 显示、再压缩。 |
 | 2026-09-16 | 施工顺序定为：搬家 → 框架 → session → 上下文容量 → 思考。 |
 | 2026-09-16 | 开 v1.2。架构书换成 harness 框架；不按 AgentSession 约束。施工从搬家起。 |
