@@ -15,20 +15,20 @@
 1. 按 **§6 实现顺序** 一次只做一步。
 2. 写每个文件前，打开 **§5** 里标出的对照，只看点名的函数/类型，不要整包通读。
 3. 写完用 **§7** 验收，再进入下一步。
-4. 某一刀先瘦，只是分级，不是另开一套 API。session / 压缩 / 思考都挂在同一个 `Harness` 上。
+4. 某一刀先瘦，只是分级，不是另开一套 API。session / 上下文容量 / 思考都挂在同一个 `Harness` 上。
 
 ---
 
 ## 1. 现在有什么 / 这一版做什么
 
-**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/reset` `/exit`。装配现在写在 `main.ts` 里。消息不落盘。思考等级类型有，没接到模型。不会压缩。
+**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/reset` `/exit`。装配现在写在 `main.ts` 里。消息不落盘。思考等级类型有，没接到模型。没有上下文窗口配置，也不计量、不显示、不压缩。
 
 **这一版（v1.2）做管家框架 + 基本功能：**
 
 1. 把工具和系统提示收进 `src/harness/`，`main` 不再 `createXxxTool` / `new Agent`。
 2. `Harness`：开局装配；`prompt` 交给 Agent；每轮收尾。
 3. 按 cwd 把对话写成 jsonl（一个项目多份聊天）。
-4. 上下文过长时自动压缩；可 `/compact`。
+4. **上下文容量**（综合一步）：窗口设置、用量记录、REPL 显示、过长则压缩。
 5. `/thinking` 能改档位，请求里带上，回复里能出现 thinking 块。
 
 不做：TUI、v4 session、SQLite、会话树 `/tree`、fork、多厂商、Windows bash（No.1）另开。v1.1 的 REPL 手测不挡这一版。
@@ -39,14 +39,15 @@
 
 ```text
 main（屏幕）
-  you> /reset /exit /new /thinking /compact
+  you> /reset /exit /new /thinking /context /compact
+  每轮后一行 ctx used/window
   Ctrl+C abort
         │
         ▼
 Harness（管家）
   开局：建工具、prompt、new Agent、加载或新建 session
   每句：harness.prompt(text) → agent.prompt(text)
-  收尾：写 jsonl；必要时压缩
+  收尾：写 jsonl；更新用量；必要时压缩
         │
         ▼
 Agent / loop（已有，不改职责）
@@ -73,13 +74,14 @@ jsonl 首行 header，之后每行一条，线性 append，不要 `parentId` 树
 {"type":"compaction","summary":"...","keptMessages":[...]}
 ```
 
-压缩阈值对齐 Pi 公式，不抄分支摘要：
+**上下文容量**先有窗口和用量，压缩只是用量碰到阈值之后的动作：
 
-```text
-contextTokens > contextWindow - reserveTokens
-```
+1. **窗口：** `Model.contextWindow`。来自配置（`.env` 的 `OPENAI_CONTEXT_WINDOW`，缺省 `128000`）。填错就按填的用。
+2. **记录：** 优先用接口返回的 usage（这一步给 `AssistantMessage` 补上）；没有则按消息字符/4 估。Harness 记住当前 `usedTokens`。
+3. **显示：** 每轮结束后 REPL 打一行 `ctx <used>/<window>`（技术用户能看懂即可，不是 TUI 底栏）。`/context` 随时打印；`/context <正整数>` 改窗口（本进程生效，写入 harness 的 model）。
+4. **压缩：** `used > window - reserveTokens` 时自动压，或 `/compact`。公式对齐 Pi，不抄分支摘要。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。
 
-默认 `reserveTokens = 16384`。`Model` 若无 `contextWindow` 则用常量 `128000`。token 没有 usage 时按字符/4 估。保留尾部大约 `keepRecentTokens = 20000`。磁盘保留全文；发给模型的是摘要 + 尾部。`/reset` 清内存并 `/new` 等价（旧文件留下）。
+`/reset` 清内存并 `/new` 等价（旧文件留下）。
 
 ---
 
@@ -99,17 +101,21 @@ src/prompt.ts        → src/harness/prompt.ts
 ```
 src/harness/harness.ts
 src/harness/session.ts
-src/harness/compaction.ts
+src/harness/context.ts      窗口、计量、显示用的字符串、是否该压
+src/harness/compaction.ts   切点 + 摘要（被 context / harness 调用）
 test/probe-harness.ts
 test/probe-session.ts
+test/probe-context.ts
 ```
 
 装配：
 
-- `src/cli/main.ts`：`new Harness(...)`，`you>` 走 `harness.prompt`；斜杠 `/new` `/resume` `/thinking` `/compact`
+- `src/cli/main.ts`：`new Harness(...)`，`you>` 走 `harness.prompt`；斜杠 `/new` `/resume` `/thinking` `/context` `/compact`；每轮后打印 `ctx`
+- `src/cli/render.ts`：可在 `turn_end` / `agent_end` 打用量（或 main 问 harness 再打印，二选一，不要两处各打一遍）
 - `src/agent/agent.ts`：`createLoopConfig` 补上 `reasoning`（同一函数加厚，不另写 stream）
-- `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`
-- `src/types.ts`：`StreamOptions.reasoning`；`Model.contextWindow?`
+- `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`；能拿到则写入 assistant `usage`
+- `src/types.ts`：`StreamOptions.reasoning`；`Model.contextWindow`；`AssistantMessage.usage?`
+- `src/env.ts`：读可选 `OPENAI_CONTEXT_WINDOW`
 - `src/index.ts`：导出 `Harness`；工具 create 函数改新路径
 
 ---
@@ -123,14 +129,15 @@ cli/main.ts + render.ts
 harness/harness.ts
    ├── harness/tools/*     开局挂上
    ├── harness/prompt.ts
-   ├── harness/session.ts  读写 jsonl
+   ├── harness/session.ts   读写 jsonl
+   ├── harness/context.ts   窗口 / 用量 / 该不该压
    ├── harness/compaction.ts
    ▼
 Agent / loop
    └── llm/openai-chat.ts
 ```
 
-`env.ts` 仍在 `src/` 根上，只读 key。不进管家。
+`env.ts` 仍在 `src/` 根上，读 key / url / model / 可选窗口。不进管家。
 
 ---
 
@@ -164,11 +171,13 @@ export class Harness {
   newSession(): void;
   resumeRecent(): boolean; // 没有可 resume 的文件则 false
   setThinkingLevel(level: ThinkingLevel): void;
+  setContextWindow(tokens: number): void;
+  contextUsage(): { used: number; window: number };
   compact(customInstructions?: string): Promise<void>;
 }
 ```
 
-**第一刀（框架）：** 构造时 `createRead/Write/Edit/BashTool(cwd)`，`buildSystemPrompt`，`new Agent({ tools, streamFn, apiKey, initialState })`。`prompt` / `reset` / `abort` / `subscribe` 转给 Agent。`newSession` / `resumeRecent` / `setThinkingLevel` / `compact` 可以先空实现或 throw「未接上」，下一步再填，但方法名这一刀就定下来。
+**第一刀（框架）：** 构造时 `createRead/Write/Edit/BashTool(cwd)`，`buildSystemPrompt`，`new Agent({ tools, streamFn, apiKey, initialState })`。`prompt` / `reset` / `abort` / `subscribe` 转给 Agent。`newSession` / `resumeRecent` / `setThinkingLevel` / `setContextWindow` / `contextUsage` / `compact` 可以先空实现或 throw「未接上」，下一步再填，但方法名这一刀就定下来。
 
 **对照：** 不读 `agent-session.ts`。角色相当于 Pi 的管家，API 按上面这份，不要抄 extensions / 队列 / 树导航。
 
@@ -184,25 +193,44 @@ export class Harness {
 - `loadSession(path): { messages, thinkingLevel }`
 - `findMostRecentSession(cwd): string | undefined` 按 mtime
 
-不写树，不写 lane。compaction / thinking 行的读写也走这里，类型放在 `session.ts`。
+不写树，不写 lane。compaction / thinking / 用量相关行的读写也走这里，类型放在 `session.ts`。
 
 **对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath`（约 476–480 行）和 `_persist` 里「先有 assistant 再落盘」（约 1015–1041 行）。只借这两点。不要抄 `parentId`、label、fork。
 
 ---
 
-### 5.3 `src/harness/compaction.ts`
+### 5.3 上下文容量（`context.ts` + `compaction.ts`）
 
-**做什么：** `shouldCompact(contextTokens, contextWindow, settings)`；准备切点；调一次 LLM 做摘要；返回 `{ summary, keptMessages }`。
+压缩的前提是：**知道窗口有多大**，以及 **当前用了多少**。这一步是一件综合功能，不要先写死「只会 `/compact`」。
 
-默认：`enabled: true`，`reserveTokens: 16384`，`keepRecentTokens: 20000`。
+**窗口**
 
-Harness 在每次 `prompt` 结束后：用最后一条 assistant 的 usage（没有就估）判断；为真则 compact，把 `agent.state.messages` 换成「一条摘要 user/assistant 自定义消息 + kept」，session 写 `compaction` 行。`/compact` 同一条路径。
+- `Model.contextWindow: number`（必填于运行时；配置缺省则 `128000`）。
+- `env.ts` 读 `OPENAI_CONTEXT_WINDOW`（正整数）。程序内 `/context <n>` 改 `harness.setContextWindow`，不另做厂商目录。
 
-切点：从最新往回累加估计 token，够 `keepRecentTokens` 停下；不要切在 `toolResult` 上（避免孤儿 tool）。摘要 prompt 第一刀用短系统提示 + 把要压的消息序列化成文本，走现有 `streamFn`，不带 tools。
+**记录**
 
-不做：分支摘要、溢出后自动 retry、文件列表元数据。思考块这一步还没有，摘要按普通文本处理即可。
+- `AssistantMessage` 增加可选 `usage?: { input: number; output: number; totalTokens?: number }`。
+- `openai-chat.ts`：SSE / 结束块里若有 `usage` 就写上。没有则 harness 用字符/4 估整段 messages。
+- 每次 `prompt` 结束后更新 `usedTokens`。session 不必为每一轮单开 usage 行；压缩发生时 `compaction` 行可带 `tokensBefore`。
 
-**对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`（约 158–162、247–250 行）。算法细节第一刀按上面做瘦的，不要整文件移植。
+**显示（CLI，不是网页）**
+
+- 每轮结束后一行：`ctx 12345/128000`。
+- `/context` 无参数：打印 used、window、距离压缩阈值还剩多少。
+- 不要做进度条、主题色、TUI footer。
+
+**压缩（用量够了才跑）**
+
+- `shouldCompact(used, window, settings)`：`used > window - reserveTokens`。
+- 默认 `enabled: true`，`reserveTokens: 16384`，`keepRecentTokens: 20000`。
+- 切点从最新往回累加估计 token；不要切在 `toolResult` 上。
+- 摘要走现有 `streamFn`，不带 tools。结果写回 `agent.state.messages`（摘要 + kept），jsonl 追加 `compaction`。
+- `/compact` 与自动路径相同。
+
+不做：分支摘要、溢出后自动 retry、文件列表元数据、给非技术用户的解释文案。思考块这一步还没有，摘要按普通文本处理。
+
+**对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`（约 158–162、247–250 行）。显示和窗口配置自定，不要抄 Pi footer。
 
 ---
 
@@ -226,7 +254,7 @@ Harness 在每次 `prompt` 结束后：用最后一条 assistant 的 usage（没
 
 启动：`getOpenAIConfig` + `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`，`subscribe(renderEvent)`。
 
-循环：普通行 → `harness.prompt(line)`。`/exit` 照旧。`/reset` → `harness.reset()`（清消息并 newSession）。`/new` → `newSession`。`/resume` → `resumeRecent`，没有则打印一句。`/thinking`、`/compact` 接到 harness。SIGINT：streaming 则 `harness.abort()`。
+循环：普通行 → `harness.prompt(line)`。`/exit` 照旧。`/reset` → `harness.reset()`（清消息并 newSession）。`/new` → `newSession`。`/resume` → `resumeRecent`，没有则打印一句。`/thinking`、`/context`、`/compact` 接到 harness。SIGINT：streaming 则 `harness.abort()`。
 
 ---
 
@@ -240,11 +268,11 @@ Harness 在每次 `prompt` 结束后：用最后一条 assistant 的 usage（没
 | 0 | 搬家 tools / prompt，改 import | 现有 probe 全过；REPL 行为与搬家前相同 | 无（改路径） |
 | 1 | `harness.ts` + `probe-harness.ts`；`main.ts` 改用 Harness | `main` 不再 import createXxxTool；假 stream 能 prompt | 无（自己的 API） |
 | 2 | `session.ts` + `probe-session.ts`；Harness 写入/加载 | 临时 cwd 聊一句磁盘上有 jsonl；进程外读回 messages | `getDefaultSessionDirPath`、`_persist` 延迟建文件 |
-| 3 | `compaction.ts`；Harness 回合后检查 + `/compact` | 造一串超阈值消息能变成摘要+尾部；jsonl 多一行 compaction | `shouldCompact`、默认常量 |
+| 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context` `/compact` | 能读窗口；每轮有 used；超阈值压成摘要+尾部；jsonl 有 compaction | `shouldCompact`、默认常量 |
 | 4 | types + `createLoopConfig` + `openai-chat` + `/thinking` | `/thinking high` 后请求带 `reasoning_effort`；有 thinking 的模型能打出思考（没有则档位仍能存盘） | agent.ts `reasoning:`；openai-completions 局部 |
 | 5 | REPL 按 §7 手测 | §7 清单打勾 | — |
 
-session / compaction 探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
+session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
 
 ---
 
@@ -256,7 +284,7 @@ session / compaction 探针只用临时目录，不要往 `src/` 或用户家目
 2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant。
 3. `/new` 后再说一句，同目录多一个文件。
 4. 退出再启动，`/resume` 能接上最近那份（能问「我刚才说了什么」对得上）。
-5. `/compact` 或撑过阈值后，再问模型时上下文是摘要+最近消息，不是整段原文；jsonl 有 `compaction` 行。
+5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改 `OPENAI_CONTEXT_WINDOW` 或 `/context <n>` 后窗口跟着变。撑过阈值或 `/compact` 后，再问模型是摘要+最近消息；jsonl 有 `compaction` 行。
 6. `/thinking medium`（或 high）不报错；jsonl 有 `thinking_level_change`。模型若支持 `reasoning_effort`，屏幕上能看到思考或至少请求里带了该字段（probe 可断言 body）。
 7. `/reset` 后工具还能用，且开始一份新会话。
 
@@ -292,6 +320,7 @@ session / compaction 探针只用临时目录，不要往 `src/` 或用户家目
 ────────────────────────────────────────────────────
 src/harness/harness.ts            角色 ≈ AgentSession，API 自定
 src/harness/session.ts            目录编码 / jsonl append 的思路
+src/harness/context.ts            窗口 / 计量 / 显示（自定）
 src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*（已有，只搬家）
 src/harness/prompt.ts             原 src/prompt.ts

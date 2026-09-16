@@ -39,7 +39,7 @@
 
 ## v1.2（当前）
 
-要做：搬家 → 管家框架 → session 记忆 → 自动压缩 → 思考等级。基本能用即可。
+要做：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 思考等级。基本能用即可。
 
 **下一步：** 第 0 步，架构书 §6：搬家。
 
@@ -48,7 +48,7 @@
 | 0 | 搬家：`src/tools/*` → `src/harness/tools/`，`prompt.ts` → `src/harness/prompt.ts`，改 import | [ ] |
 | 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [ ] |
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / `/new` / `/resume` | [ ] |
-| 3 | `src/harness/compaction.ts`；回合后自动压 + `/compact` | [ ] |
+| 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context` `/compact` | [ ] |
 | 4 | 思考等级：`createLoopConfig`、`openai-chat`、`/thinking`、session 行 | [ ] |
 | 5 | 架构书 §7 REPL 验收 | [ ] |
 
@@ -56,7 +56,8 @@
 
 | 日期 | 发生了什么 |
 |---|---|
-| 2026-09-16 | 施工顺序定为：搬家 → 框架 → session → 压缩 → 思考。 |
+| 2026-09-16 | 第 3 步从「只压缩」改为上下文容量：窗口设置、用量记录、CLI 显示、再压缩。 |
+| 2026-09-16 | 施工顺序定为：搬家 → 框架 → session → 上下文容量 → 思考。 |
 | 2026-09-16 | 开 v1.2。架构书换成 harness 框架；不按 AgentSession 约束。施工从搬家起。 |
 
 ---
