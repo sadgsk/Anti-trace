@@ -4,188 +4,247 @@
 
 带着写源码的回复格式写在进度文档文首。
 
-对照代码在 `../pi`（`e:\pi-harness\pi`）。路径从 `pi/` 写起。不依赖 `@earendil-works/pi-*`，做法对齐 Pi 的 harness 工具。
+对照代码在 `../pi`（`e:\pi-harness\pi`）。路径从 `pi/` 写起。不依赖 `@earendil-works/pi-*`。
 
-现有 loop / Agent / StreamFn 的细节以仓库源码为准，本文不复述。
+**这一版不拿 Pi 的 `AgentSession` 当规范。** 管家是我们自己的 `Harness`：开局把工具 / 模型 / 历史 / 思考等级弄好，之后站在 `main` 和 `Agent` 中间接送。Pi 只当「磁盘长什么样、思考怎么进 API、压缩何时触发」的参考。现有 Agent / loop / 工具 execute 的细节以仓库源码为准，本文不复述。
 
 ---
 
 ## 0. 怎么用这份文档
 
-1. 按 **§6 实现顺序** 一次只做一个文件（或一组紧耦合文件）。
-2. 写每个文件前，打开 **§5** 里的 Pi 对照，只看标出的函数/类型，不要整包通读。
+1. 按 **§6 实现顺序** 一次只做一步。
+2. 写每个文件前，打开 **§5** 里标出的对照，只看点名的函数/类型，不要整包通读。
 3. 写完用 **§7** 验收，再进入下一步。
-4. 目标是 Pi 那种产品级工具（schema、唯一匹配、截断、路径解析）。某一刀先做瘦实现，只是把问题分级，下一刀再补到同一套接口上，不要另开一套「玩具 API」。
+4. 某一刀先瘦，只是分级，不是另开一套 API。session / 压缩 / 思考都挂在同一个 `Harness` 上。
 
 ---
 
 ## 1. 现在有什么 / 这一版做什么
 
-**已经能用：** `npm start` 进 REPL；多轮对话（内存里的 messages）；`bash` 跑命令；流式打字；工具起止打印；`Ctrl+C` abort；`/reset` `/exit`。OpenAI-compatible Chat Completions。
+**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/reset` `/exit`。装配现在写在 `main.ts` 里。消息不落盘。思考等级类型有，没接到模型。不会压缩。
 
-**这一版（v1.1）只加工具：** `read`、`write`、`edit`，和 Pi harness 那三个对齐。`bash` 留下。session、compaction、TUI、多厂商等下一版再开。
+**这一版（v1.2）做管家框架 + 基本功能：**
+
+1. 把工具和系统提示收进 `src/harness/`，`main` 不再 `createXxxTool` / `new Agent`。
+2. `Harness`：开局装配；`prompt` 交给 Agent；每轮收尾。
+3. 按 cwd 把对话写成 jsonl（一个项目多份聊天）。
+4. 上下文过长时自动压缩；可 `/compact`。
+5. `/thinking` 能改档位，请求里带上，回复里能出现 thinking 块。
+
+不做：TUI、v4 session、SQLite、会话树 `/tree`、fork、多厂商、Windows bash（No.1）另开。v1.1 的 REPL 手测不挡这一版。
 
 ---
 
 ## 2. 这一版要做成什么样
 
-REPL 里模型可以读文件、整文件写、按精确文本改一处或多处，不必再靠 `type`/`echo` 硬来。
+```text
+main（屏幕）
+  you> /reset /exit /new /thinking /compact
+  Ctrl+C abort
+        │
+        ▼
+Harness（管家）
+  开局：建工具、prompt、new Agent、加载或新建 session
+  每句：harness.prompt(text) → agent.prompt(text)
+  收尾：写 jsonl；必要时压缩
+        │
+        ▼
+Agent / loop（已有，不改职责）
+        ├── tools（搬家后在 harness/tools）
+        └── openai-chat（补 thinking 传参和解析）
+```
 
-四个 `AgentTool` 一起交给 `Agent`。系统提示列出工具名和各自干什么。
+`main` 只做人机：读行、斜杠命令、订阅打印、SIGINT。不创建工具，不 `new Agent`。
 
-对齐 Pi：
+磁盘（对齐 Claude Code / Pi 的「按项目分桶」，格式自己定，不抄 v3 树）：
 
-- `AgentTool = 说明书 + execute(toolCallId, params, signal, onUpdate)`
-- 参数用 TypeBox schema
-- 路径相对 `cwd` resolve 成绝对路径（Pi 用 harness `env.absolutePath`；这边用 Node `path` + `cwd`。不拦工作区外，和 Pi 一样）
-- 业务失败（找不到文件、`oldText` 不唯一）**throw**，loop 已有的协议会变成 `isError` toolResult
-- `signal` abort 时 throw
+```text
+~/.cli-agent/sessions/--<cwd 编码>--/<ISO时间戳>_<id>.jsonl
+```
+
+编码：绝对 cwd 去掉开头 `/` `\`，把 `/` `\` `:` 换成 `-`，两边加 `--`。同一目录多个 jsonl = 多次聊天。启动默认**新会话**；`/new` 再开一份；`/resume` 加载该 cwd **mtime 最近**的一份（无选择器）。第一条 assistant 出现才建文件。
+
+jsonl 首行 header，之后每行一条，线性 append，不要 `parentId` 树：
+
+```json
+{"type":"session","version":1,"id":"...","timestamp":"...","cwd":"..."}
+{"type":"message","message":{...AgentMessage}}
+{"type":"thinking_level_change","thinkingLevel":"high"}
+{"type":"compaction","summary":"...","keptMessages":[...]}
+```
+
+压缩阈值对齐 Pi 公式，不抄分支摘要：
+
+```text
+contextTokens > contextWindow - reserveTokens
+```
+
+默认 `reserveTokens = 16384`。`Model` 若无 `contextWindow` 则用常量 `128000`。token 没有 usage 时按字符/4 估。保留尾部大约 `keepRecentTokens = 20000`。磁盘保留全文；发给模型的是摘要 + 尾部。`/reset` 清内存并 `/new` 等价（旧文件留下）。
 
 ---
 
 ## 3. 文件清单
 
+搬家（函数体不动，只改路径和 import）：
+
+```
+src/tools/*          → src/harness/tools/*
+src/prompt.ts        → src/harness/prompt.ts
+```
+
+要改 import 的：`src/cli/main.ts`、`src/index.ts`、`test/probe-read.ts`、`probe-write.ts`、`probe-edit.ts`、`probe-bash.ts`。
+
 新建：
 
 ```
-src/tools/path-utils.ts 路径解析（给三个文件工具共用，不是独立工具）
-src/tools/read.ts
-src/tools/write.ts
-src/tools/edit.ts
-test/probe-read.ts
-test/probe-write.ts
-test/probe-edit.ts
+src/harness/harness.ts
+src/harness/session.ts
+src/harness/compaction.ts
+test/probe-harness.ts
+test/probe-session.ts
 ```
 
-装配（现有文件上加工具，不另起炉灶）：
+装配：
 
-- `src/cli/main.ts`：`tools` 数组加上三个 `createXxxTool(cwd)`
-- `src/prompt.ts`：系统提示写清 read / write / edit / bash
-- `src/index.ts`：re-export 三个 create 函数
+- `src/cli/main.ts`：`new Harness(...)`，`you>` 走 `harness.prompt`；斜杠 `/new` `/resume` `/thinking` `/compact`
+- `src/agent/agent.ts`：`createLoopConfig` 补上 `reasoning`（同一函数加厚，不另写 stream）
+- `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`
+- `src/types.ts`：`StreamOptions.reasoning`；`Model.contextWindow?`
+- `src/index.ts`：导出 `Harness`；工具 create 函数改新路径
 
 ---
 
-## 4. 分层（只标这一版新挂上的）
+## 4. 分层
 
 ```
-main.ts  装配 tools: [bash, read, write, edit]
+cli/main.ts + render.ts
    │
    ▼
-Agent / loop   （已有，源码里读）
-   │
-   └─ 每个 toolCall → AgentTool.execute
-         read.ts / write.ts / edit.ts / bash.ts
+harness/harness.ts
+   ├── harness/tools/*     开局挂上
+   ├── harness/prompt.ts
+   ├── harness/session.ts  读写 jsonl
+   ├── harness/compaction.ts
+   ▼
+Agent / loop
+   └── llm/openai-chat.ts
 ```
 
-事件协议不变。`render.ts` 已经按 `toolName` 打印。
+`env.ts` 仍在 `src/` 根上，只读 key。不进管家。
 
 ---
 
 ## 5. 模块说明书
 
-写文件前只看本节标出的 Pi 段。产品级细节以 harness 那份为准；coding-agent 里带 TUI 的工具当「以后看」，第一刀不要跟。
+### 5.0 搬家
+
+`src/tools/` 四个工具 + `path-utils.ts` 移到 `src/harness/tools/`。`prompt.ts` 移到 `src/harness/prompt.ts`。`createXxxTool` / `buildSystemPrompt` 签名不变。探针和 `index.ts` 改 import。做完：`npm start` 和现有 probe 与搬家前一样。
 
 ---
 
-### 5.0 `src/tools/path-utils.ts`
+### 5.1 `src/harness/harness.ts`
 
-**做什么：** `resolveCwdPath(cwd, inputPath, signal?): string`（或 async，若你要跟 Pi 一样可中断）。
-
-Pi 的 `env.absolutePath` 负责：规范化、变成绝对路径。不限制必须在工作区里。这边没有 harness env，用 `node:path`：
-
-1. `path.resolve(cwd, input)`。相对路径锚在 `cwd`，绝对路径原样规范化。
-2. 返回绝对路径。
-
-**对照：** `pi/packages/agent/src/harness/tools/path-utils.ts` 的 `normalizeToolPath`、`resolveToolPath`；`env/nodejs.ts` 的 `resolvePath`。第一刀不剥 `@`（这边还没有 `@` mention），不展开 `~` / `file://`，也不抄 Unicode 空格 / NFD 变体。后一刀仍加在同一个 `resolveCwdPath` 上。不额外加工作区铁墙。
-
----
-
-### 5.1 `src/tools/read.ts`
-
-**做什么：** `createReadTool(cwd): AgentTool`。
-
-Schema 跟 Pi：
+**做什么：** `Harness` 类。开局装配；之后 `main` 只跟它说话。
 
 ```ts
-Type.Object({
-  path: Type.String({ description: "Path to the file to read (relative or absolute)" }),
-  offset: Type.Optional(Type.Number({ description: "Line number to start reading from (1-indexed)" })),
-  limit: Type.Optional(Type.Number({ description: "Maximum number of lines to read" })),
-})
+export interface HarnessOptions {
+  cwd: string;
+  apiKey: string;
+  model: Model;
+  streamFn: StreamFn;
+}
+
+export class Harness {
+  constructor(options: HarnessOptions);
+  readonly agent: Agent; // SIGINT / render 需要 isStreaming、abort、subscribe
+  prompt(text: string): Promise<void>;
+  reset(): void;
+  abort(): void;
+  subscribe(listener: ...): () => void;
+  newSession(): void;
+  resumeRecent(): boolean; // 没有可 resume 的文件则 false
+  setThinkingLevel(level: ThinkingLevel): void;
+  compact(customInstructions?: string): Promise<void>;
+}
 ```
 
-**第一刀（文本）：**
+**第一刀（框架）：** 构造时 `createRead/Write/Edit/BashTool(cwd)`，`buildSystemPrompt`，`new Agent({ tools, streamFn, apiKey, initialState })`。`prompt` / `reset` / `abort` / `subscribe` 转给 Agent。`newSession` / `resumeRecent` / `setThinkingLevel` / `compact` 可以先空实现或 throw「未接上」，下一步再填，但方法名这一刀就定下来。
 
-1. `resolveCwdPath` → `fs.readFile` utf8。
-2. 按行 `offset`/`limit`。
-3. 行号格式化后返回。超大则截断并注明用 offset 继续。上限对齐 Pi 的 `DEFAULT_MAX_LINES` / `DEFAULT_MAX_BYTES`（`harness/utils/truncate.ts`），读那个常量即可。
-4. 文件不存在 throw。
-
-**后一刀（同一工具上补）：** 图片走 `ImageContent`（jpg/png/gif/webp）。对照 `read.ts` 里 `detectSupportedImageMimeType` 那段。第一刀验收不挡文本。
-
-**对照：** `pi/packages/agent/src/harness/tools/read.ts` 的 `readSchema`、`createReadTool`、`execute`。不要抄 harness `env.readBinaryFile` 的接口形状——换成 `node:fs`，行为对齐。不要抄 coding-agent 那份带 TUI 的 read。
+**对照：** 不读 `agent-session.ts`。角色相当于 Pi 的管家，API 按上面这份，不要抄 extensions / 队列 / 树导航。
 
 ---
 
-### 5.2 `src/tools/write.ts`
+### 5.2 `src/harness/session.ts`
 
-**做什么：** `createWriteTool(cwd): AgentTool`。
+**做什么：** cwd 目录编码、建文件、append、读回 `AgentMessage[]` + 最后一次思考档位。
 
-Schema 跟 Pi：
+- `sessionDirForCwd(cwd): string` → `~/.cli-agent/sessions/--encoded--/`
+- `createSessionFile(...)` 只准备路径，第一条 assistant 才 `writeFile` header + 已攒的行
+- `appendEntry(entry)`
+- `loadSession(path): { messages, thinkingLevel }`
+- `findMostRecentSession(cwd): string | undefined` 按 mtime
 
-```ts
-Type.Object({
-  path: Type.String({ description: "Path to the file to write (relative or absolute)" }),
-  content: Type.String({ description: "Content to write to the file" }),
-})
-```
+不写树，不写 lane。compaction / thinking 行的读写也走这里，类型放在 `session.ts`。
 
-`execute`：resolve → 创建父目录 → 覆盖写入 → 返回写了多少字节。`signal` abort 则 throw。
-
-**对照：** `pi/packages/agent/src/harness/tools/write.ts` 全文很短。`withFileMutationQueue` 是防并发写同一文件；第一刀可以先直接写，后一刀再加队列，函数还是 `createWriteTool`。
+**对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath`（约 476–480 行）和 `_persist` 里「先有 assistant 再落盘」（约 1015–1041 行）。只借这两点。不要抄 `parentId`、label、fork。
 
 ---
 
-### 5.3 `src/tools/edit.ts`
+### 5.3 `src/harness/compaction.ts`
 
-**做什么：** `createEditTool(cwd): AgentTool`。
+**做什么：** `shouldCompact(contextTokens, contextWindow, settings)`；准备切点；调一次 LLM 做摘要；返回 `{ summary, keptMessages }`。
 
-目标 schema 跟 Pi：`path` + `edits: { oldText, newText }[]`。每段 `oldText` 在**原文件**上必须恰好出现一次，且互不重叠。
+默认：`enabled: true`，`reserveTokens: 16384`，`keepRecentTokens: 20000`。
 
-**第一刀：** 先实现「数组里可以有多项，每项对原文件做唯一替换」，写回。匹配 0 次或 ≥2 次 throw。
+Harness 在每次 `prompt` 结束后：用最后一条 assistant 的 usage（没有就估）判断；为真则 compact，把 `agent.state.messages` 换成「一条摘要 user/assistant 自定义消息 + kept」，session 写 `compaction` 行。`/compact` 同一条路径。
 
-**后一刀：** Pi 的 `prepareEditArguments`（legacy `oldText`/`newText` 顶栏、`edits` 被加成字符串时 JSON.parse）、换行归一、`details` 里的 diff/patch。接口仍是 `createEditTool`。
+切点：从最新往回累加估计 token，够 `keepRecentTokens` 停下；不要切在 `toolResult` 上（避免孤儿 tool）。摘要 prompt 第一刀用短系统提示 + 把要压的消息序列化成文本，走现有 `streamFn`，不带 tools。
 
-**对照：** `pi/packages/agent/src/harness/tools/edit.ts` 的 schema、`validateEditInput`、execute 主路径。diff 在 `edit-diff.ts`，后一刀再读。
+不做：分支摘要、溢出后自动 retry、文件列表元数据。思考块这一步还没有，摘要按普通文本处理即可。
+
+**对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`（约 158–162、247–250 行）。算法细节第一刀按上面做瘦的，不要整文件移植。
 
 ---
 
-### 5.4 装配
+### 5.4 思考等级
 
-`main.ts`：四个工具推进 `initialState.tools`，`buildSystemPrompt({ cwd, toolNames })` 带上四个名字。
+已有 `ThinkingLevel`、`agent.state.thinkingLevel`、loop 的 `thinking_*` 事件。这一版接通。
 
-`prompt.ts`：说明 read 读文件、edit 改一处、write 整文件、bash 跑命令。继续用 options 对象。
+1. `StreamOptions` 增加 `reasoning?: ThinkingLevel`。
+2. `Agent.createLoopConfig`：`reasoning: thinkingLevel === "off" ? undefined : thinkingLevel`。
+3. `openai-chat.ts`：`reasoning` 存在则 body 加 `reasoning_effort`（字符串就是档位名）。SSE delta 里 `reasoning_content` 或 `reasoning` → `thinking_*` 事件，写入 `ThinkingContent`。
+4. `Harness.setThinkingLevel` 改 `agent.state.thinkingLevel`，session 追加 `thinking_level_change`。
+5. `main`：`/thinking` 无参数打印当前档；`/thinking off|minimal|low|medium|high` 调用 set。
 
-`index.ts`：导出三个 `createXxxTool`。
+不做：`xhigh`/`max`、thinkingFormat 全家桶、token budget。
+
+**对照：** `pi/packages/agent/src/agent.ts` `createLoopConfig` 里 `reasoning:` 那一行（约 450 行）；`pi/packages/ai/src/api/openai-completions.ts` 里设 `reasoning_effort` 和读 `reasoning_content` 的局部。不要通读 openai-completions 全文。
+
+---
+
+### 5.5 `main.ts` 装配
+
+启动：`getOpenAIConfig` + `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`，`subscribe(renderEvent)`。
+
+循环：普通行 → `harness.prompt(line)`。`/exit` 照旧。`/reset` → `harness.reset()`（清消息并 newSession）。`/new` → `newSession`。`/resume` → `resumeRecent`，没有则打印一句。`/thinking`、`/compact` 接到 harness。SIGINT：streaming 则 `harness.abort()`。
 
 ---
 
 ## 6. 推荐实现顺序
 
-一次一步。每步能 typecheck。简化只出现在「这一刀做多厚」，不改名字、不改 schema 方向。
+一次一步。每步能 `tsc --noEmit`。搬家不改工具函数体。
 
 
 | 步 | 做哪些文件 | 做完时你应该能证明什么 | 主要对照 |
 |---|---|---|---|
-| 0 | `src/tools/path-utils.ts` | 相对路径能 resolve；绝对路径 / `..` 不因越界 throw | `path-utils.ts` `normalizeToolPath` / `resolveToolPath` |
-| 1 | `read.ts` + `test/probe-read.ts` | 读小文件带行号；缺文件 throw；cwd 外绝对路径能读；超大截断 | `read.ts` 文本 execute + `truncate.ts` 上限 |
-| 2 | `write.ts` + `test/probe-write.ts` | 临时目录写入再读回 | `write.ts` |
-| 3 | `edit.ts` + `test/probe-edit.ts` | 一处成功；0 次 / 2 次 throw；两项不重叠能都换上 | `edit.ts` schema + validate |
-| 4 | `main.ts` `prompt.ts` `index.ts` | REPL 里 `read` `package.json` 能看到 `[read]` | 现有 main 装配 |
+| 0 | 搬家 tools / prompt，改 import | 现有 probe 全过；REPL 行为与搬家前相同 | 无（改路径） |
+| 1 | `harness.ts` + `probe-harness.ts`；`main.ts` 改用 Harness | `main` 不再 import createXxxTool；假 stream 能 prompt | 无（自己的 API） |
+| 2 | `session.ts` + `probe-session.ts`；Harness 写入/加载 | 临时 cwd 聊一句磁盘上有 jsonl；进程外读回 messages | `getDefaultSessionDirPath`、`_persist` 延迟建文件 |
+| 3 | `compaction.ts`；Harness 回合后检查 + `/compact` | 造一串超阈值消息能变成摘要+尾部；jsonl 多一行 compaction | `shouldCompact`、默认常量 |
+| 4 | types + `createLoopConfig` + `openai-chat` + `/thinking` | `/thinking high` 后请求带 `reasoning_effort`；有 thinking 的模型能打出思考（没有则档位仍能存盘） | agent.ts `reasoning:`；openai-completions 局部 |
+| 5 | REPL 按 §7 手测 | §7 清单打勾 | — |
 
-write/edit 探针只用临时目录，不要改 `src/` 里的真源码。
-
-图片 read、mutation queue、edit diff：同一文件上往后补，不必新开工具名。
+session / compaction 探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
 
 ---
 
@@ -193,48 +252,50 @@ write/edit 探针只用临时目录，不要改 `src/` 里的真源码。
 
 设好 `OPENAI_API_KEY`。`npm start`。
 
-1. 「读 `package.json` 的 name」→ `[read]`，回答里有 `cli-agent`。
-2. 「write 一个 `tmp-v1.1-note.txt`，内容 hello」→ `[write]`，磁盘上有文件。
-3. 「把 hello 改成 world」→ `[edit]`，文件变成 world。
-4. bash 再读这个文件，和 edit 一致。
-5. 让它读工作区外面一份存在的文件 → `[read]` 能读到，不报越界。
-6. `/reset` 之后工具还能用。
+1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
+2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant。
+3. `/new` 后再说一句，同目录多一个文件。
+4. 退出再启动，`/resume` 能接上最近那份（能问「我刚才说了什么」对得上）。
+5. `/compact` 或撑过阈值后，再问模型时上下文是摘要+最近消息，不是整段原文；jsonl 有 `compaction` 行。
+6. `/thinking medium`（或 high）不报错；jsonl 有 `thinking_level_change`。模型若支持 `reasoning_effort`，屏幕上能看到思考或至少请求里带了该字段（probe 可断言 body）。
+7. `/reset` 后工具还能用，且开始一份新会话。
 
-测完删掉临时文件。
+测完删掉临时 jsonl 和手测写的文件。
 
 ---
 
 ## 8. 先别通读的 Pi 文件
 
-通读这些会把这一版带去 session/TUI，等对应功能再看：
-
 | 文件 | 现在先不看的原因 |
 |---|---|
-| `agent/src/harness/session/**` | 持久化，下一版 |
-| `agent/src/harness/compaction/**` | 压缩，下一版 |
-| `coding-agent/src/core/tools/*.ts` | 产品 TUI 工具 |
-| `coding-agent/src/core/agent-session.ts` | Agent + session + extensions |
-| `ai/src/api/openai-completions.ts` 全文 | 工具层用不到 |
+| `coding-agent/src/core/agent-session.ts` | 产品管家，不是这一版规范 |
+| `agent/src/harness/agent-harness.ts` | 未完成的 v4 运行时 |
+| `agent/src/harness/session/**`（v4） | 不抄 v4 header / lane |
+| `session-backends/sqlite-node/**` | 不用 SQLite |
+| `coding-agent/src/modes/interactive/**` | TUI |
+| `ai/src/api/openai-completions.ts` 全文 | 只看 reasoning 局部 |
 
 这一版精读：
 
-1. `pi/packages/agent/src/harness/tools/read.ts`
-2. 同上 `write.ts`
-3. 同上 `edit.ts`
-4. `path-utils.ts`
-5. `harness/utils/truncate.ts`（上限常量）
-6. 仓库里现有的 `src/tools/bash.ts`（你们的 `AgentTool` 形状）
+1. `session-manager.ts`：`getDefaultSessionDirPath`、`_persist` 延迟建文件
+2. `agent.ts`：`createLoopConfig` 的 `reasoning`
+3. `openai-completions.ts`：`reasoning_effort`、`reasoning_content` 两处
+4. `harness/compaction/compaction.ts`：默认常量和 `shouldCompact`
+5. 仓库里现有的 `src/agent/agent.ts`、`src/llm/openai-chat.ts`、`src/cli/main.ts`
 
 ---
 
 ## 9. 和 Pi 的对应
 
 ```
-这一版                         Pi
-──────────────────────────────────────────────
-src/tools/path-utils.ts        harness/tools/path-utils.ts
-src/tools/read.ts              harness/tools/read.ts
-src/tools/write.ts             harness/tools/write.ts
-src/tools/edit.ts              harness/tools/edit.ts
-main / prompt / index          现有装配上加工具
+这一版                            Pi（参考，不当规范）
+────────────────────────────────────────────────────
+src/harness/harness.ts            角色 ≈ AgentSession，API 自定
+src/harness/session.ts            目录编码 / jsonl append 的思路
+src/harness/compaction.ts         shouldCompact + 默认阈值
+src/harness/tools/*               agent/harness/tools/*（已有，只搬家）
+src/harness/prompt.ts             原 src/prompt.ts
+createLoopConfig.reasoning        agent.ts 同名补丁
+openai-chat reasoning             openai-completions 局部
+cli/main.ts                       interactive-mode 的输入循环（readline）
 ```

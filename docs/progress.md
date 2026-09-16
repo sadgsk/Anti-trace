@@ -5,12 +5,12 @@
 | 项 | 值 |
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
-| 当前版本 | **v1.1** |
-| 阶段 | **第 4 步完成：下一步 §7 REPL 验收** |
+| 当前版本 | **v1.2** |
+| 阶段 | **开写：第 0 步搬家（tools / prompt → harness）** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-15 |
+| 最后更新 | 2026-09-16 |
 
 **协作约定（带着写源码时必须按这个格式，换对话不用用户再重复）：**
 
@@ -20,7 +20,7 @@
    2. **对应代码**：对话里放出这一个函数的完整定稿（若它现在就需要专属类型，一并给出且以后不再改）。append 进文件，禁止整文件覆盖。不要给占位再回头改同一段。
    3. **参考原本哪部分**（Pi 文件路径 + 函数名 + 行号）
    4. **相对 Pi 改了什么**（哪一刀先瘦、哪一刀补到产品级，写清楚）
-3. 已写好的函数后面不再改同一段。瘦实现和产品级补强是后一刀加在旁边或一次性换 execute 内部，不要反复改 schema 名字。
+3. 已写好的函数后面不再改同一段。瘦实现和产品级补强是后一刀加在旁边或一次性换 execute 内部，不要反复改 schema 名字。搬家只改路径和 import，不改工具函数体。
 4. 用户问概念时直接回答，不必套四段，也不改文件。
 5. 遇到 bug 但暂时不修：记到 [future-issues.md](./future-issues.md)，编号接着 `No.N`，写平台 / 日期 / 项目版本 / 现象，不要写修法。这份文档要进 git。
 
@@ -33,15 +33,37 @@
 3. 从当前版本的「下一步」接着做。带着写时用文首四段格式。
 4. 做完一步后：勾选当前版本清单，改文首「阶段 / 最后更新」，在**当前版本**的更新记录里追加一条。
 
-做法对齐 Pi harness 工具。某一刀先瘦，只是分级，不是另做一套 API。现有 Agent / loop 怎么跑，读源码。
+这一版做自己的 `Harness`，不拿 Pi `AgentSession` 当规范。Agent / loop 怎么跑，读源码。Pi 只对照架构书 §5 点名的那几处。
 
 ---
 
-## v1.1（当前）
+## v1.2（当前）
 
-要做：按 Pi harness 加上 `read` / `write` / `edit`，装配进 REPL。`bash` 留下。
+要做：搬家 → 管家框架 → session 记忆 → 自动压缩 → 思考等级。基本能用即可。
 
-**下一步：** 第 5 步，架构书 §7 REPL 验收。
+**下一步：** 第 0 步，架构书 §6：搬家。
+
+| 步 | 内容 | 状态 |
+|---|---|---|
+| 0 | 搬家：`src/tools/*` → `src/harness/tools/`，`prompt.ts` → `src/harness/prompt.ts`，改 import | [ ] |
+| 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [ ] |
+| 2 | `src/harness/session.ts` + probe；Harness 写入 / `/new` / `/resume` | [ ] |
+| 3 | `src/harness/compaction.ts`；回合后自动压 + `/compact` | [ ] |
+| 4 | 思考等级：`createLoopConfig`、`openai-chat`、`/thinking`、session 行 | [ ] |
+| 5 | 架构书 §7 REPL 验收 | [ ] |
+
+### v1.2 更新记录
+
+| 日期 | 发生了什么 |
+|---|---|
+| 2026-09-16 | 施工顺序定为：搬家 → 框架 → session → 压缩 → 思考。 |
+| 2026-09-16 | 开 v1.2。架构书换成 harness 框架；不按 AgentSession 约束。施工从搬家起。 |
+
+---
+
+## v1.1（已闭合代码；§7 手测未做）
+
+做了什么：按 Pi harness 加上 `read` / `write` / `edit`，装配进 REPL。`bash` 留下。探针：`probe-read` / `probe-write` / `probe-edit`。§7 REPL 手测未勾，不挡 v1.2。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
@@ -56,6 +78,7 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-16 | 闭合代码阶段，开 v1.2。§7 手测仍未做。 |
 | 2026-09-15 | 装配：`main.ts` 挂上 read/bash/edit/write；`prompt.ts` 写清四个工具用途；`index.ts` 导出三个 create 函数。 |
 | 2026-09-15 | 写入 `createEditTool` + `probe-edit.ts`：一处成功、0 次 / 2 次 throw、两项不重叠、abort。prepareArguments / 换行归一 / diff 后一刀。 |
 | 2026-09-14 | 拿掉 `resolveCwdPath` 的工作区铁墙：对齐 Pi，相对 `cwd` resolve 即可，不因在 cwd 外 throw。 |
