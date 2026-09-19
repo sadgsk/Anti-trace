@@ -21,13 +21,13 @@
 
 ## 1. 现在有什么 / 这一版做什么
 
-**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/reset` `/exit`。工具和系统提示在 `src/harness/`，装配在 `Harness` 里，`main` 只做人机（读行、斜杠命令、订阅打印、SIGINT）。消息不落盘。思考等级类型有，没接到模型。没有上下文窗口配置，也不计量、不显示、不压缩。`newSession` / `resumeRecent` / 思考 / 上下文 / 压缩方法已定名，调用会 throw「未接上」。
+**已经能用：** REPL；内存多轮对话；`read` / `write` / `edit` / `bash`；流式；abort；`/new` `/resume` `/exit`。工具和系统提示在 `src/harness/`，装配在 `Harness` 里，`main` 只做人机（读行、斜杠命令、订阅打印、SIGINT）。思考等级类型有，没接到模型。没有上下文窗口配置，也不计量、不显示、不压缩。思考 / 上下文 / 压缩方法已定名，调用会 throw「未接上」。
 
 **这一版（v1.2）做管家框架 + 基本功能：**
 
 1. 把工具和系统提示收进 `src/harness/`，`main` 不再 `createXxxTool` / `new Agent`。
 2. `Harness`：开局装配；`prompt` 交给 Agent；每轮收尾。
-3. 按 cwd 把对话写成 jsonl（一个项目多份聊天）。
+3. 按 cwd 把对话写成 jsonl（一个项目多份聊天）。会话名从第一条用户消息截出来，不另跑模型起名；`/resume` 用「名字 + 上次打开时间」分辨。
 4. **上下文容量**（综合一步）：窗口设置、用量记录、REPL 显示、过长则压缩。
 5. `/thinking` 能改档位，请求里带上，回复里能出现 thinking 块。
 
@@ -39,7 +39,7 @@
 
 ```text
 main（屏幕）
-  you> /reset /exit /new /thinking /context /compact
+  you> /exit /new /resume /thinking /context /compact
   每轮后一行 ctx used/window
   Ctrl+C abort
         │
@@ -63,16 +63,35 @@ Agent / loop（已有，不改职责）
 ~/.cli-agent/sessions/--<cwd 编码>--/<ISO时间戳>_<id>.jsonl
 ```
 
-编码：绝对 cwd 去掉开头 `/` `\`，把 `/` `\` `:` 换成 `-`，两边加 `--`。同一目录多个 jsonl = 多次聊天。启动默认**新会话**；`/new` 再开一份；`/resume` 加载该 cwd **mtime 最近**的一份（无选择器）。第一条 assistant 出现才建文件。
+编码：绝对 cwd 去掉开头 `/` `\`，把 `/` `\` `:` 换成 `-`，两边加 `--`。同一目录多个 jsonl = 多次聊天。启动默认**新会话**；`/new` 再开一份。第一条 assistant 出现才建文件。
+
+**会话名（这一步一起做，不另开模型）：**
+
+- 取第一条 user 消息的纯文本（空白收成单空格），截到最多 **10 个字符**；不够 10 个就全留下。空则 `untitled`。
+- 不跑 LLM、没有 `/name`、不抄 Claude Code 的 Haiku 起名，也不抄 Pi 的 `session_info` 行。
+- 名字写进 header 的 `name`：内存里 `createSessionFile` 时还没有用户话；**第一次 flush**（首条 assistant 落盘）时已经有 user 消息，那时填上，之后不改。
+- 上次打开时间用该 jsonl 的 **mtime**。`/resume` 加载时 `touch` 一下，即使没再说话也算打开过。
+
+**`/resume`（REPL 打印几行，不是 TUI 选择器）：**
+
+- 列出当前 cwd 桶内已落盘的会话，按上次打开时间新到旧，每行：`序号. 名字  YYYY-MM-DD HH:mm`。
+- `/resume`：打印列表，再读一行序号，调用 `resumeAt`。空行取消，不加载。
+- 只有整行恰好是 `/resume` 才进这条命令；`/resume 2` 这类不算。
+- 没有可 resume 的文件则打印一句，不 throw。不自动打开最近一份。
 
 jsonl 首行 header，之后每行一条，线性 append，不要 `parentId` 树：
 
 ```json
-{"type":"session","version":1,"id":"...","timestamp":"...","cwd":"..."}
+{"type":"session","version":1,"id":"...","timestamp":"...","cwd":"...","name":"帮我改一下"}
 {"type":"message","message":{...AgentMessage}}
-{"type":"thinking_level_change","thinkingLevel":"high"}
 {"type":"compaction","summary":"...","keptMessages":[...]}
 ```
+
+**思考等级（跟 harness，不跟 session）：**
+
+- 开局在 `agent.state.thinkingLevel`，默认 `off`。`/thinking` 只改这一份。
+- `/new` `/resume` 不改档位。resume 只灌 messages（和名字），不从 jsonl 读 thinking。
+- jsonl 不写 thinking 行。不抄 Pi 的 `thinking_level_change`。
 
 **上下文容量**先有窗口和用量，压缩只是用量碰到阈值之后的动作：
 
@@ -81,7 +100,7 @@ jsonl 首行 header，之后每行一条，线性 append，不要 `parentId` 树
 3. **显示：** 每轮结束后 REPL 打一行 `ctx <used>/<window>`（技术用户能看懂即可，不是 TUI 底栏）。`/context` 随时打印；`/context <正整数>` 改窗口（本进程生效，写入 harness 的 model）。
 4. **压缩：** `used > window - reserveTokens` 时自动压，或 `/compact`。公式对齐 Pi，不抄分支摘要。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。
 
-`/reset` 清内存并 `/new` 等价（旧文件留下）。
+`/new` 清内存并换新 jsonl 句柄（旧文件留下）。`Agent.reset()` 只清消息，不换文件。
 
 ---
 
@@ -159,17 +178,18 @@ export interface HarnessOptions {
   apiKey: string;
   model: Model;
   streamFn: StreamFn;
+  sessionsRoot?: string; // 默认 ~/.cli-agent/sessions；探针用 tmp
 }
 
 export class Harness {
   constructor(options: HarnessOptions);
   readonly agent: Agent; // SIGINT / render 需要 isStreaming、abort、subscribe
   prompt(text: string): Promise<void>;
-  reset(): void;
   abort(): void;
   subscribe(listener: ...): () => void;
   newSession(): void;
-  resumeRecent(): boolean; // 没有可 resume 的文件则 false
+  listSessions(): { filePath: string; name: string; lastOpenedAt: number }[]; // 按 lastOpenedAt 新到旧
+  resumeAt(index: number): boolean; // 1-based，对应 listSessions 的序号；越界或没有则 false
   setThinkingLevel(level: ThinkingLevel): void;
   setContextWindow(tokens: number): void;
   contextUsage(): { used: number; window: number };
@@ -177,7 +197,7 @@ export class Harness {
 }
 ```
 
-**第一刀（框架）：** 构造时 `createRead/Write/Edit/BashTool(cwd)`，`buildSystemPrompt`，`new Agent({ tools, streamFn, apiKey, initialState })`。`prompt` / `reset` / `abort` / `subscribe` 转给 Agent。`newSession` / `resumeRecent` / `setThinkingLevel` / `setContextWindow` / `contextUsage` / `compact` 可以先空实现或 throw「未接上」，下一步再填，但方法名这一刀就定下来。
+**第一刀（框架）：** 构造时 `createRead/Write/Edit/BashTool(cwd)`，`buildSystemPrompt`，`new Agent({ tools, streamFn, apiKey, initialState })`。`prompt` / `abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换文件。`setThinkingLevel` / `setContextWindow` / `contextUsage` / `compact` 可以先空实现或 throw「未接上」，下一步再填，但方法名这一刀就定下来。
 
 **对照：** 不读 `agent-session.ts`。角色相当于 Pi 的管家，API 按上面这份，不要抄 extensions / 队列 / 树导航。
 
@@ -185,17 +205,20 @@ export class Harness {
 
 ### 5.2 `src/harness/session.ts`
 
-**做什么：** cwd 目录编码、建文件、append、读回 `AgentMessage[]` + 最后一次思考档位。
+**做什么：** cwd 目录编码、建文件、append、读回 `AgentMessage[]`；会话名和列表也在这里。思考档位不进 jsonl。
 
-- `sessionDirForCwd(cwd): string` → `~/.cli-agent/sessions/--encoded--/`
-- `createSessionFile(...)` 只准备路径，第一条 assistant 才 `writeFile` header + 已攒的行
+- `sessionDirForCwd(cwd, sessionsRoot?): string` → `~/.cli-agent/sessions/--encoded--/`（`sessionsRoot` 默认家目录那份，探针指到 tmp）
+- `sessionTitleFromUserText(text): string` → 前 10 个字符，见 §2
+- `createSessionFile(...)` 只准备路径和 header（此时 `name` 可空），第一条 assistant 才 `writeFile` header + 已攒的行；flush 前用第一条 user 文本填 `header.name`
 - `appendEntry(entry)`
-- `loadSession(path): { messages, thinkingLevel }`
-- `findMostRecentSession(cwd): string | undefined` 按 mtime
+- `loadSession(path): { messages, name }`
+- `listSessions(cwd, sessionsRoot?): { filePath, name, lastOpenedAt }[]` 按 mtime 新到旧；`name` 优先 header，缺则从第一条 user 消息现算
+- `findMostRecentSession(cwd): string | undefined` 即列表第 1 条的 path
+- `touchSession(path)`：更新 mtime（resume 时调用）
 
-不写树，不写 lane。compaction / thinking / 用量相关行的读写也走这里，类型放在 `session.ts`。
+不写树，不写 lane，不写 `session_info`，不写 thinking 档位。compaction / 用量相关行的读写也走这里，类型放在 `session.ts`。`HarnessOptions` 加可选 `sessionsRoot?: string`，默认 `~/.cli-agent/sessions`。
 
-**对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath`（约 476–480 行）和 `_persist` 里「先有 assistant 再落盘」（约 1015–1041 行）。只借这两点。不要抄 `parentId`、label、fork。
+**对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath`（约 476–480 行）和 `_persist` 里「先有 assistant 再落盘」（约 1015–1041 行）。只借这两点。不要抄 `parentId`、label、fork、`/name`、`session_info`。标题规则自定，不是 Pi 的 `firstMessage` 原文，也不是 Claude Code 的模型起名。
 
 ---
 
@@ -236,15 +259,15 @@ export class Harness {
 
 ### 5.4 思考等级
 
-已有 `ThinkingLevel`、`agent.state.thinkingLevel`、loop 的 `thinking_*` 事件。这一版接通。
+已有 `ThinkingLevel`、`agent.state.thinkingLevel`、loop 的 `thinking_*` 事件。这一版接通。档位是 **Harness 进程状态**，不是 session 字段。
 
 1. `StreamOptions` 增加 `reasoning?: ThinkingLevel`。
 2. `Agent.createLoopConfig`：`reasoning: thinkingLevel === "off" ? undefined : thinkingLevel`。
 3. `openai-chat.ts`：`reasoning` 存在则 body 加 `reasoning_effort`（字符串就是档位名）。SSE delta 里 `reasoning_content` 或 `reasoning` → `thinking_*` 事件，写入 `ThinkingContent`。
-4. `Harness.setThinkingLevel` 改 `agent.state.thinkingLevel`，session 追加 `thinking_level_change`。
+4. `Harness.setThinkingLevel` 只改 `agent.state.thinkingLevel`。不写 jsonl。`/new` `/resume` 都不碰这个字段。
 5. `main`：`/thinking` 无参数打印当前档；`/thinking off|minimal|low|medium|high` 调用 set。
 
-不做：`xhigh`/`max`、thinkingFormat 全家桶、token budget。
+不做：`xhigh`/`max`、thinkingFormat 全家桶、token budget、按会话恢复档位。
 
 **对照：** `pi/packages/agent/src/agent.ts` `createLoopConfig` 里 `reasoning:` 那一行（约 450 行）；`pi/packages/ai/src/api/openai-completions.ts` 里设 `reasoning_effort` 和读 `reasoning_content` 的局部。不要通读 openai-completions 全文。
 
@@ -254,7 +277,7 @@ export class Harness {
 
 启动：`getOpenAIConfig` + `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`，`subscribe(renderEvent)`。
 
-循环：普通行 → `harness.prompt(line)`。`/exit` 照旧。`/reset` → `harness.reset()`（清消息并 newSession）。`/new` → `newSession`。`/resume` → `resumeRecent`，没有则打印一句。`/thinking`、`/context`、`/compact` 接到 harness。SIGINT：streaming 则 `harness.abort()`。
+循环：普通行 → `harness.prompt(line)`。`/exit` 照旧。`/new` → `newSession`（清消息并换句柄）。整行恰好 `/resume`：打印 `listSessions`（名字 + 本地 `YYYY-MM-DD HH:mm`），再读序号 `resumeAt`。没有则打印一句。不自动加载最近一份。`/thinking`、`/context`、`/compact` 接到 harness。SIGINT：streaming 则 `harness.abort()`。
 
 ---
 
@@ -267,9 +290,9 @@ export class Harness {
 |---|---|---|---|
 | 0 | 搬家 tools / prompt，改 import | 现有 probe 全过；REPL 行为与搬家前相同 | 无（改路径） |
 | 1 | `harness.ts` + `probe-harness.ts`；`main.ts` 改用 Harness | `main` 不再 import createXxxTool；假 stream 能 prompt | 无（自己的 API） |
-| 2 | `session.ts` + `probe-session.ts`；Harness 写入/加载 | 临时 cwd 聊一句磁盘上有 jsonl；进程外读回 messages | `getDefaultSessionDirPath`、`_persist` 延迟建文件 |
+| 2 | `session.ts` + `probe-session.ts`；Harness 写入/加载；会话名；`/new` `/resume` | 临时目录聊一句有 jsonl；header 有 `name`（前 10 字）；`listSessions` 按 mtime 给出名字+时间；进程外读回 messages | `getDefaultSessionDirPath`、`_persist` 延迟建文件 |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context` `/compact` | 能读窗口；每轮有 used；超阈值压成摘要+尾部；jsonl 有 compaction | `shouldCompact`、默认常量 |
-| 4 | types + `createLoopConfig` + `openai-chat` + `/thinking` | `/thinking high` 后请求带 `reasoning_effort`；有 thinking 的模型能打出思考（没有则档位仍能存盘） | agent.ts `reasoning:`；openai-completions 局部 |
+| 4 | types + `createLoopConfig` + `openai-chat` + `/thinking` | `/thinking high` 后请求带 `reasoning_effort`；resume 后仍用本进程档位；有 thinking 的模型能打出思考 | agent.ts `reasoning:`；openai-completions 局部 |
 | 5 | REPL 按 §7 手测 | §7 清单打勾 | — |
 
 session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
@@ -281,12 +304,12 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 设好 `OPENAI_API_KEY`。`npm start`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
-2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant。
-3. `/new` 后再说一句，同目录多一个文件。
-4. 退出再启动，`/resume` 能接上最近那份（能问「我刚才说了什么」对得上）。
+2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
+3. `/new` 后再说一句，同目录多一个文件，两份 `name` 能分开。
+4. 退出再启动，整行输入 `/resume` 打印「名字 + 上次打开时间」列表，再输入序号接上那一份（能问「我刚才说了什么」对得上）。
 5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改 `OPENAI_CONTEXT_WINDOW` 或 `/context <n>` 后窗口跟着变。撑过阈值或 `/compact` 后，再问模型是摘要+最近消息；jsonl 有 `compaction` 行。
-6. `/thinking medium`（或 high）不报错；jsonl 有 `thinking_level_change`。模型若支持 `reasoning_effort`，屏幕上能看到思考或至少请求里带了该字段（probe 可断言 body）。
-7. `/reset` 后工具还能用，且开始一份新会话。
+6. `/thinking medium`（或 high）不报错；`/resume` 之后档位仍是本进程这份，jsonl 里没有 thinking 行。模型若支持 `reasoning_effort`，屏幕上能看到思考或至少请求里带了该字段（probe 可断言 body）。
+7. `/new` 后工具还能用，且开始一份新会话。
 
 测完删掉临时 jsonl 和手测写的文件。
 
@@ -319,7 +342,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 这一版                            Pi（参考，不当规范）
 ────────────────────────────────────────────────────
 src/harness/harness.ts            角色 ≈ AgentSession，API 自定
-src/harness/session.ts            目录编码 / jsonl append 的思路
+src/harness/session.ts            目录编码 / jsonl append 的思路；标题自定（10 字），不抄 session_info
 src/harness/context.ts            窗口 / 计量 / 显示（自定）
 src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*（已有，只搬家）

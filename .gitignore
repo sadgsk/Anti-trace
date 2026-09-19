@@ -3,5 +3,11 @@ dist/
 .env
 test/
 
+# 工具产生的本地状态（会话记录等），不进仓库
+.workbuddy/
+
+# 设计稿 / 本地素材，不进仓库
+designcraft/
+
 
 

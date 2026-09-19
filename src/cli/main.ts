@@ -43,7 +43,13 @@ process.on("SIGINT", () => {
 
 console.log(`model=${modelId}`);
 console.log(`cwd=${cwd}`);
-console.log("commands: /reset  /exit");
+console.log("commands: /new  /resume  /exit");
+
+function formatLastOpenedAt(ms: number): string {
+	const date = new Date(ms);
+	const pad = (n: number) => String(n).padStart(2, "0");
+	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 while (!exiting) {
 	let line: string;
@@ -62,12 +68,37 @@ while (!exiting) {
 		shutdown();
 		break;
 	}
-	if (line === "/reset") {
+	if (line === "/new") {
 		try {
-			harness.reset();
-			console.log("reset");
+			harness.newSession();
+			console.log("new");
 		} catch (error) {
 			console.error(error instanceof Error ? error.message : error);
+		}
+		continue;
+	}
+	if (line === "/resume") {
+		const items = harness.listSessions();
+		if (items.length === 0) {
+			console.log("没有可恢复的会话");
+			continue;
+		}
+		for (let i = 0; i < items.length; i++) {
+			const item = items[i];
+			console.log(`${i + 1}. ${item.name}  ${formatLastOpenedAt(item.lastOpenedAt)}`);
+		}
+		let choice: string;
+		try {
+			choice = (await rl.question("resume> ")).trim();
+		} catch {
+			break;
+		}
+		if (choice.length === 0) {
+			continue;
+		}
+		const index = Number.parseInt(choice, 10);
+		if (!harness.resumeAt(index)) {
+			console.log("没有这一条");
 		}
 		continue;
 	}

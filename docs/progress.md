@@ -6,11 +6,11 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **第 1 步已完成；下一步第 2 步：session 记忆** |
+| 阶段 | **第 2 步已完成；下一步第 3 步：上下文容量** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-16 |
+| 最后更新 | 2026-09-19 |
 
 **协作约定（带着写源码时必须按这个格式，换对话不用用户再重复）：**
 
@@ -41,21 +41,27 @@
 
 要做：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 思考等级。基本能用即可。
 
-**下一步：** 第 2 步，架构书 §6：`session.ts` + probe；Harness 写入 / `/new` / `/resume`。
+**下一步：** 第 3 步，架构书 §6：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context` `/compact`。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
 | 0 | 搬家：`src/tools/*` → `src/harness/tools/`，`prompt.ts` → `src/harness/prompt.ts`，改 import | [x] |
 | 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [x] |
-| 2 | `src/harness/session.ts` + probe；Harness 写入 / `/new` / `/resume` | [ ] |
+| 2 | `src/harness/session.ts` + probe；Harness 写入 / 会话名（前 10 字）/ `/new` / `/resume`（名字+上次打开时间） | [x] |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context` `/compact` | [ ] |
-| 4 | 思考等级：`createLoopConfig`、`openai-chat`、`/thinking`、session 行 | [ ] |
+| 4 | 思考等级：`createLoopConfig`、`openai-chat`、`/thinking`（跟 harness，不入盘） | [ ] |
 | 5 | 架构书 §7 REPL 验收 | [ ] |
 
 ### v1.2 更新记录
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-19 | 第 2 步完成：`test/probe-session.ts` 覆盖延迟建文件、会话名、列表/mtime、磁盘读回、compaction 切摘要；`/new` `/resume` 已接到 REPL。 |
+| 2026-09-19 | `/resume` 改为先列名单再选序号（`resumeAt`），去掉自动打开最近一份的 `resumeRecent`。 |
+| 2026-09-19 | 去掉 `Harness.reset` 和 REPL `/reset`。开新会话只用 `newSession` / `/new`；`Agent.reset` 仍只清内存。 |
+| 2026-09-17 | 会话名改为第一条 user 文本前 10 个字符（不够则全留），不再切第一句。 |
+| 2026-09-17 | thinking 档位改为只跟 Harness：开局默认 `off`，`/thinking` 改本进程这份；`/new` `/resume` `/reset` 不改档，jsonl 不写 `thinking_level_change`。 |
+| 2026-09-17 | 架构书补上会话名：第一条 user 的第一句再截 10 字，不跑 LLM；`/resume` 用名字 + 上次打开时间列表分辨（`/resume` 最近一份，`/resume n` 按序号）。 |
 | 2026-09-16 | 第 1 步完成：Harness 框架；`main.ts` 不再 createXxxTool / new Agent；`probe-harness` 假 stream 能 prompt。 |
 | 2026-09-16 | 第 0 步搬家完成：`src/harness/tools/*`、`src/harness/prompt.ts`；import 已改。`tsc --noEmit` 与 probe-read/write/edit/bash/agent/loop 通过。 |
 | 2026-09-16 | 第 3 步从「只压缩」改为上下文容量：窗口设置、用量记录、CLI 显示、再压缩。 |
