@@ -17,6 +17,7 @@ import type {
 	AgentTool,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
+	ImageContent,
 	Message,
 	Model,
 	PrepareNextTurnContext,
@@ -174,8 +175,8 @@ export class Agent {
 		this._state.errorMessage = undefined;
 	}
 
-	async prompt(text: string): Promise<void> {
-		const messages = this.normalizePromptInput(text);
+	async prompt(text: string, images?: ImageContent[]): Promise<void> {
+		const messages = this.normalizePromptInput(text, images);
 		await this.runWithLifecycle(async (signal) => {
 			await runAgentLoop(
 				messages,
@@ -188,11 +189,21 @@ export class Agent {
 		});
 	}
 
-	private normalizePromptInput(text: string): AgentMessage[] {
+	private normalizePromptInput(text: string, images?: ImageContent[]): AgentMessage[] {
+		const content: Array<{ type: "text"; text: string } | ImageContent> = [];
+		if (text.length > 0) {
+			content.push({ type: "text", text });
+		}
+		if (images && images.length > 0) {
+			content.push(...images);
+		}
+		if (content.length === 0) {
+			content.push({ type: "text", text: "" });
+		}
 		return [
 			{
 				role: "user",
-				content: [{ type: "text", text }],
+				content,
 				timestamp: Date.now(),
 			},
 		];

@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { type Static, Type } from "typebox";
-import type { AgentTool } from "../../types.ts";
+import type { AgentTool, ImageContent, TextContent } from "../../types.ts";
+import { imageContentFromBytes, shrinkImageBytes } from "./image.ts";
 import { resolveCwdPath } from "./path-utils.ts";
 
 const DEFAULT_MAX_LINES = 2000;
@@ -26,10 +27,14 @@ export function createReadTool(cwd: string): AgentTool<typeof readSchema, ReadTo
 	return {
 		name: "read",
 		label: "read",
-		description: `Read the contents of a text file. Output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
+		description: `Read a text file or an image (jpg, png, gif, webp). Images are returned as attachments. Text output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 		parameters: readSchema,
 		async execute(_toolCallId, { path: inputPath, offset, limit }, signal) {
 			const absolutePath = await resolveCwdPath(cwd, inputPath, signal);
+			const imageResult = await readImageResult(absolutePath, inputPath, signal);
+			if (imageResult) {
+				return imageResult;
+			}
 
 			let text: string;
 			try {
@@ -120,6 +125,41 @@ export function createReadTool(cwd: string): AgentTool<typeof readSchema, ReadTo
 					truncated: truncated || undefined,
 				},
 			};
+		},
+	};
+}
+
+async function readImageResult(
+	absolutePath: string,
+	inputPath: string,
+	signal?: AbortSignal,
+): Promise<{ content: Array<TextContent | ImageContent>; details: ReadToolDetails } | undefined> {
+	let bytes: Buffer;
+	try {
+		bytes = await readFile(absolutePath, { signal });
+	} catch (error) {
+		if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+			throw new Error("Aborted");
+		}
+		if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+			throw new Error(`File not found: ${inputPath}`);
+		}
+		throw error;
+	}
+	const image = imageContentFromBytes(shrinkImageBytes(new Uint8Array(bytes)));
+	if (!image) {
+		return undefined;
+	}
+	return {
+		content: [
+			{ type: "text", text: `Read image file [${image.mimeType}]` },
+			image,
+		],
+		details: {
+			path: absolutePath,
+			totalLines: 0,
+			startLine: 0,
+			endLine: 0,
 		},
 	};
 }

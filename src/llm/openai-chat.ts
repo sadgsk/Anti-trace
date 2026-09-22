@@ -6,6 +6,7 @@ import type {
 	StopReason,
 	StreamFn,
 	StreamOptions,
+	ImageContent,
 	TextContent,
 	Tool,
 	ToolCall,
@@ -18,9 +19,28 @@ function textFrom(content: Array<{ type: string; text?: string }>): string {
 		.join("");
 }
 
+type OpenAIContentPart =
+	| { type: "text"; text: string }
+	| { type: "image_url"; image_url: { url: string } };
+
+/**
+ * 按原顺序逐项转换，不做「先提文字、再提图片」的提取。
+ * 提取会打乱同一次工具结果内部的图文交错（[文A, 图A, 文B, 图B] 会变成「文A文B」+「图A图B」）。
+ */
+function toContentParts(content: (TextContent | ImageContent)[]): OpenAIContentPart[] {
+	return content.map((block): OpenAIContentPart =>
+		block.type === "text"
+			? { type: "text", text: block.text }
+			: {
+					type: "image_url",
+					image_url: { url: `data:${block.mimeType};base64,${block.data}` },
+				},
+	);
+}
+
 type OpenAIChatMessage =
 	| { role: "system"; content: string }
-	| { role: "user"; content: string }
+	| { role: "user"; content: string | OpenAIContentPart[] }
 	| {
 			role: "assistant";
 			content: string | null;
@@ -35,15 +55,52 @@ type OpenAIChatMessage =
 function toOpenAIMessages(context: Context): OpenAIChatMessage[] {
 	const messages: OpenAIChatMessage[] = [];
 
+	// 一批连续的 toolResult 属于同一次 assistant 调用的应答。图片塞不进 tool 消息（OpenAI 的
+	// tool content 只能是字符串），只能拆成 user 消息，但绝不能插在 assistant(tool_calls) 和
+	// 它的 tool 应答之间——那样会得到 "insufficient tool messages following tool_calls message" 400。
+	// 所以含图结果的正文先缓存在这里，等这批 tool 消息全部输出后再作为附件一次性发出。
+	// 缓存里留整份 content 而不是只留图片：附件才能按原顺序还原图文交错，也才带得上
+	// toolName / toolCallId，让模型知道哪份内容属于哪个工具调用。
+	let pendingToolResults: Array<{
+		toolCallId: string;
+		toolName: string;
+		content: (TextContent | ImageContent)[];
+	}> = [];
+	const flushToolResults = () => {
+		if (pendingToolResults.length === 0) return;
+		const content: OpenAIContentPart[] = [
+			{ type: "text", text: "Tool results with images (full content below):" },
+		];
+		for (const result of pendingToolResults) {
+			content.push({
+				type: "text",
+				text: `[tool result: ${result.toolName} / ${result.toolCallId}]`,
+			});
+			content.push(...toContentParts(result.content));
+			content.push({ type: "text", text: "[/tool result]" });
+		}
+		messages.push({ role: "user", content });
+		pendingToolResults = [];
+	};
+
 	if (context.systemPrompt) {
 		messages.push({ role: "system", content: context.systemPrompt });
 	}
 
 	for (const msg of context.messages) {
+		// 一批 toolResult 结束（遇到别的角色，或遍历到底）时，才把攒下的附件发出去。
+		if (msg.role !== "toolResult") flushToolResults();
+
 		if (msg.role === "user") {
-			const text = textFrom(msg.content);
-			if (text.length === 0) continue;
-			messages.push({ role: "user", content: text });
+			// 纯文字消息维持原行为：拼成一条字符串消息。
+			if (!msg.content.some((block) => block.type === "image")) {
+				const text = textFrom(msg.content);
+				if (text.length === 0) continue;
+				messages.push({ role: "user", content: text });
+				continue;
+			}
+			// 有图片时按原顺序转换，保留图文交错。
+			messages.push({ role: "user", content: toContentParts(msg.content) });
 			continue;
 		}
 
@@ -70,12 +127,32 @@ function toOpenAIMessages(context: Context): OpenAIChatMessage[] {
 			continue;
 		}
 
+		// 纯文字工具结果维持原行为（含空结果的 "(no tool output)" 占位）。
+		if (!msg.content.some((block) => block.type === "image")) {
+			messages.push({
+				role: "tool",
+				tool_call_id: msg.toolCallId,
+				content: textFrom(msg.content) || "(no tool output)",
+			});
+			continue;
+		}
+
+		// 含图片：tool 消息只放指引，正文（含图片）搬到这批之后的附件消息里，不重复发送整份文字。
 		messages.push({
 			role: "tool",
 			tool_call_id: msg.toolCallId,
-			content: textFrom(msg.content) || "(no tool output)",
+			content:
+				"The full result of this tool call is in the attachment block after this batch of tool replies " +
+				`(tool_call_id: ${msg.toolCallId}).`,
+		});
+		pendingToolResults.push({
+			toolCallId: msg.toolCallId,
+			toolName: msg.toolName,
+			content: msg.content,
 		});
 	}
+
+	flushToolResults();
 
 	return messages;
 }

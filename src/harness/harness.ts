@@ -1,5 +1,5 @@
 import { Agent } from "../agent/agent.ts";
-import type { AgentEvent, Model, StreamFn, ThinkingLevel } from "../types.ts";
+import type { AgentEvent, ImageContent, Model, StreamFn, ThinkingLevel } from "../types.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import {
 	appendEntry,
@@ -60,8 +60,8 @@ export class Harness {
 		});
 	}
 
-	prompt(text: string): Promise<void> {
-		return this.agent.prompt(text);
+	prompt(text: string, images?: ImageContent[]): Promise<void> {
+		return this.agent.prompt(text, images);
 	}
 
 	abort(): void {

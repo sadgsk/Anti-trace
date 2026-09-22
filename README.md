@@ -1,6 +1,6 @@
 # cli-agent
 
-平行于 `../pi` 的学习用 CLI agent。能对话，能 `read` / `write` / `edit` / `bash`。当前 **v1.2**：`Harness` 框架已搭（装配在管家里，`main` 不再 `createXxxTool` / `new Agent`）。下一步 jsonl 记忆，然后上下文容量、思考等级。
+参考 `../pi` 逐步构建的个人 CLI agent，目标是可开源、可持续演进的产品级 agent。按小点实现和 review，框架可以先搭好，功能按自己的需求设计。当前 **v1.2** 已接通 `Harness`、jsonl 会话、四个工具及图片输入；上下文容量已有基础函数，完整接线和思考等级待完成。当前设计见 [架构书](docs/architecture.md)，开发历史和待办见 [进度文档](docs/progress.md)。
 
 换对话先看 **[docs/progress.md](docs/progress.md)**，再按 **[docs/architecture.md](docs/architecture.md)** 对照。
 

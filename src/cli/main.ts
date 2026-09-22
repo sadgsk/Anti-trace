@@ -3,7 +3,8 @@ import { stdin, stdout } from "node:process";
 import { getOpenAIConfig } from "../env.ts";
 import { Harness } from "../harness/harness.ts";
 import { streamOpenAIChat } from "../llm/openai-chat.ts";
-import type { Model } from "../types.ts";
+import type { ImageContent, Model } from "../types.ts";
+import { isImagePasteKey, readClipboardImage, type PasteKey } from "./utils/image.ts";
 import { renderEvent } from "./render.ts";
 
 const cwd = process.cwd();
@@ -25,7 +26,29 @@ const harness = new Harness({
 harness.subscribe(renderEvent);
 
 const rl = createInterface({ input: stdin, output: stdout });
+const pendingImages: ImageContent[] = [];
 let exiting = false;
+const pasteKeyLabel = process.platform === "win32" ? "Alt+V" : "Ctrl+V";
+
+function attachClipboardImage(): void {
+	const image = readClipboardImage();
+	if (!image) {
+		console.log("\n剪贴板里没有图片");
+		return;
+	}
+	pendingImages.push(image);
+	if (rl.line.endsWith("v")) {
+		rl.write(null, { name: "backspace" });
+	}
+	console.log(`\n[Image #${pendingImages.length}]`);
+}
+
+stdin.on("keypress", (_str: string, key: PasteKey) => {
+	if (exiting || !isImagePasteKey(key)) {
+		return;
+	}
+	attachClipboardImage();
+});
 
 function shutdown(): void {
 	exiting = true;
@@ -43,7 +66,7 @@ process.on("SIGINT", () => {
 
 console.log(`model=${modelId}`);
 console.log(`cwd=${cwd}`);
-console.log("commands: /new  /resume  /exit");
+console.log(`commands: /new  /resume  /exit  paste image: ${pasteKeyLabel}`);
 
 function formatLastOpenedAt(ms: number): string {
 	const date = new Date(ms);
@@ -61,7 +84,7 @@ while (!exiting) {
 	if (exiting) {
 		break;
 	}
-	if (line.length === 0) {
+	if (line.length === 0 && pendingImages.length === 0) {
 		continue;
 	}
 	if (line === "/exit") {
@@ -102,8 +125,9 @@ while (!exiting) {
 		}
 		continue;
 	}
+	const images = pendingImages.splice(0, pendingImages.length);
 	try {
-		await harness.prompt(line);
+		await harness.prompt(line, images.length > 0 ? images : undefined);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);
 	}

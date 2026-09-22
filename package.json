@@ -15,6 +15,8 @@
 		"probe:agent": "tsx test/probe-agent.ts",
 		"probe:harness": "tsx test/probe-harness.ts",
 		"probe:session": "tsx test/probe-session.ts",
+		"probe:image-order": "tsx test/probe-tool-image-order.ts",
+		"test:images": "tsx test/tool-result-images.test.ts",
 		"typecheck": "tsc --noEmit",
 		"build": "tsc"
 	},
