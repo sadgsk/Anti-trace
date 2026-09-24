@@ -6,7 +6,7 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **第 0–2 步完成；第 3 步窗口/估算用量/显示已接通，压缩待做；下一步继续第 3 步上下文容量** |
+| 阶段 | **第 0–2 步完成；第 3 步窗口/用量/显示已接通（用量优先用接口 usage），压缩待做；下一步继续第 3 步上下文容量** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
@@ -56,8 +56,8 @@
 第 3 步的内部状态：
 
 - 已接通：`Model.contextWindow` 与环境配置（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，缺省 `128000`，非正整数回退）、`estimateMessagesTokens` 整段估算、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 与每轮后的 `ctx used/window`。`usedTokens` 在 `prompt` 结束后重算，`newSession` 归零，`resumeAt` 按加载的 messages 重算。
+- 已接通：接口 `usage`。`AssistantMessage.usage?`；`openai-chat.ts` 请求带 `stream_options: { include_usage: true }`，在 `choice` 判断之前解析流末尾 usage 块并写入 assistant；`harness.ts` 的 `prompt` 优先取最后一条 assistant 的 `input + output`，取不到回退 `estimateMessagesTokens`。假 stream 已覆盖两条支路（`probe-harness` 用例 7）；deepseek 已实测返回 usage 且端到端解析正确。
 - 已有实现：`CompactionSettings`、`DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`。
-- 待接通：接口返回的 usage 解析与用量记录（当前 `used` 只用估算，未读 `AssistantMessage.usage`）。
 - 待实现与接通：切点、摘要、压缩写回与持久化、自动触发及一次重试。
 - 待验收：上下文探针和第 5 步端到端验收。已有基础函数不代表整个上下文容量功能完成。
 
@@ -68,6 +68,7 @@
 | 日期 | 发生了什么 |
 |---|---|
 | 2026-09-24 | 第 3 步第一小点：窗口 + 估算用量 + 显示。`Model.contextWindow` 设为必填；`env.ts` 读 `OPENAI_CONTEXT_WINDOW`（缺省 `128000`，非正整数回退缺省）并导出 `DEFAULT_CONTEXT_WINDOW`；`context.ts` 增加 `estimateMessagesTokens`；`Harness` 接通 `setContextWindow` / `contextUsage`，`usedTokens` 在 `prompt` 后重算、`newSession` 归零、`resumeAt` 按加载的 messages 重算；`main.ts` 启动打印 `ctx window`，新增 `/context`（无参数打 `ctx used/window`，带正整数改窗口）和每轮后的 `ctx used/window`。`agent.ts` 的 `DEFAULT_MODEL` 补占位 `contextWindow: 0`，注释说明 Harness 永远传入真模型。验证：`npm run typecheck`、`npm run test:images`（13 例）、`npm run probe:session` 均通过；`probe-harness` 原「未接上的方法 throw」用例改为「仍未接上」（只剩 `setThinkingLevel` / `compact`），并新增用例 6 覆盖窗口/用量/`newSession`/`resumeAt`。压缩、接口 usage 解析、上下文探针和 §7 端到端验收未做。 |
+| 2026-09-24 | 第 3 步第二小点：接口 usage。`AssistantMessage` 加可选 `usage?: { input; output; totalTokens? }`；`openai-chat.ts` 请求体加 `stream_options: { include_usage: true }`，并在 `choice` 判断之前解析流末尾的 usage 块，字段只改名 `prompt_tokens`→`input`、`completion_tokens`→`output`，`input` 不扣缓存；`harness.ts` 的 `prompt` 优先取最后一条 assistant 的 `input + output`，取不到回退 `estimateMessagesTokens`（新增私有 `usageFromLastAssistant`）。验证：`npm run typecheck`、`probe:session`、`test:images` 通过；`fake-stream.ts` 增加可选 `usage`，`probe-harness` 新增用例 7 覆盖「有 usage 取 input+output」「无 usage 回退估算」「上一条有 usage 但本条没有时不沿用旧值」。真实网关已实测（`test/probe-usage.ts`，deepseek）：HTTP 200，接受 `stream_options`，返回 usage，字段为 `prompt_tokens`/`completion_tokens`/`total_tokens`；端到端 `streamOpenAIChat` 写出 `{"input":32,"output":19,"totalTokens":51}`。注意 deepseek 把 usage 与 `finish_reason` 放在同一块（`choices` 非空），标准 OpenAI 是空 `choices` 的独立块，先读 usage 的顺序兼容两种。附带发现：deepseek-flash 返回 `reasoning_content`（第 4 步可用）。 |
 | 2026-09-24 | 第 3 步第一小点的两个决定。（1）`ctx` 显示统一成 `used/window` 一种形状：启动打 `ctx 0/<window>`，`/context`、`/context <n>` 之后和每轮结束都打 `ctx <used>/<window>`，不再出现单独的 `ctx window=`。（2）`Model.contextWindow` 保持必填。理由是按 BYOK 考虑：宽松留给配置层（`env.ts` 的 `parseContextWindow` 缺省 / 回退），严格留在运行时类型，下游（`contextUsage`，以后的压缩）不必写 `??`；用户在用 BYOK 配模型时基本都会填窗口。「配置层可省、运行时必有」两件事现在就已同时成立。 |
 | 2026-09-22 | 图文关联修复通过本地验收：`npm run test:images` 的 13 个用例、`npm run typecheck` 均通过；另以 mock fetch 独立验证 48 种组合，覆盖同名工具、不同图片 MIME、真实 user/assistant 边界、冻结输入和重复请求。含图工具结果保留来源及内容顺序，整批 tool 回复后再发送附件；普通 user 同样保序。独立组合检查为一次性内存脚本，未写入仓库；未调用真实模型，未修复中断配对问题。 |
 | 2026-09-22 | 文档整理：明确目标为可开源的产品级个人 agent；Pi 为参考，功能按用户设计；框架可先搭好并预留入口，每次实现几个相关函数供 review。架构书保存当前状态与后续目标，本页保留历史与当前待办。同步记录容量基础函数已存在但未接通；不改变既定 v1.2 目标，不代表图片修复或其他代码功能已完成。 |

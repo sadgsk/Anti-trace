@@ -64,7 +64,25 @@ export class Harness {
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
 		await this.agent.prompt(text, images);
-		this.usedTokens = estimateMessagesTokens(this.agent.state.messages);
+		// Provider-reported usage is authoritative; fall back to the character estimate when the
+		// gateway does not send it (or when the stream was aborted before the usage chunk).
+		this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
+	}
+
+	/** input + output of the final assistant turn: what the next request would resend. */
+	private usageFromLastAssistant(): number | undefined {
+		const messages = this.agent.state.messages;
+		for (let index = messages.length - 1; index >= 0; index -= 1) {
+			const message = messages[index];
+			if (message?.role !== "assistant") {
+				continue;
+			}
+			if (!message.usage) {
+				return undefined;
+			}
+			return message.usage.input + message.usage.output;
+		}
+		return undefined;
 	}
 
 	abort(): void {

@@ -194,6 +194,8 @@ async function fetchChatCompletions(
 		model: model.id,
 		messages,
 		stream: true,
+		// Ask for the final usage chunk; streaming omits it by default.
+		stream_options: { include_usage: true },
 	};
 	if (tools) {
 		body.tools = tools;
@@ -285,6 +287,11 @@ async function readSSE(
 
 	const handleChunk = (raw: string) => {
 		const chunk = JSON.parse(raw) as {
+			usage?: {
+				prompt_tokens?: number | null;
+				completion_tokens?: number | null;
+				total_tokens?: number | null;
+			} | null;
 			choices?: Array<{
 				finish_reason?: string | null;
 				delta?: {
@@ -297,6 +304,16 @@ async function readSSE(
 				};
 			}>;
 		};
+
+		// Usage arrives on its own trailing chunk with an empty choices array, so it has to be
+		// read before the choice check below — that early return would otherwise drop it.
+		if (chunk.usage) {
+			output.usage = {
+				input: chunk.usage.prompt_tokens ?? 0,
+				output: chunk.usage.completion_tokens ?? 0,
+				totalTokens: chunk.usage.total_tokens ?? undefined,
+			};
+		}
 
 		const choice = chunk.choices?.[0];
 		if (!choice) return;

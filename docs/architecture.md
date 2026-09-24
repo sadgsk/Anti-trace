@@ -43,7 +43,7 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；`/new` `/resume` `/exit` 已接通 |
 | 图片输入 | `read` 支持 jpeg/png/gif/webp；CLI 支持剪贴板图片，Windows `Alt+V`、macOS/Linux `Ctrl+V`，位图优先、文件路径其次；发送前尝试把最长边缩到 2000，只处理临时副本；文字和图片进入同一条内部消息，当前不按模型能力拦截图片 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
-| 上下文容量 | 窗口、估算用量和显示已接通：`Model.contextWindow`（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，缺省 `128000`）、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 和每轮后的 `ctx used/window`；`estimateTokens` / `estimateMessagesTokens` 承担估算。摘要和自动压缩尚未接通 |
+| 上下文容量 | 窗口、用量和显示已接通：`Model.contextWindow`（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，缺省 `128000`）、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 和每轮后的 `ctx used/window`；用量优先取接口返回的 `usage`，取不到时用 `estimateTokens` / `estimateMessagesTokens` 估算。摘要和自动压缩尚未接通 |
 | 思考等级 | 已有类型、状态和事件；尚未接到模型请求与 CLI。`setThinkingLevel` / `compact` 仍是 throw「未接上」的预留入口 |
 
 **这一版（v1.2）的既定目标：**
@@ -155,7 +155,7 @@ jsonl 首行 header，之后每行一条，当前使用线性 append，不包含
 - `src/cli/main.ts`：`/context` 和每轮后的 `ctx` 显示已接通；剩 `/thinking`。本版不接 `/compact`
 - `src/cli/render.ts`：可在 `turn_end` / `agent_end` 打用量（或 main 问 harness 再打印，二选一，不要两处各打一遍）
 - `src/agent/agent.ts`：`createLoopConfig` 补上 `reasoning`（同一函数加厚，不另写 stream）
-- `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`；能拿到则写入 assistant `usage`
+- `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`
 - `src/types.ts`：`StreamOptions.reasoning`；摘要用的可选 `maxTokens`；`Model.contextWindow`；`AssistantMessage.usage?`
 - `src/env.ts`：读可选 `OPENAI_CONTEXT_WINDOW`
 
@@ -258,7 +258,8 @@ export class Harness {
 **记录**
 
 - `AssistantMessage` 增加可选 `usage?: { input: number; output: number; totalTokens?: number }`。
-- `openai-chat.ts`：SSE / 结束块里若有 `usage` 就写上。没有则 harness 通过现有 `estimateTokens` 估算整段 messages，文字按字符/4，图片按固定开销估。
+- `openai-chat.ts`：请求带 `stream_options: { include_usage: true }`；流末尾的 usage 块 `choices` 为空，解析要在 `choice` 判断之前读走并写进 assistant。字段映射只改名：`prompt_tokens` → `input`、`completion_tokens` → `output`；`input` 不减缓存命中（缓存 token 同样占窗口，本版也不拆 cache）。网关不发 usage 时不写这个字段。
+- 用量取最后一条 assistant 的 `input + output`（下次请求要重发的量）。取不到则 harness 通过现有 `estimateTokens` 估算整段 messages，文字按字符/4，图片按固定开销估。
 - 每次 `prompt` 结束后更新 `usedTokens`。session 不必为每一轮单开 usage 行；压缩发生时 `compaction` 行可带 `tokensBefore`。
 
 **显示（CLI，不是网页）**

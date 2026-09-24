@@ -40,6 +40,8 @@ export interface AssistantMessage {
 	stopReason: StopReason;
 	errorMessage?: string;
 	timestamp: number; // Unix timestamp in milliseconds
+	/** Token usage reported by the provider. Absent when the gateway does not send it. */
+	usage?: { input: number; output: number; totalTokens?: number };
 }
 
 export interface ToolResultMessage<TDetails = any>{
