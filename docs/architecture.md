@@ -15,8 +15,8 @@
 - 当前优先补齐已经规划的核心能力，做出能完整运行的 agent。产品级是持续建设的目标；每个版本交付其中一部分，不以练手为由刻意降低实现质量。
 - 对已确定的模块职责、数据流和近期功能，能一次搭好的框架就先搭好。接口、类型和函数入口可以先保留，后续沿同一套设计填充，减少因临时方案造成的反复重构。
 - 预留入口标明未实现，不把占位当成可用功能。框架先行不等于提前实现全部功能，也不为尚未确定的需求铺设大量兼容分支和兜底。
-- 一次推进一个用户能理解和 review 的小点，通常是几个相关函数及必要接线。版本目标可以跨多个小点完成；例如上下文容量是一个版本目标，不要求一次写完窗口、计量、显示和压缩。
-- 写入前说明作用、调用关系和关键代码，完成后交代验证结果，留给用户 review 后再继续下一小点。允许修改已有函数、填充占位和调整必要的类型；减少返工是设计目标，不是“代码写过就不能再改”的禁令。
+- 一次最多改三个函数（含必要类型和接线），超出的留到下一批。每批改之前先说明要动哪几个函数、各自做什么，写完等用户 review 再继续。版本目标可以跨多批完成；例如上下文容量是一个版本目标，不要求一次写完窗口、计量、显示和压缩。
+- 一个功能全部实现完再开始测试，验证方式和结果在功能完成后一起交代。实现过程中发现设计冲突、边界或影响面问题，当场说明，不留到 review 之后。允许修改已有函数、填充占位和调整必要的类型；减少返工是设计目标，不是「代码写过就不能再改」的禁令。
 
 ### 0.2 Pi 是参考，产品设计由本项目决定
 
@@ -43,8 +43,8 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；`/new` `/resume` `/exit` 已接通 |
 | 图片输入 | `read` 支持 jpeg/png/gif/webp；CLI 支持剪贴板图片，Windows `Alt+V`、macOS/Linux `Ctrl+V`，位图优先、文件路径其次；发送前尝试把最长边缩到 2000，只处理临时副本；文字和图片进入同一条内部消息，当前不按模型能力拦截图片 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
-| 上下文容量 | `estimateTokens`、`CompactionSettings`、默认阈值和 `shouldCompact` 已有实现；窗口配置、usage、显示、摘要和自动压缩尚未接通 |
-| 思考等级 | 已有类型、状态和事件；尚未接到模型请求与 CLI。`setThinkingLevel` / `setContextWindow` / `contextUsage` / `compact` 仍是 throw「未接上」的预留入口 |
+| 上下文容量 | 窗口、估算用量和显示已接通：`Model.contextWindow`（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，缺省 `128000`）、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 和每轮后的 `ctx used/window`；`estimateTokens` / `estimateMessagesTokens` 承担估算。摘要和自动压缩尚未接通 |
+| 思考等级 | 已有类型、状态和事件；尚未接到模型请求与 CLI。`setThinkingLevel` / `compact` 仍是 throw「未接上」的预留入口 |
 
 **这一版（v1.2）的既定目标：**
 
@@ -140,10 +140,10 @@ jsonl 首行 header，之后每行一条，当前使用线性 append，不包含
 
 | 文件 | 职责与状态 |
 |---|---|
-| `src/harness/harness.ts` | 装配、会话管理已接通；上下文和思考入口待填充 |
+| `src/harness/harness.ts` | 装配、会话管理已接通；窗口 / 估算用量 / 显示已接通，压缩和思考入口待填充 |
 | `src/harness/session.ts` | cwd 分桶、jsonl 持久化、命名、列表和恢复；已有 compaction 行读写结构 |
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
-| `src/harness/context.ts` | 已有 token 估算；后续承接用量计算等上下文容量逻辑 |
+| `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
 | `src/harness/compaction.ts` | 已有设置和阈值判断；待实现切点、摘要及压缩流程 |
 | `src/cli/utils/image.ts` | 剪贴板读取和图片粘贴按键判断 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
@@ -152,7 +152,7 @@ jsonl 首行 header，之后每行一条，当前使用线性 append，不包含
 
 **v1.2 后续接线：**
 
-- `src/cli/main.ts`：沿用现有 Harness 和输入流程，补 `/thinking`、`/context` 和每轮后的 `ctx` 显示。本版不接 `/compact`
+- `src/cli/main.ts`：`/context` 和每轮后的 `ctx` 显示已接通；剩 `/thinking`。本版不接 `/compact`
 - `src/cli/render.ts`：可在 `turn_end` / `agent_end` 打用量（或 main 问 harness 再打印，二选一，不要两处各打一遍）
 - `src/agent/agent.ts`：`createLoopConfig` 补上 `reasoning`（同一函数加厚，不另写 stream）
 - `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`；能拿到则写入 assistant `usage`
@@ -221,7 +221,7 @@ export class Harness {
 }
 ```
 
-**现有框架：** 构造时创建四个工具、系统提示和 Agent；工具、模型、提示放入 Agent 的 `initialState`。`prompt` / `abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄。`setThinkingLevel` / `setContextWindow` / `contextUsage` / `compact` 已预留并 throw「未接上」，后续在这些入口中接通功能。
+**现有框架：** 构造时创建四个工具、系统提示和 Agent；工具、模型、提示放入 Agent 的 `initialState`。`prompt` / `abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄。`setContextWindow` / `contextUsage` 已接通：`prompt` 结束后用 `estimateMessagesTokens` 更新 `usedTokens`，`newSession` 归零，`resumeAt` 按加载回来的 messages 重算。`setThinkingLevel` / `compact` 已预留并 throw「未接上」，后续在这些入口中接通功能。
 
 **对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
 
@@ -263,7 +263,7 @@ export class Harness {
 
 **显示（CLI，不是网页）**
 
-- 对外只有 `used` 和 `window`。`contextUsage()` 返回这一对。REPL 打 `ctx 12345/128000`，`/context` 无参数打印同一对。
+- 对外只有 `used` 和 `window`。`contextUsage()` 返回这一对。REPL 打 `ctx 12345/128000`，`/context` 无参数打印同一对。启动、`/context <n>` 之后和每轮结束都用同一种形状 `ctx <used>/<window>`，不另打只含窗口的格式。
 - 不在屏幕上拆 input、output、cache，也不打距离压缩阈值还剩多少。
 - 本版不做进度条、主题色、TUI footer。以后增加 TUI 时复用 `contextUsage()`。
 

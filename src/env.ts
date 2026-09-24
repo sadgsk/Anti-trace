@@ -5,6 +5,21 @@ export interface OpenAIConfig {
 	apiKey: string;
 	baseUrl: string;
 	modelId: string;
+	contextWindow: number;
+}
+
+export const DEFAULT_CONTEXT_WINDOW = 256000;
+
+/** Read a positive-integer window; anything unusable falls back to the default. */
+function parseContextWindow(raw: string | undefined): number {
+	if (!raw) {
+		return DEFAULT_CONTEXT_WINDOW;
+	}
+	const value = Number.parseInt(raw, 10);
+	if (!Number.isInteger(value) || value <= 0) {
+		return DEFAULT_CONTEXT_WINDOW;
+	}
+	return value;
 }
 
 function parseDotEnv(text: string): Record<string, string> {
@@ -53,5 +68,6 @@ export function getOpenAIConfig(): OpenAIConfig {
 		apiKey,
 		baseUrl: process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1",
 		modelId: process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini",
+		contextWindow: parseContextWindow(process.env.OPENAI_CONTEXT_WINDOW?.trim()),
 	};
 }

@@ -2,6 +2,15 @@ import type { AgentMessage, ImageContent, TextContent } from "../types.ts";
 
 const ESTIMATED_IMAGE_CHARS = 4800;
 
+/** Estimate token count for a whole transcript, message by message. */
+export function estimateMessagesTokens(messages: readonly AgentMessage[]): number {
+	let total = 0;
+	for (const message of messages) {
+		total += estimateTokens(message);
+	}
+	return total;
+}
+
 /** Estimate token count for one message using a character heuristic. */
 export function estimateTokens(message: AgentMessage): number {
 	const textAndImageChars = (content: ReadonlyArray<TextContent | ImageContent>): number => {

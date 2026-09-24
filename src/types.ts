@@ -64,6 +64,8 @@ export interface Model {
 	provider: string;
 	baseUrl: string;
 	api: "openai-completions";
+	/** Context window in tokens. Required at runtime; supplied by env / model config. */
+	contextWindow: number;
 }
 
 export interface Tool<TParameters extends TSchema = TSchema> {

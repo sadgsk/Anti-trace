@@ -40,6 +40,8 @@ const DEFAULT_MODEL: Model = {
 	provider: "unknown",
 	baseUrl: "",
 	api: "openai-completions",
+	// Placeholder only. Harness always supplies a real model with a context window.
+	contextWindow: 0,
 };
 
 type AgentStateInit = Partial<

@@ -6,19 +6,21 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **第 0–2 步完成；图片图文关联修复通过本地验收；下一步继续第 3 步上下文容量** |
+| 阶段 | **第 0–2 步完成；第 3 步窗口/估算用量/显示已接通，压缩待做；下一步继续第 3 步上下文容量** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-22 |
+| 最后更新 | 2026-09-24 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
-1. 一次完成一个可理解、可 review 的小点，通常包含几个相关函数、必要类型和接线；写完并验证后，等用户 review 再继续下一小点。不要把整个版本一次实现完。
-2. 带着写时，先讲清本次作用、调用关系和关键代码，再由助手写入文件，用户不用手动粘贴。讲解应覆盖参考来源和本项目的取舍；有 Pi 对照时给出路径、函数名，自定义设计则直接说明理由。表达形式按内容选择，不固定为四段。
-3. 已确定的框架可以先留接口或函数，明确未实现状态，后续继续填充。允许修改已有实现和类型，以局部、可审阅的差异推进，减少不必要的重写。
-4. 用户问概念时先回答；是否同时修改代码按当次请求执行。未明确要求 `git commit` 时不做版本提交。
-5. 暂不处理的 bug 记录到 [future-issues.md](./future-issues.md)，沿用编号并写清环境、版本、现象和影响；已确认的原因或处理方向可以补充，并与待验证推测区分。
+1. 实现一个功能时，一次最多改三个函数（含必要类型和接线）；超出的留到下一批。每批动手前先说要动哪几个函数、各自做什么，再写入文件；写完停下等用户 review，确认后再继续下一批。用户不用手动粘贴代码。
+2. 一个功能全部实现完再开始测试，不在功能做到一半插入探针或验收；验证方式和结果在功能完成后一起交代。
+3. 实现过程中发现问题（设计冲突、边界情况、影响面）当场说明，不要等写完、用户 review 完再补一句「这里有问题」。
+4. 带着写时，讲解应覆盖参考来源和本项目的取舍；有 Pi 对照时给出路径、函数名，自定义设计则直接说明理由。表达形式按内容选择，不固定为四段。
+5. 已确定的框架可以先留接口或函数，明确未实现状态，后续继续填充。允许修改已有实现和类型，以局部、可审阅的差异推进，减少不必要的重写。
+6. 用户问概念时先回答；是否同时修改代码按当次请求执行。未明确要求 `git commit` 时不做版本提交。
+7. 暂不处理的 bug 记录到 [future-issues.md](./future-issues.md)，沿用编号并写清环境、版本、现象和影响；已确认的原因或处理方向可以补充，并与待验证推测区分。
 
 ---
 
@@ -40,7 +42,7 @@
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
-**主线下一步：** 继续第 3 步，见架构书 §6。`context.ts` 已有 `estimateTokens`；`compaction.ts` 已有设置、默认常量和 `shouldCompact`。接着分小点补齐窗口、usage、REPL `ctx`、`/context`、摘要及自动压缩，不接 `/compact`。每轮结束后按阈值压；上下文装不下时，报错或空 `length` 则压一次并重试，`stop` 且 input 超窗则只压、不重试。
+**主线下一步：** 继续第 3 步，见架构书 §6。窗口、估算用量和显示已接通；`compaction.ts` 已有设置、默认常量和 `shouldCompact`。接着分小点补齐接口 usage 解析、摘要和自动压缩，不接 `/compact`。每轮结束后按阈值压；上下文装不下时，报错或空 `length` 则压一次并重试，`stop` 且 input 超窗则只压、不重试。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
@@ -53,8 +55,9 @@
 
 第 3 步的内部状态：
 
-- 已有实现：消息 token 估算；`CompactionSettings`、`DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`。
-- 待接通：`Model.contextWindow` 与环境配置、usage 解析与用量记录、`contextUsage()` 和 CLI 显示。
+- 已接通：`Model.contextWindow` 与环境配置（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，缺省 `128000`，非正整数回退）、`estimateMessagesTokens` 整段估算、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 与每轮后的 `ctx used/window`。`usedTokens` 在 `prompt` 结束后重算，`newSession` 归零，`resumeAt` 按加载的 messages 重算。
+- 已有实现：`CompactionSettings`、`DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`。
+- 待接通：接口返回的 usage 解析与用量记录（当前 `used` 只用估算，未读 `AssistantMessage.usage`）。
 - 待实现与接通：切点、摘要、压缩写回与持久化、自动触发及一次重试。
 - 待验收：上下文探针和第 5 步端到端验收。已有基础函数不代表整个上下文容量功能完成。
 
@@ -64,6 +67,8 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-24 | 第 3 步第一小点：窗口 + 估算用量 + 显示。`Model.contextWindow` 设为必填；`env.ts` 读 `OPENAI_CONTEXT_WINDOW`（缺省 `128000`，非正整数回退缺省）并导出 `DEFAULT_CONTEXT_WINDOW`；`context.ts` 增加 `estimateMessagesTokens`；`Harness` 接通 `setContextWindow` / `contextUsage`，`usedTokens` 在 `prompt` 后重算、`newSession` 归零、`resumeAt` 按加载的 messages 重算；`main.ts` 启动打印 `ctx window`，新增 `/context`（无参数打 `ctx used/window`，带正整数改窗口）和每轮后的 `ctx used/window`。`agent.ts` 的 `DEFAULT_MODEL` 补占位 `contextWindow: 0`，注释说明 Harness 永远传入真模型。验证：`npm run typecheck`、`npm run test:images`（13 例）、`npm run probe:session` 均通过；`probe-harness` 原「未接上的方法 throw」用例改为「仍未接上」（只剩 `setThinkingLevel` / `compact`），并新增用例 6 覆盖窗口/用量/`newSession`/`resumeAt`。压缩、接口 usage 解析、上下文探针和 §7 端到端验收未做。 |
+| 2026-09-24 | 第 3 步第一小点的两个决定。（1）`ctx` 显示统一成 `used/window` 一种形状：启动打 `ctx 0/<window>`，`/context`、`/context <n>` 之后和每轮结束都打 `ctx <used>/<window>`，不再出现单独的 `ctx window=`。（2）`Model.contextWindow` 保持必填。理由是按 BYOK 考虑：宽松留给配置层（`env.ts` 的 `parseContextWindow` 缺省 / 回退），严格留在运行时类型，下游（`contextUsage`，以后的压缩）不必写 `??`；用户在用 BYOK 配模型时基本都会填窗口。「配置层可省、运行时必有」两件事现在就已同时成立。 |
 | 2026-09-22 | 图文关联修复通过本地验收：`npm run test:images` 的 13 个用例、`npm run typecheck` 均通过；另以 mock fetch 独立验证 48 种组合，覆盖同名工具、不同图片 MIME、真实 user/assistant 边界、冻结输入和重复请求。含图工具结果保留来源及内容顺序，整批 tool 回复后再发送附件；普通 user 同样保序。独立组合检查为一次性内存脚本，未写入仓库；未调用真实模型，未修复中断配对问题。 |
 | 2026-09-22 | 文档整理：明确目标为可开源的产品级个人 agent；Pi 为参考，功能按用户设计；框架可先搭好并预留入口，每次实现几个相关函数供 review。架构书保存当前状态与后续目标，本页保留历史与当前待办。同步记录容量基础函数已存在但未接通；不改变既定 v1.2 目标，不代表图片修复或其他代码功能已完成。 |
 | 2026-09-22 | 剪贴板三平台都先读位图，没有再读文件路径。只缩小临时副本，不动用户原文件。 |

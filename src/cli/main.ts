@@ -8,13 +8,14 @@ import { isImagePasteKey, readClipboardImage, type PasteKey } from "./utils/imag
 import { renderEvent } from "./render.ts";
 
 const cwd = process.cwd();
-const { apiKey, baseUrl, modelId } = getOpenAIConfig();
+const { apiKey, baseUrl, modelId, contextWindow } = getOpenAIConfig();
 const model: Model = {
 	id: modelId,
 	name: modelId,
 	provider: "openai",
 	baseUrl,
 	api: "openai-completions",
+	contextWindow,
 };
 
 const harness = new Harness({
@@ -66,7 +67,8 @@ process.on("SIGINT", () => {
 
 console.log(`model=${modelId}`);
 console.log(`cwd=${cwd}`);
-console.log(`commands: /new  /resume  /exit  paste image: ${pasteKeyLabel}`);
+console.log(`ctx 0/${contextWindow}`);
+console.log(`commands: /new  /resume  /context  /exit  paste image: ${pasteKeyLabel}`);
 
 function formatLastOpenedAt(ms: number): string {
 	const date = new Date(ms);
@@ -125,9 +127,31 @@ while (!exiting) {
 		}
 		continue;
 	}
+	if (line === "/context") {
+		const { used, window: currentWindow } = harness.contextUsage();
+		console.log(`ctx ${used}/${currentWindow}`);
+		continue;
+	}
+	if (line.startsWith("/context ")) {
+		const argument = line.slice("/context ".length).trim();
+		if (!/^\d+$/.test(argument) || Number(argument) <= 0) {
+			console.log("用法：/context <正整数>");
+			continue;
+		}
+		try {
+			harness.setContextWindow(Number(argument));
+			const { used, window: currentWindow } = harness.contextUsage();
+			console.log(`ctx ${used}/${currentWindow}`);
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : error);
+		}
+		continue;
+	}
 	const images = pendingImages.splice(0, pendingImages.length);
 	try {
 		await harness.prompt(line, images.length > 0 ? images : undefined);
+		const { used, window: currentWindow } = harness.contextUsage();
+		console.log(`ctx ${used}/${currentWindow}`);
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : error);
 	}

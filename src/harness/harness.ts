@@ -1,5 +1,6 @@
 import { Agent } from "../agent/agent.ts";
 import type { AgentEvent, ImageContent, Model, StreamFn, ThinkingLevel } from "../types.ts";
+import { estimateMessagesTokens } from "./context.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import {
 	appendEntry,
@@ -29,6 +30,7 @@ export class Harness {
 	private readonly cwd: string;
 	private readonly sessionsRoot: string;
 	private session!: SessionFile;
+	private usedTokens = 0;
 
 	constructor(options: HarnessOptions) {
 		const tools = [
@@ -60,8 +62,9 @@ export class Harness {
 		});
 	}
 
-	prompt(text: string, images?: ImageContent[]): Promise<void> {
-		return this.agent.prompt(text, images);
+	async prompt(text: string, images?: ImageContent[]): Promise<void> {
+		await this.agent.prompt(text, images);
+		this.usedTokens = estimateMessagesTokens(this.agent.state.messages);
 	}
 
 	abort(): void {
@@ -74,6 +77,7 @@ export class Harness {
 
 	newSession(): void {
 		this.agent.reset();
+		this.usedTokens = 0;
 		this.session = createSessionFile(this.cwd, this.sessionsRoot);
 	}
 
@@ -99,6 +103,7 @@ export class Harness {
 			entries: loaded.entries,
 			flushed: true,
 		};
+		this.usedTokens = estimateMessagesTokens(loaded.messages);
 		return true;
 	}
 
@@ -106,12 +111,15 @@ export class Harness {
 		throw new Error("未接上");
 	}
 
-	setContextWindow(_tokens: number): void {
-		throw new Error("未接上");
+	setContextWindow(tokens: number): void {
+		if (!Number.isInteger(tokens) || tokens <= 0) {
+			throw new Error("context window 需要正整数");
+		}
+		this.agent.state.model = { ...this.agent.state.model, contextWindow: tokens };
 	}
 
 	contextUsage(): { used: number; window: number } {
-		throw new Error("未接上");
+		return { used: this.usedTokens, window: this.agent.state.model.contextWindow };
 	}
 
 	async compact(_customInstructions?: string): Promise<void> {
