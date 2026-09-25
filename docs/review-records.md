@@ -219,3 +219,34 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 7. 普通 user 消息的图文交错保序；转换不修改输入且重复转换结果一致
 
 变异注入实测（5 个变异全部被上述用例抓到）：重复携带正文、删除结束边界、标签丢 toolCallId、删除附件开头说明、指引缩到只剩 ID。
+
+---
+
+## No.3 — 上下文溢出恢复时错误可能提前显示
+
+| 项 | 值 |
+|---|---|
+| 评审号 | No.3 |
+| 评审日期 | 2026-09-25 |
+| 评审模型 | Codex（GPT-6） |
+| 平台 | Windows |
+| 项目版本 | v1.2（`package.json` `0.1.0`） |
+| 仓库快照 | `main` `c045a68`，上下文压缩代码在未提交的工作区改动中 |
+| 评审范围 | `src/agent/agent.ts`、`src/harness/harness.ts`、`src/cli/main.ts`、`src/cli/render.ts` 的错误事件与压缩重试流程 |
+| 评审方式 | 阅读当前源码；未在真实 REPL 中复现显示顺序 |
+
+### 问题1 — 可恢复的上下文错误可能先于重试回复显示
+
+| 项 | 值 |
+|---|---|
+| 位置 | `src/cli/main.ts` 的 `harness.subscribe(renderEvent)`；`src/cli/render.ts` 的 `agent_end` 分支；`src/harness/harness.ts` 的 `prompt()` |
+| 级别 | P2 |
+| 状态 | **代码路径可推导，终端显示未实测** |
+
+**现象与证据**
+
+首次请求因上下文溢出返回 `error` 时，Agent 会先发出 `agent_end`。CLI 订阅了这些事件，`renderEvent()` 遇到失败的 assistant 就立即打印 `errorMessage`。随后 `Harness.prompt()` 才检查最后一条消息、压缩上下文并调用 `continueFromContext()` 重试。因此，如果重试成功，终端仍可能先出现“上下文过长”的错误，再出现成功回复，让用户误以为本轮失败。当前假 `StreamFn` 验证了压缩与重试流程，但没有验证终端输出顺序。
+
+**建议方向**
+
+在确认恢复结果后决定是否显示这条错误；如果压缩或重试失败，仍应显示最终错误。修改时需核对事件订阅者的行为，避免只隐藏 CLI 文案却让其他订阅者收到含义不明的中间失败事件。

@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { AgentMessage } from "../types.ts";
+import type { AgentMessage, ImageContent } from "../types.ts";
+import { extensionForImageMimeType } from "./tools/image.ts";
 
 export const DEFAULT_SESSIONS_ROOT = join(homedir(), ".cli-agent", "sessions");
 
@@ -264,4 +265,23 @@ export function findMostRecentSession(cwd: string, sessionsRoot: string = DEFAUL
 export function touchSession(filePath: string): void {
 	const now = new Date();
 	utimesSync(filePath, now, now);
+}
+
+/**
+ * Write one image next to the session jsonl and return its absolute path.
+ *
+ * Images live inside the jsonl as base64, which the model cannot recover later: the line holding
+ * one is megabytes long and `read` bails out on an oversized first line, and even when it does read
+ * the line it sees base64 characters rather than an image. Keeping a real file next to the jsonl
+ * gives the model a path it can `read` again after compaction drops the image from context.
+ *
+ * The bytes written are the ones that were put into context (already resized), so the file and the
+ * model's view of it agree.
+ */
+export function saveSessionImage(sessionPath: string, image: ImageContent): string {
+	const dir = `${sessionPath.replace(/\.jsonl$/, "")}.assets`;
+	mkdirSync(dir, { recursive: true });
+	const filePath = join(dir, `${randomUUID()}.${extensionForImageMimeType(image.mimeType)}`);
+	writeFileSync(filePath, Buffer.from(image.data, "base64"));
+	return filePath;
 }

@@ -200,6 +200,9 @@ async function fetchChatCompletions(
 	if (tools) {
 		body.tools = tools;
 	}
+	if (options?.maxTokens !== undefined) {
+		body.max_tokens = options.maxTokens;
+	}
 
 	const response = await fetch(url, {
 		method: "POST",

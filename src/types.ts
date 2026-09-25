@@ -86,6 +86,7 @@ export interface Context {
 export interface StreamOptions{
      apiKey?: string;
      signal?: AbortSignal;
+	maxTokens?: number;
 }
 
 export type AssistantMessageEvent =

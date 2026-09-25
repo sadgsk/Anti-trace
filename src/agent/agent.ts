@@ -191,6 +191,20 @@ export class Agent {
 		});
 	}
 
+	/** Run another model turn using the messages already in state, without adding a user message. */
+	async continueFromContext(): Promise<void> {
+		await this.runWithLifecycle(async (signal) => {
+			await runAgentLoop(
+				[],
+				this.createContextSnapshot(),
+				this.createLoopConfig(),
+				(event) => this.processEvents(event),
+				signal,
+				this.streamFunction,
+			);
+		});
+	}
+
 	private normalizePromptInput(text: string, images?: ImageContent[]): AgentMessage[] {
 		const content: Array<{ type: "text"; text: string } | ImageContent> = [];
 		if (text.length > 0) {

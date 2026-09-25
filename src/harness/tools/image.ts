@@ -80,6 +80,27 @@ function startsWithAscii(buffer: Uint8Array, offset: number, text: string): bool
 	return true;
 }
 
+/**
+ * File extension for a supported image MIME type.
+ *
+ * Cosmetic only: `read` detects images from the leading magic bytes, so a wrong extension still
+ * reads back correctly. This exists so saved files look right to a human.
+ */
+export function extensionForImageMimeType(mimeType: string): string {
+	switch (mimeType) {
+		case "image/png":
+			return "png";
+		case "image/jpeg":
+			return "jpg";
+		case "image/gif":
+			return "gif";
+		case "image/webp":
+			return "webp";
+		default:
+			return "png";
+	}
+}
+
 /** Pack supported image bytes into a message block. Unsupported bytes return undefined. */
 export function imageContentFromBytes(bytes: Uint8Array): ImageContent | undefined {
 	const mimeType = detectSupportedImageMimeType(bytes);
