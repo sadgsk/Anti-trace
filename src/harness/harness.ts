@@ -188,6 +188,20 @@ export class Harness {
 		return { used: this.usedTokens, window: this.agent.state.model.contextWindow };
 	}
 
+	async manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact"> {
+		if (this.agent.state.isStreaming) {
+			throw new Error("Cannot compact while the agent is processing");
+		}
+		const { used, window } = this.contextUsage();
+		if (used <= window / 4) {
+			return "below-threshold";
+		}
+		if (this.session.entries.at(-1)?.type === "compaction") {
+			return "nothing-to-compact";
+		}
+		return (await this.compact()) ? "compacted" : "nothing-to-compact";
+	}
+
 	async compact(customInstructions?: string): Promise<boolean> {
 		if (this.agent.state.isStreaming) {
 			throw new Error("Cannot compact while the agent is processing");

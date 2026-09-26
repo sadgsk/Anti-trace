@@ -6,11 +6,11 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **第 0–3 步代码已接通；第 3 步真实压缩验收暂缓。下一步第 4 步思考等级，随后手动压缩、最小 BYOK 三协议；v1.3 做 TUI** |
+| 阶段 | **第 0–3 步已接通；第 5 步手动入口代码与假流验证完成，待 review 和真实模型验收。原第 4 步思考等级与第 6 步 BYOK 合并规划，具体方案待定；v1.3 做 TUI** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-25 |
+| 最后更新 | 2026-09-26 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -38,21 +38,20 @@
 
 ## v1.2（当前）
 
-既定目标：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 思考等级 → 手动压缩 → 最小 BYOK 与三协议适配。v1.3 接 TUI。按小点交付并 review。
+当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
-**主线下一步：** 第 4 步思考等级，见架构书 §5.4。第 3 步的摘要、自动压缩及一次重试已写入源码，并通过假 `StreamFn` 探针；不要求真实对话聊满默认窗口。随后第 5 步加手动 `/compact`，让短会话能真实生成摘要并续聊；第 6 步接用户自填模型、key、base URL、窗口和协议选择（Chat Completions / Anthropic Messages / OpenAI Responses）。这只是计划，后三项还未实现。
+**主线下一步：** 第 5 步 `/compact` 入口已接通：仅当 `used > window / 4` 才尝试现有压缩；没有旧轮次或刚压完没有新消息则不调用模型。假 `StreamFn` 已验证门槛、写盘与恢复；真实模型摘要和续聊仍待验收。review 后先调研 Kimi Code 等实现，确定思考等级与 BYOK 共用的模型能力、配置、映射和失败兜底方案，再分小批实现。具体档位、映射方式及重试条件尚未定。默认 `256000` 窗口下，手动入口需 `used > 64000`，不再以短会话作为真实模型验收方式。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
 | 0 | 搬家：`src/tools/*` → `src/harness/tools/`，`prompt.ts` → `src/harness/prompt.ts`，改 import | [x] |
 | 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [x] |
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / 会话名（前 10 字）/ `/new` / `/resume`（名字+上次打开时间） | [x] |
-| 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context`；阈值压缩；报错或空 `length` 重试；`stop` 超窗只压。代码和假流探针完成，真实压缩验收待手动入口 | [x] |
-| 4 | 思考等级：`createLoopConfig`、`openai-chat`、`/thinking`（跟 harness，不入盘） | [ ] |
-| 5 | 手动 `/compact`：短会话主动压旧轮、保留最新整轮，供真实模型验收 | [ ] |
-| 6 | 最小 BYOK + 三协议：自填模型、key、base URL、窗口，选 OpenAI Chat Completions / Anthropic Messages / OpenAI Responses | [ ] |
+| 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context`；阈值压缩；报错或空 `length` 重试；`stop` 超窗只压。代码和假流探针完成，真实模型验收待做 | [x] |
+| 5 | 手动 `/compact`：`used > window / 4` 时复用现有切点与摘要；无旧历史或无新消息时提示。代码与假流验证完成，待 review 和真实模型验收 | [ ] |
+| 4+6 | 思考等级与 BYOK 合并规划：三协议基础接入、可配置的模型能力与请求映射、失败兜底；具体方案待调研 | [ ] |
 | 7 | 架构书 §7 REPL 验收与公开试用准备 | [ ] |
 
 第 3 步的内部状态：
@@ -60,7 +59,7 @@
 - 已接通：`Model.contextWindow` 与环境配置（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，当前缺省 `256000`，无效值回退）、`estimateMessagesTokens` 整段估算、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 与每轮后的 `ctx used/window`。`usedTokens` 在 `prompt` 结束后更新，`newSession` 归零，`resumeAt` 按加载的 messages 重算。
 - 已接通：接口 `usage`。`AssistantMessage.usage?`；`openai-chat.ts` 请求带 `stream_options: { include_usage: true }`，在 `choice` 判断之前解析流末尾 usage 块并写入 assistant；`harness.ts` 的 `prompt` 优先取最后一条 assistant 的 `input + output`，取不到回退 `estimateMessagesTokens`。假 stream 已覆盖两条支路（`probe-harness` 用例 7）；deepseek 已实测返回 usage 且端到端解析正确。
 - 已接通：切点、原上下文和 tools 发送给摘要模型、工具调用则重试、摘要写回与持久化、阈值触发和溢出后一次重试。默认保留最近 `20000` token，`Harness.compact()` 已可调用；假流探针覆盖主要路径。
-- 待接通：CLI 手动 `/compact`，短会话需另定切点；可恢复溢出错误提前显示的问题已记在 `review-records.md`。真实模型的摘要与续聊验收留到手动入口之后。
+- 已接通：CLI 手动 `/compact` 通过 `Harness.manualCompact()` 判断 1/4 用量门槛后复用 `compact()`；重复调用和无切点不会发起摘要请求。摘要包装文字改为适用于主动压缩。真实模型的摘要与续聊验收待做；可恢复溢出错误提前显示的问题已记在 `review-records.md`。
 
 下面更新记录保留当时的决定与状态；当前实现以上面的清单和源码为准。
 
@@ -68,6 +67,8 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-26 | 思考等级与 BYOK 改为同一项待设计功能，不再按原第 4、6 步分别实现。规划要求模型能力与请求映射可在配置中调整，兼顾不同协议和网关差异，并设计明确反馈及有限重试或兜底；避免新厂商都要在核心代码追加特例。具体档位、能力信息来源、映射形状和重试条件待进一步对照 Kimi Code 等实现后决定。本次只更新规划文档，未改实现。 |
+| 2026-09-26 | 用户调整施工顺序，先接简单的手动入口。`Harness.manualCompact()` 在 `used > window / 4` 时调用现有 `compact()`，否则直接返回；无新消息时不重复压缩。REPL 加 `/compact` 与结果提示，摘要包装不再声称已耗尽上下文。验证：`npm run typecheck` 通过；一次性假 `StreamFn` 探针覆盖恰好 1/4、超过 1/4 但只有一轮、成功摘要和 JSONL 恢复、压后重复调用；PTY 里 `/compact` 的低用量提示正常。未调用真实模型，当前步骤等用户 review 后再继续。 |
 | 2026-09-25 | 按当前源码纠正第 3 步状态：默认窗口 `256000`；摘要保留原上下文和 tools，在末尾加指令，工具调用则重试；自动压缩和溢出恢复已接通，假 `StreamFn` 探针已通过，真实模型压缩验收暂缓。v1.2 新增思考等级之后的手动 `/compact` 与最小 BYOK 三协议（OpenAI Chat Completions、Anthropic Messages、OpenAI Responses）；v1.3 安排 TUI。这里只记录需求和现状，新增功能尚未动手。 |
 | 2026-09-25 | 会话存储继续使用线性 JSONL。本地的追加、列表和恢复需求不引入 SQLite；会话树、`/tree`、树状 fork 和 Pi v4 session 迁移明确不做。 |
 | 2026-09-24 | 第 3 步第一小点：窗口 + 估算用量 + 显示。`Model.contextWindow` 设为必填；`env.ts` 读 `OPENAI_CONTEXT_WINDOW`（缺省 `128000`，非正整数回退缺省）并导出 `DEFAULT_CONTEXT_WINDOW`；`context.ts` 增加 `estimateMessagesTokens`；`Harness` 接通 `setContextWindow` / `contextUsage`，`usedTokens` 在 `prompt` 后重算、`newSession` 归零、`resumeAt` 按加载的 messages 重算；`main.ts` 启动打印 `ctx window`，新增 `/context`（无参数打 `ctx used/window`，带正整数改窗口）和每轮后的 `ctx used/window`。`agent.ts` 的 `DEFAULT_MODEL` 补占位 `contextWindow: 0`，注释说明 Harness 永远传入真模型。验证：`npm run typecheck`、`npm run test:images`（13 例）、`npm run probe:session` 均通过；`probe-harness` 原「未接上的方法 throw」用例改为「仍未接上」（只剩 `setThinkingLevel` / `compact`），并新增用例 6 覆盖窗口/用量/`newSession`/`resumeAt`。压缩、接口 usage 解析、上下文探针和 §7 端到端验收未做。 |

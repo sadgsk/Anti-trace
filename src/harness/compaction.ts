@@ -308,7 +308,7 @@ export interface CompactSummaryMessageOptions {
 
 /** Wrap a summary as the replacement for the compacted history, telling the model to just continue. */
 export function buildCompactSummaryMessage(summary: string, options: CompactSummaryMessageOptions = {}): string {
-	let message = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+	let message = `This session is continuing after earlier messages were compacted. The summary below covers those earlier messages.
 
 ${formatSummary(summary)}`;
 

@@ -68,7 +68,7 @@ process.on("SIGINT", () => {
 console.log(`model=${modelId}`);
 console.log(`cwd=${cwd}`);
 console.log(`ctx 0/${contextWindow}`);
-console.log(`commands: /new  /resume  /context  /exit  paste image: ${pasteKeyLabel}`);
+console.log(`commands: /new  /resume  /context  /compact  /exit  paste image: ${pasteKeyLabel}`);
 
 function formatLastOpenedAt(ms: number): string {
 	const date = new Date(ms);
@@ -142,6 +142,22 @@ while (!exiting) {
 			harness.setContextWindow(Number(argument));
 			const { used, window: currentWindow } = harness.contextUsage();
 			console.log(`ctx ${used}/${currentWindow}`);
+		} catch (error) {
+			console.error(error instanceof Error ? error.message : error);
+		}
+		continue;
+	}
+	if (line === "/compact") {
+		try {
+			const result = await harness.manualCompact();
+			if (result === "below-threshold") {
+				console.log("上下文使用未超过窗口的 1/4，无需压缩");
+			} else if (result === "nothing-to-compact") {
+				console.log("没有可压缩的旧历史，或压缩后还没有新消息");
+			} else {
+				const { used, window: currentWindow } = harness.contextUsage();
+				console.log(`已压缩，ctx ${used}/${currentWindow}`);
+			}
 		} catch (error) {
 			console.error(error instanceof Error ? error.message : error);
 		}

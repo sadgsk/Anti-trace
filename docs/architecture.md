@@ -43,27 +43,26 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；`/new` `/resume` `/exit` 已接通 |
 | 图片输入 | `read` 支持 jpeg/png/gif/webp；CLI 支持剪贴板图片，Windows `Alt+V`、macOS/Linux `Ctrl+V`，直接读取位图；发送前尝试把最长边缩到 2000，只处理临时副本；文字和图片进入同一条内部消息，当前不按模型能力拦截图片 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
-| 上下文容量 | 窗口、用量、显示、摘要和自动压缩已接通；默认窗口 `256000`，用量优先取接口 `usage`。假 `StreamFn` 已验证压缩和一次重试；真实 REPL 的压缩验收暂缓。`Harness.compact()` 已可调用，CLI 尚无手动命令 |
-| 思考等级 | 已有类型和状态；尚未接到模型请求与 CLI。`setThinkingLevel` 仍是 throw「未接上」的预留入口 |
+| 上下文容量 | 窗口、用量、显示、摘要、自动压缩和手动 `/compact` 已接通；默认窗口 `256000`，用量优先取接口 `usage`。假 `StreamFn` 已验证压缩、重试和手动入口；真实模型的压缩验收暂缓 |
+| 思考等级与 BYOK | 思考等级已有类型和状态，尚未接到模型请求与 CLI；BYOK 尚未接通。两者合并规划，具体方案待定 |
 
 **这一版（v1.2）的既定目标：**
 
 1. 把工具和系统提示收进 `src/harness/`，`main` 不再 `createXxxTool` / `new Agent`。
 2. `Harness`：开局装配；`prompt` 交给 Agent；每轮收尾。
 3. 按 cwd 把对话写成 jsonl（一个项目多份聊天）。会话名从第一条用户消息截出来，不另跑模型起名；`/resume` 用「名字 + 上次打开时间」分辨。
-4. **上下文容量**：窗口设置、用量记录、REPL 显示、自动压缩与溢出重试；另加手动 `/compact` 便于短会话真实验收。
-5. `/thinking` 能改档位，请求里带上，回复里能出现 thinking 块。
-6. 最小 BYOK：用户填写模型 ID、API key、API base URL、上下文窗口，选择 OpenAI Chat Completions、Anthropic Messages 或 OpenAI Responses 协议；三种协议至少能完成文本对话和工具调用。
+4. **上下文容量**：窗口设置、用量记录、REPL 显示、自动压缩与溢出重试；手动 `/compact` 在用量超过窗口 1/4 时可用。
+5. 思考等级与 BYOK 作为一项功能设计和实现：用户配置模型连接，按实际模型能力选择思考设置；协议适配支持 OpenAI Chat Completions、Anthropic Messages 和 OpenAI Responses 的基础对话与工具调用。
 
 图片读取与粘贴也是当前能力的一部分，按本项目的交互设计保留；它们不替代上述尚未完成的目标。
 
-**后续范围：** v1.3 做 TUI。v1.2 的多协议范围是用户显式选上述三种协议，不做自动探测、模型目录或每个供应商的全部扩展功能；Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
+**后续范围：** v1.3 做 TUI。v1.2 先以三种协议的基础接入和可用的思考控制为目标；能力信息来源、配置方式和适配边界在合并功能的设计阶段确定。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
 
 ---
 
 ## 2. v1.2 目标行为
 
-以下包含已接通的会话能力和待接通的上下文、思考能力；当前实现状态以 §1 和进度文档为准。
+以下包含已接通的会话与上下文能力，以及待设计的思考等级与 BYOK；当前实现状态以 §1 和进度文档为准。
 
 ```text
 main（屏幕）
@@ -115,18 +114,14 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 {"type":"compaction","summary":"...","keptMessages":[...]}
 ```
 
-**思考等级（跟 harness，不跟 session）：**
-
-- 开局在 `agent.state.thinkingLevel`，默认 `off`。`/thinking` 只改这一份。
-- `/new` `/resume` 不改档位。resume 只灌 messages（和名字），不从 jsonl 读 thinking。
-- 当前 jsonl 不单独写 thinking 档位变更行。
+**思考等级现状：** `agent.state.thinkingLevel` 已有默认 `off` 的占位状态，`setThinkingLevel` 尚未接通；当前 jsonl 没有思考档位变更行。最终可选档位、模型切换及恢复行为随 BYOK 一起设计，不以这个占位状态作为最终方案。
 
 **上下文容量**先有窗口和用量。压缩在用量过线，或这轮回复表明上下文装不下时自动发生。
 
 1. **窗口：** 数字在 `Model.contextWindow`。当前用 `.env` 的 `OPENAI_CONTEXT_WINDOW` 填进去，缺省 `256000`，无效值回退缺省。BYOK 接通后窗口跟模型配置走。`/context <正整数>` 只改本进程这份 `Model.contextWindow`。
-2. **记录：** 优先用接口返回的 usage（后续给 `AssistantMessage` 补上）；没有则用现有 `estimateTokens` 估算，文字按字符/4、图片按固定开销估。Harness 记住当前 `usedTokens`。屏幕不拆 input / output / cache。正常对话只在末尾追加，压缩时整段换成摘要 + 原样留下的尾部。思考块不进请求，文字、图片和工具调用按消息角色转换。
+2. **记录：** 优先用 `AssistantMessage.usage` 中接口返回的用量；没有则用现有 `estimateTokens` 估算，文字按字符/4、图片按固定开销估。Harness 记住当前 `usedTokens`。屏幕不拆 input / output / cache。正常对话只在末尾追加，压缩时整段换成摘要 + 原样留下的尾部。当前适配器不回传思考块；文字、图片和工具调用按消息角色转换，后续思考内容回传随 BYOK 一起设计。
 3. **显示：** 接口是 `contextUsage(): { used: number; window: number }`。TUI 还没有，这两个字段先留着，以后底栏读同一处。REPL 每轮结束后打一行 `ctx <used>/<window>`。`/context` 无参数打印同一对数字。
-4. **压缩：** 自动路径已调用同一套切点和摘要，阈值公式参考 Pi。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。一轮里最多自动压一次。v1.2 再接手动 `/compact`：短会话也能压缩已有旧轮次，保留最近完整一轮；没有可压的旧轮次时明确提示。
+4. **压缩：** 自动路径已调用同一套切点和摘要，阈值公式参考 Pi。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。一轮里最多自动压一次。手动 `/compact` 仅在 `used > window / 4` 时尝试同一套压缩；没有可压旧历史或刚压完没有新消息时明确提示。
    - 一句 `prompt` 正常结束，且 `used > window - reserveTokens`：压缩，不重试。
    - `stopReason === "error"`，且 `errorMessage` 是上下文满了（“exceeds the context window” / “maximum context length” 这类句子）：丢掉这条报错的 assistant，压缩，再用当前 messages 重跑一轮。只试一次。再满就停，把错误留在屏幕上。
    - `stopReason === "stop"`，且这轮 `usage.input > window`：接口收下了超长输入。压缩，不重试，已经打出来的回复留下。
@@ -141,7 +136,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 | 文件 | 职责与状态 |
 |---|---|
-| `src/harness/harness.ts` | 装配、会话、窗口、用量、自动压缩已接通；思考入口与手动压缩命令待接 |
+| `src/harness/harness.ts` | 装配、会话、窗口、用量、自动压缩与手动入口已接通；思考入口待接 |
 | `src/harness/session.ts` | cwd 分桶、jsonl 持久化、命名、列表和恢复；已有 compaction 行读写结构 |
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
@@ -151,15 +146,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
 | `test/probe-context.ts` | 本地假 `StreamFn` 探针已覆盖压缩与重试；`test/` 当前被 `.gitignore` 忽略，公开试用前需把必要测试纳入仓库 |
 
-**v1.2 后续接线：**
-
-- `src/cli/main.ts`：`/context` 和每轮后的 `ctx` 显示已接通；接 `/thinking`、手动 `/compact` 和 BYOK 配置入口
-- `src/cli/render.ts`：可在 `turn_end` / `agent_end` 打用量（或 main 问 harness 再打印，二选一，不要两处各打一遍）
-- `src/agent/agent.ts`：`createLoopConfig` 补上 `reasoning`（同一函数加厚，不另写 stream）
-- `src/llm/openai-chat.ts`：请求带 `reasoning_effort`；SSE 解析 `reasoning_content`
-- `src/types.ts`：已有 `maxTokens`、`Model.contextWindow`、`AssistantMessage.usage?`；待加 `StreamOptions.reasoning` 和三种协议标识
-- `src/env.ts`：已有 `OPENAI_CONTEXT_WINDOW`；待接用户自填的模型、key、base URL 和协议选择
-- 协议分发与适配：保留内部消息和 `Agent` 事件形状，各协议各自转换请求、流、工具调用及用量
+**v1.2 后续接线：** `/context`、`/compact` 和每轮后的 `ctx` 显示已接通。待完成思考等级与 BYOK 的合并设计后，再确定配置入口、模型能力表示、请求映射、CLI 交互以及各协议适配器的具体接线；保留现有 Agent / Harness 的消息和事件边界。
 
 ---
 
@@ -219,11 +206,12 @@ export class Harness {
   setThinkingLevel(level: ThinkingLevel): void;
   setContextWindow(tokens: number): void;
   contextUsage(): { used: number; window: number };
+  manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact">;
   compact(customInstructions?: string): Promise<boolean>; // 已实现；false 表示没有可压的旧历史
 }
 ```
 
-**现有框架：** 构造时创建四个工具、系统提示和 Agent；工具、模型、提示放入 Agent 的 `initialState`。`prompt` / `abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通，`resumeAt` 按加载的 messages 重算。`setThinkingLevel` 仍是占位。手动 `/compact` 需要另定短会话的切点，不能只把当前 `compact()` 原样接到 CLI：当前默认会保留最近 `20000` token，短会话通常没有切点。
+**现有框架：** 构造时创建四个工具、系统提示和 Agent；工具、模型、提示放入 Agent 的 `initialState`。`prompt` / `abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通，`resumeAt` 按加载的 messages 重算。`manualCompact()` 只检查手动用量门槛和压后是否有新消息，再调用同一个 `compact()`。`setThinkingLevel` 仍是占位。
 
 **对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
 
@@ -255,7 +243,7 @@ export class Harness {
 **窗口**
 
 - `Model.contextWindow: number`（必填于运行时）。当前由 `env.ts` 读 `OPENAI_CONTEXT_WINDOW`（正整数，缺省 `256000`）写入；BYOK 接通后由用户配置的模型提供。
-- `/context <n>` 改 `harness.setContextWindow`，写的仍是当前这份 `Model.contextWindow`。不另做厂商目录。
+- `/context <n>` 改 `harness.setContextWindow`，写的仍是当前这份 `Model.contextWindow`。模型能力信息来源随思考等级与 BYOK 一起确定。
 
 **记录**
 
@@ -284,32 +272,30 @@ export class Harness {
 - `stopReason === "stop"` 且 `usage.input > window`：压缩，不重试，回复留下。
 - `stopReason === "length"` 且 `usage.output === 0` 且 `usage.input >= window * 0.99`：丢掉这条空 assistant，压缩，重跑一轮。只试一次。
 - 默认 `enabled: true`，`reserveTokens: 16384`，`keepRecentTokens: 20000`。
-- 切点只放在一条 user 之前。从最新往回按字符/4 累加，够 `keepRecentTokens` 就在那条 user 处切开：它前面的整轮进摘要，它和后面的整轮留下。不在 assistant 或 `toolResult` 上切。最新一轮本身已经超过 `keepRecentTokens` 时，这一整轮进摘要，尾巴可以为空。
+- 切点只放在一条 user 之前。从最新往回按字符/4 累加，够 `keepRecentTokens` 就在那条 user 处切开：它前面的整轮进摘要，它和后面的整轮留下。不在 assistant 或 `toolResult` 上切。最新一轮本身超过 `keepRecentTokens` 时仍从这一轮开始保留；若它就是唯一一轮，则没有可压缩的旧历史。
 - 摘要走现有 `streamFn`，原样发送完整上下文和 tools，在末尾加摘要指令以复用前缀缓存；若模型返回工具调用，忽略该次回复并重试，不执行工具。当前摘要请求不带 reasoning。输出上限为 `floor(0.8 * reserveTokens)`，经 `StreamOptions.maxTokens` 传给请求。已有旧摘要时放进这次输入，并在提示里要求保留。摘要正文开头标明这是压缩出来的上文。
 - 摘要调用失败则不改 `agent.state.messages`。成功才写回摘要 + kept，jsonl 追加 `compaction`，并用摘要加尾部重新估计 `usedTokens`。
-- 上面几处走同一套切点和摘要。`Harness.compact` 留给这些调用，REPL 不暴露。没有 `usage` 时，`stop` 超窗和空 `length` 两条不触发。
+- 上面几处走同一套切点和摘要。自动路径直接调用 `Harness.compact()`；REPL `/compact` 通过 `manualCompact()` 判断 `used > window / 4` 后复用它。没有 `usage` 时，`stop` 超窗和空 `length` 两条不触发。
 
-本版增加手动 `/compact`，用于短会话真实验收：至少保留最后一轮完整原文，将此前轮次交给当前摘要流程；只有一轮时提示无可压内容。分支摘要、文件列表元数据和 Pi 的宽 `length` 恢复（有正文，只是输出短于请求上限）不在本版。当前思考能力尚未接通，摘要按普通文本处理。
+手动 `/compact` 只在用量过 1/4 时运行现有摘要，不单独设置短会话切点；无旧历史或刚压完没有新消息时提示。成功后 jsonl 追加 `compaction`，内存换成摘要 + 保留的尾部，下一条输入从这里继续；摘要失败不换历史。分支摘要、文件列表元数据和 Pi 的宽 `length` 恢复（有正文，只是输出短于请求上限）不在本版。当前思考能力尚未接通，摘要按普通文本处理。
 
 **对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`；`pi/packages/ai/src/utils/overflow.ts` 的 `isContextOverflow`：错误文本、`stop` 且 input 超窗、`length` 且输出为 0。当前不接 `isRecoverableLength`；显示和窗口配置采用本项目设计。
 
 ---
 
-### 5.4 思考等级
+### 5.4 思考等级与 BYOK（合并规划）
 
-已有 `ThinkingLevel`、`agent.state.thinkingLevel`、loop 的 `thinking_*` 事件。这一版接通。档位是 **Harness 进程状态**，不是 session 字段。
+已有 `ThinkingLevel`、`agent.state.thinkingLevel`、`thinking_*` 事件和 `setThinkingLevel` 占位；它们是当前框架现状，不预先决定最终档位或配置形状。思考等级依赖用户接入的模型、协议及具体服务端能力，因此与 BYOK 一起设计、一起验收，不先实现一套固定档位后再改造。
 
-1. `StreamOptions` 增加 `reasoning?: ThinkingLevel`。
-2. `Agent.createLoopConfig`：`reasoning: thinkingLevel === "off" ? undefined : thinkingLevel`。
-3. `openai-chat.ts`：`reasoning` 存在则 body 加 `reasoning_effort`（字符串就是档位名）。SSE delta 里 `reasoning_content` 或 `reasoning` → `thinking_*` 事件，写入 `ThinkingContent`。
-4. `Harness.setThinkingLevel` 只改 `agent.state.thinkingLevel`。不写 jsonl。`/new` `/resume` 都不碰这个字段。
-5. `main`：`/thinking` 无参数打印当前档；`/thinking off|minimal|low|medium|high` 调用 set。
+v1.2 的基础接入目标仍是：用户提供模型 ID、API key、API base URL、上下文窗口并选择协议；支持 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses 的流式对话与工具调用。各协议把内部消息、工具、图片和返回事件转换到同一套 Agent / Harness 边界；不根据协议名称推定某个模型一定支持哪种思考控制。
 
-本版不扩展 `xhigh`/`max`、thinkingFormat、思考 token budget 或按会话恢复档位。
+合并设计需要满足以下原则，具体数据结构和规则来源待进一步调研：
 
-上述第 3 点先接现有 Chat Completions 适配器。BYOK 新增的协议按各自接口决定是否支持相同档位；不把 Chat Completions 的 `reasoning_effort` 字段直接发给 Anthropic Messages 或 OpenAI Responses。若所选模型或协议不支持某档，应明确报错或提示，不静默假装生效。
+- 思考选项反映当前模型实际可用的能力，区分明确关闭、具体档位与沿用服务端默认值；不能把“不发送参数”直接解释成“关闭思考”。模型或服务端不支持的选项应有清楚反馈。
+- 在配置中为用户留出调整模型能力和请求映射的空间，使同名模型经不同网关接入时可以修正差异。已知模型可以有便捷的默认配置；扩展新模型或新厂商不应依赖持续增加核心代码中的厂商分支。
+- 请求映射、思考内容处理及失败后的有限重试或兜底，按实际协议与服务端能力设计。参数被拒绝、配置不匹配或重试后仍失败时，要让用户知道实际发生了什么，避免界面显示已切档而请求没有生效。
 
-**对照：** `pi/packages/agent/src/agent.ts` 的 `createLoopConfig`；`pi/packages/ai/src/api/openai-completions.ts` 中设置 `reasoning_effort` 和读取 `reasoning_content` 的处理。优先阅读这些局部，需要时查看调用上下文。
+模型能力信息从何处获取、配置覆盖顺序、默认行为、具体档位、映射表达方式和重试条件均未定；先对照 Kimi Code 等实现，再确定方案。Anthropic 思考内容在工具往返时还涉及签名回传，是否及如何支持要和消息结构一起设计，不能只增加请求参数。
 
 ---
 
@@ -317,36 +303,21 @@ export class Harness {
 
 启动：`getOpenAIConfig` + `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`，`subscribe(renderEvent)`。
 
-循环：普通输入 → `harness.prompt(line, images?)`，剪贴板图片和文字一起提交。`/exit` 退出。`/new` → `newSession`（清消息并换句柄）。整行恰好 `/resume`：打印 `listSessions`（名字 + 本地 `YYYY-MM-DD HH:mm`），再读序号 `resumeAt`。没有则打印一句。不自动加载最近一份。`/context` 已接通；本版再接 `/thinking`、手动 `/compact` 和启动时的 BYOK 协议配置。SIGINT：streaming 则 `harness.abort()`。
-
----
-
-### 5.6 BYOK 与三种协议
-
-v1.2 最小配置由用户提供模型 ID、API key、API base URL、协议标识和上下文窗口。当前 `.env` 方式可以继续作为配置入口；不要求模型目录、账号登录或自动识别协议。base URL 是 API 前缀，端点路径由所选协议适配器补齐；配置说明需给出三种协议的示例，并避免把 key 写入会话 jsonl 或终端输出。
-
-`Model.api` 从单一的 `openai-completions` 扩为 `openai-completions`、`anthropic-messages`、`openai-responses`。按协议选择对应 `StreamFn`，各适配器将内部的 system / user / assistant / toolResult、工具说明与图片转换为该协议的请求，再将流式文字、工具调用、用量、结束原因和错误还原成现有 `AssistantMessageEventStream`。`Agent` / `Harness` 保持同一套执行与会话逻辑；摘要也使用当前模型的适配器，保留“完整上下文 + tools + 末尾摘要指令，工具调用则重试”的行为。
-
-验收底线是三种协议都能用用户给的 URL、key、模型完成流式文本多轮、至少一次工具调用与工具结果、用量或明确的估算回退、错误和中断。已有图片输入在新协议上要正确转换，或明确告知该配置暂不支持，不能悄悄丢图。思考档位按协议和模型能力处理，不保证所有自填网关都实现同样的扩展字段。先支持这三个明确选择的协议，不承诺任意“兼容 OpenAI”网关的所有私有变体。
-
-Anthropic 的扩展思考块涉及随工具往返原样回传的签名；当前内部 `ThinkingContent` 只有正文。最小 Anthropic 适配先不宣称支持扩展思考，`/thinking` 非 off 时应明确提示不支持；若以后要支持，先补齐所需内容块与会话回传规则。
-
-实现时以 [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat)、[OpenAI Responses](https://platform.openai.com/docs/api-reference/responses) 和 [Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create) 的接口文档核对请求与流事件，不共用一份假定相同的线格式。
+循环：普通输入 → `harness.prompt(line, images?)`，剪贴板图片和文字一起提交。`/exit` 退出。`/new` → `newSession`（清消息并换句柄）。整行恰好 `/resume`：打印 `listSessions`（名字 + 本地 `YYYY-MM-DD HH:mm`），再读序号 `resumeAt`。没有则打印一句。不自动加载最近一份。`/context`、`/compact` 已接通；思考等级与 BYOK 的配置入口一起设计。SIGINT：streaming 则 `harness.abort()`。
 
 ---
 
 ## 6. 接下来如何推进
 
-第 3 步上下文容量的代码与假 `StreamFn` 探针已完成，真实模型的压缩验收暂缓。主线从思考等级继续，再接手动压缩和最小 BYOK 三协议；v1.3 才做 TUI。以下沿用进度里的步骤编号。
+第 3 步上下文容量与第 5 步手动入口的代码和假 `StreamFn` 探针已完成，真实模型的压缩验收暂缓。手动入口 review 后，把原第 4 步思考等级与第 6 步 BYOK 合成一个待设计里程碑；先调研并确定共用方案，再分小批实现。v1.3 才做 TUI。历史记录仍沿用原步骤编号。
 
 每行是一个功能里程碑，可以拆成多个小点。每次选几个相关函数和必要接线，说明本次边界，完成对应验证后交给用户 review，再继续。已经存在的基础函数直接接着使用，不因换对话重复搭建。每个代码小点保持 `tsc --noEmit` 通过，功能接通后再做相应行为验收。
 
 | 步 | 做哪些文件 | 完成标准 | 主要对照 |
 |---|---|---|---|
-| 3 | 上下文容量：窗口、usage、显示、自动压缩和溢出重试 | 代码与假 `StreamFn` 验证已完成；真实压缩验收留到手动入口具备后 | `shouldCompact`；`isContextOverflow` |
-| 4 | types + `createLoopConfig` + `openai-chat` + `/thinking` | `/thinking high` 后兼容模型的请求带思考档位；resume 后保持本进程档位；支持思考内容的流能展示 | agent.ts `reasoning:`；openai-completions 局部 |
-| 5 | 手动 `/compact` + 短会话切点 | 两轮以上的短会话能主动压旧轮、保留最新整轮；jsonl 有 compaction，可真实模型核对续聊 | 当前 `Harness.compact()`；`findCutIndex` |
-| 6 | 最小 BYOK + Chat Completions / Anthropic Messages / OpenAI Responses 适配 | 自填模型、key、base URL、窗口并选协议；三个协议均可流式多轮、调用工具、回传工具结果；错误与用量可读 | 三家官方协议文档；现有内部消息与 StreamFn |
+| 3 | 上下文容量：窗口、usage、显示、自动压缩和溢出重试 | 代码与假 `StreamFn` 验证已完成；真实模型压缩验收待做 | `shouldCompact`；`isContextOverflow` |
+| 5 | 手动 `/compact` + 1/4 用量门槛 | 入口代码与假流验证完成；未过线不调模型，过线且有旧历史则生成摘要并落 `compaction`；待 review 和真实模型续聊验收 | 当前 `Harness.compact()`；`findCutIndex` |
+| 4+6 | 思考等级与 BYOK：模型连接、三协议基础适配、可配置的模型能力与请求映射、失败兜底 | 配置的模型可完成基础对话与工具调用；思考选项与真实请求一致，无法生效或失败时有明确反馈 | Kimi Code 等 Agent 的模型配置与协议适配；三协议接口文档 |
 | 7 | REPL 按 §7 验收 | 功能验证完成并记录未覆盖的网关差异 | — |
 
 session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
@@ -355,14 +326,14 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 ## 7. 这一版验收
 
-按所选协议填好本地配置，`npm start`。不要求聊天凑满默认 `256000` token；自动压缩与溢出形状由可控流探针验证，真实摘要用短会话的手动 `/compact` 检查。
+按所选协议填好本地配置，`npm start`。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起真实摘要请求。默认窗口 `256000` 的手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
 2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
 3. `/new` 后再说一句，同目录多一个文件，两份 `name` 能分开。
 4. 退出再启动，整行输入 `/resume` 打印「名字 + 上次打开时间」列表，再输入序号接上那一份（能问「我刚才说了什么」对得上）。
-5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改窗口配置或 `/context <n>` 后窗口跟着变。假流探针覆盖阈值压缩、溢出报错、空 `length` 重试和 `stop` 超窗只压。至少两轮的短会话可用 `/compact` 真实生成摘要，jsonl 有 `compaction` 行，续聊能利用摘要和保留的最近一轮。
-6. `/thinking medium`（或 high）不报错；`/resume` 之后档位仍是本进程这份，jsonl 里没有 thinking 行。兼容模型的请求带对应字段；有思考内容的流能显示。不同协议不假定相同字段或档位。
+5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改窗口配置或 `/context <n>` 后窗口跟着变。假流探针覆盖阈值压缩、溢出报错、空 `length` 重试和 `stop` 超窗只压。`/compact` 在用量未过 1/4 时提示无需压缩；过线且有可压旧历史时用真实模型生成摘要，jsonl 有 `compaction` 行，续聊能利用摘要和保留的尾部。
+6. 按最终确定的模型配置检查思考选项：能控制的档位与实际请求一致；不能控制或参数被拒绝时有明确反馈，兜底与重试行为可复现。模型切换和会话恢复的预期行为在合并设计时确定。
 7. 分别选择 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses，使用自填 URL / key / 模型完成多轮文本、一次工具调用及结果回传；核对 usage、错误、中断和不支持图片时的明确提示。
 8. `/new` 后工具还能用，且开始一份新会话。
 
@@ -379,10 +350,9 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 当前相关入口：
 
 1. `session-manager.ts`：`getDefaultSessionDirPath`、`_persist` 延迟建文件
-2. `agent.ts`：`createLoopConfig` 的 `reasoning`
-3. `openai-completions.ts`：`reasoning_effort`、`reasoning_content` 两处
-4. `harness/compaction/compaction.ts`：默认常量和 `shouldCompact`
-5. 仓库里现有的 `src/agent/agent.ts`、`src/llm/openai-chat.ts`、`src/cli/main.ts`
+2. `harness/compaction/compaction.ts`：默认常量和 `shouldCompact`
+3. 思考等级与 BYOK 合并设计时，按问题查看 Pi 的模型能力、协议适配及请求参数处理，并对照 Kimi Code 等 Agent
+4. 仓库里现有的 `src/agent/agent.ts`、`src/llm/openai-chat.ts`、`src/cli/main.ts`
 
 ---
 
@@ -397,7 +367,6 @@ src/harness/context.ts            窗口 / 计量 / 显示（自定）
 src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*，实现按本项目需求调整
 src/harness/prompt.ts             本项目的系统提示
-createLoopConfig.reasoning        agent.ts 同名补丁
-openai-chat reasoning             openai-completions 局部
+思考等级与 BYOK                    模型能力、协议适配和可配置映射，待合并设计
 cli/main.ts                       interactive-mode 的输入循环（readline）
 ```
