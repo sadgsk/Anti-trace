@@ -1,11 +1,10 @@
-import { createInterface } from "node:readline/promises";
-import { stdin, stdout } from "node:process";
 import { getOpenAIConfig } from "../env.ts";
 import { Harness } from "../harness/harness.ts";
 import { streamOpenAIChat } from "../llm/openai-chat.ts";
 import type { ImageContent, Model } from "../types.ts";
-import { isImagePasteKey, readClipboardImage, type PasteKey } from "./utils/image.ts";
+import { readClipboardImage } from "./utils/image.ts";
 import { renderEvent } from "./render.ts";
+import { CliPrompt } from "./input/cli-prompt.ts";
 
 const cwd = process.cwd();
 const { apiKey, baseUrl, modelId, contextWindow } = getOpenAIConfig();
@@ -26,36 +25,36 @@ const harness = new Harness({
 });
 harness.subscribe(renderEvent);
 
-const rl = createInterface({ input: stdin, output: stdout });
 const pendingImages: ImageContent[] = [];
 let exiting = false;
 const pasteKeyLabel = process.platform === "win32" ? "Alt+V" : "Ctrl+V";
 
-function attachClipboardImage(): void {
+function attachClipboardImage(): string {
 	const image = readClipboardImage();
 	if (!image) {
-		console.log("\n剪贴板里没有图片");
-		return;
+		return "剪贴板里没有图片";
 	}
 	pendingImages.push(image);
-	if (rl.line.endsWith("v")) {
-		rl.write(null, { name: "backspace" });
-	}
-	console.log(`\n[Image #${pendingImages.length}]`);
+	return `[Image #${pendingImages.length}]`;
 }
 
-stdin.on("keypress", (_str: string, key: PasteKey) => {
-	if (exiting || !isImagePasteKey(key)) {
-		return;
-	}
-	attachClipboardImage();
-});
+const prompt = new CliPrompt({ onImagePaste: attachClipboardImage });
 
 function shutdown(): void {
 	exiting = true;
-	rl.close();
+	prompt.dispose();
 	process.exit(0);
 }
+
+process.once("exit", () => prompt.dispose());
+process.once("SIGTERM", () => {
+	prompt.dispose();
+	process.exit(143);
+});
+process.once("SIGHUP", () => {
+	prompt.dispose();
+	process.exit(129);
+});
 
 process.on("SIGINT", () => {
 	if (harness.agent.state.isStreaming) {
@@ -68,7 +67,8 @@ process.on("SIGINT", () => {
 console.log(`model=${modelId}`);
 console.log(`cwd=${cwd}`);
 console.log(`ctx 0/${contextWindow}`);
-console.log(`commands: /new  /resume  /context  /compact  /exit  paste image: ${pasteKeyLabel}`);
+console.log(`commands: /new  /resume  /context  /compact  /paste  /exit  paste image: ${pasteKeyLabel}`);
+console.log("multiline: Ctrl+J or Shift+Enter; /paste then Ctrl+D for terminals without paste detection");
 
 function formatLastOpenedAt(ms: number): string {
 	const date = new Date(ms);
@@ -79,21 +79,30 @@ function formatLastOpenedAt(ms: number): string {
 while (!exiting) {
 	let line: string;
 	try {
-		line = (await rl.question("you> ")).trim();
+		const result = await prompt.read("you> ", { allowPasteMode: true });
+		if (result.type === "interrupt") {
+			shutdown();
+			break;
+		}
+		if (result.type === "end") {
+			break;
+		}
+		line = result.text;
 	} catch {
 		break;
 	}
 	if (exiting) {
 		break;
 	}
-	if (line.length === 0 && pendingImages.length === 0) {
+	if (line.trim().length === 0 && pendingImages.length === 0) {
 		continue;
 	}
-	if (line === "/exit") {
+	const command = line.includes("\n") ? null : line.trim();
+	if (command === "/exit") {
 		shutdown();
 		break;
 	}
-	if (line === "/new") {
+	if (command === "/new") {
 		try {
 			harness.newSession();
 			console.log("new");
@@ -102,7 +111,7 @@ while (!exiting) {
 		}
 		continue;
 	}
-	if (line === "/resume") {
+	if (command === "/resume") {
 		const items = harness.listSessions();
 		if (items.length === 0) {
 			console.log("没有可恢复的会话");
@@ -114,7 +123,15 @@ while (!exiting) {
 		}
 		let choice: string;
 		try {
-			choice = (await rl.question("resume> ")).trim();
+			const result = await prompt.read("resume> ");
+			if (result.type === "interrupt") {
+				shutdown();
+				break;
+			}
+			if (result.type === "end") {
+				break;
+			}
+			choice = result.text.trim();
 		} catch {
 			break;
 		}
@@ -127,13 +144,13 @@ while (!exiting) {
 		}
 		continue;
 	}
-	if (line === "/context") {
+	if (command === "/context") {
 		const { used, window: currentWindow } = harness.contextUsage();
 		console.log(`ctx ${used}/${currentWindow}`);
 		continue;
 	}
-	if (line.startsWith("/context ")) {
-		const argument = line.slice("/context ".length).trim();
+	if (command?.startsWith("/context ")) {
+		const argument = command.slice("/context ".length).trim();
 		if (!/^\d+$/.test(argument) || Number(argument) <= 0) {
 			console.log("用法：/context <正整数>");
 			continue;
@@ -147,7 +164,7 @@ while (!exiting) {
 		}
 		continue;
 	}
-	if (line === "/compact") {
+	if (command === "/compact") {
 		try {
 			const result = await harness.manualCompact();
 			if (result === "below-threshold") {

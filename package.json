@@ -17,6 +17,7 @@
 		"probe:session": "tsx test/probe-session.ts",
 		"probe:image-order": "tsx test/probe-tool-image-order.ts",
 		"test:images": "tsx test/tool-result-images.test.ts",
+		"test:input": "tsx --test test/terminal-input.test.ts test/draft-editor.test.ts test/cli-renderer.test.ts test/paste-burst.test.ts test/cli-prompt.test.ts",
 		"typecheck": "tsc --noEmit",
 		"build": "tsc"
 	},

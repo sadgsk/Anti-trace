@@ -41,6 +41,7 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 |---|---|
 | 对话与工具 | REPL、内存多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 已实现；已知问题及验收状态见进度和问题记录 |
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；`/new` `/resume` `/exit` 已接通 |
+| 终端输入 | `src/cli/input/` 已接入 raw mode、bracketed paste、无标记粘贴的快速输入判断和可编辑多行草稿；Enter 显式提交，CLI 目前使用临时渲染层，v1.3 TUI 将复用输入底层；跨终端手动验收待做 |
 | 图片输入 | `read` 支持 jpeg/png/gif/webp；CLI 支持剪贴板图片，Windows `Alt+V`、macOS/Linux `Ctrl+V`，直接读取位图；发送前尝试把最长边缩到 2000，只处理临时副本；文字和图片进入同一条内部消息，当前不按模型能力拦截图片 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
 | 上下文容量 | 窗口、用量、显示、摘要、自动压缩和手动 `/compact` 已接通；默认窗口 `256000`，用量优先取接口 `usage`。假 `StreamFn` 已验证压缩、重试和手动入口；真实模型的压缩验收暂缓 |
@@ -66,7 +67,7 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 
 ```text
 main（屏幕）
-  you> /exit /new /resume /thinking /context /compact
+  you> 多行草稿、/exit /new /resume /context /compact /paste
   每轮后一行 ctx used/window
   Ctrl+C abort
         │
@@ -82,7 +83,7 @@ Agent / loop（已有，不改职责）
         └── 协议适配器（Chat Completions / Anthropic Messages / OpenAI Responses）
 ```
 
-`main` 只做人机：读行、斜杠命令、订阅打印、SIGINT。不创建工具，不 `new Agent`。
+`main` 只做人机：从输入组件接收完整草稿、处理斜杠命令、订阅打印和处理中断。不创建工具，不 `new Agent`。输入组件独占终端字节流，将文本、按键和粘贴分开，再由草稿组件维护编辑状态；只有提交事件会把草稿交给 `main`。当前 CLI 渲染器是临时显示层，后续 TUI 接入同一输入事件和草稿状态。
 
 磁盘采用按项目分桶的线性会话，格式由本项目定义：
 
@@ -102,7 +103,7 @@ Agent / loop（已有，不改职责）
 **`/resume`（REPL 打印几行，不是 TUI 选择器）：**
 
 - 列出当前 cwd 桶内已落盘的会话，按上次打开时间新到旧，每行：`序号. 名字  YYYY-MM-DD HH:mm`。
-- `/resume`：打印列表，再读一行序号，调用 `resumeAt`。空行取消，不加载。
+- `/resume`：打印列表，再通过同一输入组件读取序号，调用 `resumeAt`。空行取消，不加载。
 - 只有整行恰好是 `/resume` 才进这条命令；`/resume 2` 这类不算。
 - 没有可 resume 的文件则打印一句，不 throw。不自动打开最近一份。
 
@@ -141,6 +142,10 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
 | `src/harness/compaction.ts` | 已有阈值、溢出判断、切点、摘要与包装；真实 REPL 验收暂缓 |
+| `src/cli/input/terminal.ts` | 终端输入唯一所有者：TTY raw mode 与 bracketed paste 的启停、跨块解析、文本/按键/完整粘贴事件；非 TTY 管道输入在 EOF 作为整体草稿交付 |
+| `src/cli/input/paste-burst.ts` | 无粘贴标记时，按事件顺序和短时间间隔判断连续输入，并延迟决定 Enter/Tab；属于尽力而为的兜底 |
+| `src/cli/input/draft.ts` | 与终端和显示无关的可编辑多行草稿，保留原始缩进，归一化换行，并维护光标和本次进程的提交历史 |
+| `src/cli/input/cli-prompt.ts`、`cli-renderer.ts` | 现阶段 CLI 适配层：按键映射、显式提交、`/paste` 安全模式、图片快捷键和多行渲染；未来 TUI 更换显示与交互层时复用下层输入和草稿 |
 | `src/cli/utils/image.ts` | 剪贴板读取和图片粘贴按键判断 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
 | `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
@@ -153,7 +158,15 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 ## 4. 分层
 
 ```
-cli/main.ts + render.ts
+cli/input/terminal.ts ── 文本 / 按键 ──→ cli/input/paste-burst.ts
+                └────── 完整粘贴 ─────┐         │
+                                      ▼         ▼
+                         cli/input/cli-prompt.ts
+                           ├── cli/input/draft.ts
+                           └── cli/input/cli-renderer.ts
+                                      │
+                                      ▼
+                             cli/main.ts + render.ts
    │
    ▼
 harness/harness.ts
@@ -303,7 +316,9 @@ v1.2 的基础接入目标仍是：用户提供模型 ID、API key、API base UR
 
 启动：`getOpenAIConfig` + `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`，`subscribe(renderEvent)`。
 
-循环：普通输入 → `harness.prompt(line, images?)`，剪贴板图片和文字一起提交。`/exit` 退出。`/new` → `newSession`（清消息并换句柄）。整行恰好 `/resume`：打印 `listSessions`（名字 + 本地 `YYYY-MM-DD HH:mm`），再读序号 `resumeAt`。没有则打印一句。不自动加载最近一份。`/context`、`/compact` 已接通；思考等级与 BYOK 的配置入口一起设计。SIGINT：streaming 则 `harness.abort()`。
+循环：`CliPrompt.read()` 返回完整草稿后，普通输入 → `harness.prompt(text, images?)`，剪贴板图片和文字一起提交；斜杠命令仅匹配单行草稿。`/exit` 退出。`/new` → `newSession`（清消息并换句柄）。整行恰好 `/resume`：打印 `listSessions`（名字 + 本地 `YYYY-MM-DD HH:mm`），再由同一组件读取序号并调用 `resumeAt`。没有则打印一句。不自动加载最近一份。`/context`、`/compact` 已接通；思考等级与 BYOK 的配置入口一起设计。SIGINT：streaming 则 `harness.abort()`。
+
+TTY 输入启用 raw mode；输入和输出均为 TTY 时启用 bracketed paste。完整粘贴事件直接插入草稿，不触发提交；普通 Enter 单独提交，Ctrl+J 或可辨别的 Shift+Enter 插入换行。无标记粘贴经 `PasteBurst` 尝试识别快速连续的文本、Enter 和 Tab。由于慢速无标记粘贴与逐字键入无法严格区分，`/paste` 提供显式入口：进入后换行只写入草稿，Ctrl+D 结束模式，随后检查并按 Enter 提交。非 TTY 管道在 EOF 将全部输入作为一次草稿提交。图片快捷键仍在 CLI 适配层处理。跨 Windows PowerShell、WebStorm 终端及 macOS Terminal 的手动验收待完成。
 
 ---
 
@@ -336,6 +351,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 6. 按最终确定的模型配置检查思考选项：能控制的档位与实际请求一致；不能控制或参数被拒绝时有明确反馈，兜底与重试行为可复现。模型切换和会话恢复的预期行为在合并设计时确定。
 7. 分别选择 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses，使用自填 URL / key / 模型完成多轮文本、一次工具调用及结果回传；核对 usage、错误、中断和不支持图片时的明确提示。
 8. `/new` 后工具还能用，且开始一份新会话。
+9. 在实际终端粘贴含缩进、空行、Tab 和末尾换行的多行代码，确认只进入可编辑草稿，按独立 Enter 后才发送；再检查 Ctrl+J、可辨别的 Shift+Enter、`/paste` 加 Ctrl+D、图片快捷键和 `/resume` 序号输入。Windows PowerShell、WebStorm 终端和 macOS Terminal 的手动结果分别记录，不能以单个平台的探针代替。
 
 测完删掉临时 jsonl 和手测写的文件。
 
@@ -368,5 +384,6 @@ src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*，实现按本项目需求调整
 src/harness/prompt.ts             本项目的系统提示
 思考等级与 BYOK                    模型能力、协议适配和可配置映射，待合并设计
-cli/main.ts                       interactive-mode 的输入循环（readline）
+cli/input/*                       终端输入事件、多行草稿与当前 CLI 显示；参考 Pi 的输入分层及 Codex 的无标记粘贴兜底，按本项目需求实现
+cli/main.ts                       本项目的命令分派和 Harness 接线
 ```
