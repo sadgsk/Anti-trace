@@ -22,7 +22,7 @@ CC 使用 React 组件和仓库内的定制 Ink。新输入也按这两层组织
 | `src/components/PromptInput/PromptInput.tsx`、`src/hooks/useInputBuffer.ts` | 提示词草稿、粘贴文本及图片引用、撤销、历史、显示和提交门槛 |
 | `src/history.ts`、`src/utils/handlePromptSubmit.ts`、`src/screens/REPL.tsx` | 提交前展开文本引用、筛出已删除的图片、命令分发并调用 Harness |
 
-数据流：
+输入主链路（目标；第 1 批目前只接通 stdin 与空界面）：
 
 ```text
 stdin (唯一读取者)
@@ -33,6 +33,8 @@ stdin (唯一读取者)
   → 提交边界：展开文本引用、收集仍被引用的图片
   → REPL 命令分发 / Harness.prompt(text, images)
 ```
+
+显示主链路也要在接线时讲清：编辑器的草稿状态变化 → React/Ink 重画输入组件 → stdout 显示；提交后 `Harness.subscribe` 收到 Agent 事件 → REPL 更新显示内容 → Ink 重画或采用与 Ink 协调的输出方式 → stdout 显示。现有 `src/cli/render.ts` 会直接写 stdout；第 7 批接 REPL 时需要明确它与 Ink 的边界，避免两处同时随意改写终端画面。具体显示方式在该批 review 时确定，当前尚未接通。
 
 预期文件边界（文件名可在对应批次 review 时按依赖调整）：
 
@@ -66,17 +68,19 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 
 每批开始前先说明对照的 CC 函数、拟改的本项目文件、预期行为；每批控制在少量函数和必要类型内。完成后给出差异与验证结果，停下供用户 review。下一批只在用户要求后开始。
 
-| 批次 | 产物与 review 边界 | 主要源码对照 |
-|---|---|---|
-| 0（本次） | 归档旧五文件、断开 `main.ts`、确定本文；不实现新输入 | 旧 `src/cli/input/stash/` |
-| 1（完成） | 核对 React 与 CC 定制 Ink 的最小依赖；建立空宿主及唯一 stdin 所有者，接通 raw mode / bracketed paste 的启停与恢复 | Ink `App.tsx` |
-| 2 | 终端 tokenizer 和按键事件：跨 chunk、UTF-8、修饰键、粘贴 `isPasted`；事件只从宿主发出 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
-| 3 | 聚焦分发和快捷键注册；先接提交、换行、中断，再逐组加入编辑快捷键 | `use-input.ts`、`src/keybindings/*` |
-| 4 | 多行文本编辑：光标、删除、上下行、历史、普通 Enter 与换行键 | `useTextInput.ts`、`BaseTextInput.tsx` |
-| 5 | 粘贴处理：明确粘贴、100 ms 合并、大块后备、图片剪贴板；检查同批 Enter | `usePasteHandler.ts`、`imagePaste.ts` |
-| 6 | `PromptInput` 草稿状态：长文本占位符、图片引用、删除清理、撤销/历史快照和显示 | `PromptInput.tsx`、`useInputBuffer.ts` |
-| 7 | REPL 边界：展开引用、附件筛选、斜杠命令、`Harness.prompt`、退出与终端恢复 | `history.ts`、`handlePromptSubmit.ts`、`REPL.tsx` |
-| 8 | 端到端验收后恢复 `npm start`；更新 README、架构书和当前测试命令 | 完整输入链路 |
+下面的“可略读”只提醒阅读重点：实现和验收仍要覆盖这些分支。每个小点仍按上面的协作方式讲来源、改少量函数、交付 review；进入非核心段落时提醒用户可以不逐行细看，不替用户改变阅读节奏。
+
+| 批次 | 核心流程：需要能说清数据从哪来、到哪去 | 分支实现细节：协作时提醒可略读 | 主要源码对照 |
+|---|---|---|---|
+| 0（完成） | 旧输入退出运行入口，新输入从宿主重新接线；确认 `main.ts` 暂不可交互 | 五个旧文件的搬移和旧 import 清理 | 旧 `src/cli/input/stash/` |
+| 1（完成） | 真实 stdin 只由宿主读取；raw mode 让字节及时到达；Ink 接虚拟 stdin、向 stdout 画界面；`rerender` 是后续状态更新的显示出口 | 终端能力检查、信号码、清理顺序与 bracketed paste 模式开关的逐行实现 | Ink `App.tsx` |
+| 2 | stdin 的任意字节块进入解析器，输出文字、按键或完整粘贴事件；跨 chunk 保留未完成内容，事件只从宿主发出 | 转义码分支表、UTF-8 拼接的字节下标、不同终端修饰键编码和异常序列恢复 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
+| 3 | 一个输入事件按焦点和快捷键映射变成动作，再交给当前组件；能说明提交、换行、中断分别由谁处理 | 每组快捷键的具体写法、冲突排序和连续组合键的状态分支 | `use-input.ts`、`src/keybindings/*` |
+| 4 | 编辑器持有文本与光标；动作更新草稿并触发重画；普通 Enter 提交，换行键只修改草稿 | 删除边界、Unicode 光标位移、上下行目标列和历史索引等编辑分支 | `useTextInput.ts`、`BaseTextInput.tsx` |
+| 5 | 粘贴事件进入粘贴处理，再写入草稿；同批 Enter 不得抢先提交；图片读取结果进入附件链路 | 100 ms 合并计时、800 字符后备判断、剪贴板平台差异、图片解码及路径识别的分支 | `usePasteHandler.ts`、`imagePaste.ts` |
+| 6 | `PromptInput` 把可见文字、原始长文本与图片附件保持在同一份草稿；提交时交出完整快照；草稿变化驱动界面更新 | 占位符编号和显示格式、删除引用的清理分支、撤销与历史恢复的边界情况 | `PromptInput.tsx`、`useInputBuffer.ts` |
+| 7 | 草稿快照进入 REPL；展开文本引用、筛选图片后分发命令或调用 `Harness.prompt`；Agent 事件进入显示链路，最终到 stdout | 各条斜杠命令的具体解析、附件筛选循环、退出和异常清理的分支；本批需确定现有直接写 stdout 的 `renderEvent` 如何与 Ink 配合 | `history.ts`、`handlePromptSubmit.ts`、`REPL.tsx` |
+| 8 | 从真实终端输入到模型请求，再从 Agent 事件到终端显示，走通整条链；验收后恢复 `npm start` | 各终端按键编码差异、粘贴和图片的特殊组合、验收脚本与文档更新的逐项细节 | 完整输入链路 |
 
 每批的测试只覆盖该层最容易出错的契约：跨 chunk、粘贴加 Enter、修饰键冲突、长文本还原、删除图片引用、历史恢复、非 TTY EOF。最终另做真实终端手测。旧 `stash` 代码和测试只用于对照，不进入新入口。
 
