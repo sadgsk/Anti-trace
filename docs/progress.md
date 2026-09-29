@@ -6,7 +6,7 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入按 Claude Code 源码逐批重建；思考等级与 BYOK 后续规划仍在。** |
+| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1 批终端宿主已完成，后续按 Claude Code 源码逐批重建；思考等级与 BYOK 后续规划仍在。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
@@ -41,7 +41,7 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**旧输入五文件已移到 `src/cli/input/stash/`；旧 REPL 循环、图片暂存及其输入接线已从 `main.ts` 删除。当前入口明确报不可用，不提供临时交互回退。新目标、源码对照和每批 review 边界见 [输入迁移计划](./claude-code-input-architecture.md)。旧输入测试改用 `npm run test:input:stash`，只验证归档实现。
+**终端输入迁移：**旧输入五文件已移到 `src/cli/input/stash/`；旧 REPL 循环、图片暂存及其输入接线已从 `main.ts` 删除。第 1 批终端宿主已完成，本机临时测试覆盖字节读取、渲染、模式恢复与非 TTY 拒绝；测试文件不入库。当前入口仍明确报不可用，不提供临时交互回退。新目标、源码对照和每批 review 边界见 [输入迁移计划](./claude-code-input-architecture.md)。旧输入测试 `npm run test:input:stash` 只验证归档实现。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
@@ -70,6 +70,7 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-29 | 新输入第 1 批完成：浅克隆 `oboard/claude-code-rev` 到并列目录，HEAD 为文档中的 `3b0498a`；核对其 `src/ink/components/App.tsx` 的 raw mode、stdin 与 bracketed paste 生命周期。项目用 React 19 + Ink 6.5.1 渲染，Ink 接虚拟输入流，`TerminalHost` 独占真实 stdin 的原始字节并管理终端模式。`npm run typecheck`、`npm run build` 通过；本机临时测试 2 例通过，按用户要求不入库。按键解析与 REPL 接线尚未实现，CLI 仍不可对话。 |
 | 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)，后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
 | 2026-09-26 | 为多行代码粘贴提前发送的问题接入新的终端输入底层：raw mode 与 bracketed paste 解析输出独立的文本、按键、粘贴事件；`PasteBurst` 为无标记的快速输入提供时间判断兜底；`DraftEditor` 独立维护可编辑多行草稿；`CliPrompt` 暂时负责 CLI 显示与 Enter 提交，支持 Ctrl+J / 可辨别的 Shift+Enter 换行、`/paste` 后 Ctrl+D 退出安全粘贴、原有图片快捷键与斜杠命令。非 TTY 管道在 EOF 交付完整文本。输入测试、类型检查、构建、macOS 伪终端请求体与 SIGTERM 清理验证及独立代码 review 已通过。慢速无标记粘贴存在不可判别边界；实际 Windows / WebStorm / Terminal.app 手测待做。 |
 | 2026-09-26 | 思考等级与 BYOK 改为同一项待设计功能，不再按原第 4、6 步分别实现。规划要求模型能力与请求映射可在配置中调整，兼顾不同协议和网关差异，并设计明确反馈及有限重试或兜底；避免新厂商都要在核心代码追加特例。具体档位、能力信息来源、映射形状和重试条件待进一步对照 Kimi Code 等实现后决定。本次只更新规划文档，未改实现。 |

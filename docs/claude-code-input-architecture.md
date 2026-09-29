@@ -2,13 +2,13 @@
 
 ## 当前状态与目标
 
-2026-09-29：旧输入的五个实现文件已移到 `src/cli/input/stash/`，`main.ts` 已断开交互输入。`npm start` 此时应明确提示入口不可用；这不是新输入已实现。旧测试只验证归档代码，运行命令为 `npm run test:input:stash`。
+2026-09-29：旧输入的五个实现文件已移到 `src/cli/input/stash/`，`main.ts` 已断开交互输入。第 1 批终端宿主已完成：`src/cli/ink/terminal-host.ts` 独占真实 stdin，管理 raw mode 和 bracketed paste，并能渲染空 Ink 界面。按键解析、输入组件和 REPL 尚未接入；`npm start` 仍明确提示入口不可用。宿主已通过本机临时测试；旧测试 `npm run test:input:stash` 只验证归档代码。
 
 目标是按本地 `claude-code-rev` 的输入链路重建终端交互：**一个 stdin 所有者 → 按键/粘贴事件 → 聚焦的文本输入组件 → 草稿及附件状态 → 提交给 Harness**。逐层对齐 CC 的事件语义、粘贴行为、编辑行为和快捷键分发。每次只实现一个可 review 的小点，用户确认后再进入下一点；不批量复制整套 TUI。
 
-CC 使用 React 组件和仓库内的定制 Ink。新输入也按这两层组织：终端事件与渲染宿主在 `src/cli/ink/`，输入组件在 `src/cli/input/`，REPL 的命令及 Harness 接线在 `src/cli/repl/`。第 1 批先核对定制 Ink 的最小依赖和本项目 Node/TypeScript 配置，建立一个可渲染的空宿主；不能假定 npm 上的普通 Ink 与 CC 的输入事件行为相同。后续只移植本项目需要的输入链路，每次给出对应源码和差异。
+CC 使用 React 组件和仓库内的定制 Ink。新输入也按这两层组织：终端事件与渲染宿主在 `src/cli/ink/`，输入组件在 `src/cli/input/`，REPL 的命令及 Harness 接线在 `src/cli/repl/`。第 1 批采用 React 19 与 Ink 6.5.1 作为渲染依赖；Ink 只接一条独立的虚拟输入流，不读取真实 stdin。真实终端的输入事件由本项目宿主实现，不能假定普通 Ink 与 CC 的输入事件行为相同。后续只移植本项目需要的输入链路，每次给出对应源码和差异。
 
-对照源码：`/Users/kyson/workspace/claudecode fork/claude-code-rev`，检查时 HEAD 为 `3b0498a`。该仓库自述为从 source map 还原、含 shim 的源码树，并非官方原始仓库。每一步以文中列出的具体文件为阅读入口；发现该还原版与实际依赖接口冲突时，先记录差异，再决定项目中的实现。
+对照源码：`../claude-code-rev`（Windows 本机 `E:\pi-harness\claude-code-rev`），HEAD 为 `3b0498a`。该仓库自述为从 source map 还原、含 shim 的源码树，并非官方原始仓库。每一步以文中列出的具体文件为阅读入口；发现该还原版与实际依赖接口冲突时，先记录差异，再决定项目中的实现。
 
 ## 对照关系与职责
 
@@ -69,7 +69,7 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 | 批次 | 产物与 review 边界 | 主要源码对照 |
 |---|---|---|
 | 0（本次） | 归档旧五文件、断开 `main.ts`、确定本文；不实现新输入 | 旧 `src/cli/input/stash/` |
-| 1 | 核对 React 与 CC 定制 Ink 的最小依赖；建立空宿主及唯一 stdin 所有者，接通 raw mode / bracketed paste 的启停与恢复 | Ink `App.tsx` |
+| 1（完成） | 核对 React 与 CC 定制 Ink 的最小依赖；建立空宿主及唯一 stdin 所有者，接通 raw mode / bracketed paste 的启停与恢复 | Ink `App.tsx` |
 | 2 | 终端 tokenizer 和按键事件：跨 chunk、UTF-8、修饰键、粘贴 `isPasted`；事件只从宿主发出 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
 | 3 | 聚焦分发和快捷键注册；先接提交、换行、中断，再逐组加入编辑快捷键 | `use-input.ts`、`src/keybindings/*` |
 | 4 | 多行文本编辑：光标、删除、上下行、历史、普通 Enter 与换行键 | `useTextInput.ts`、`BaseTextInput.tsx` |

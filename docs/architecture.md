@@ -4,7 +4,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-09-29）：**旧输入已归档，当前交互入口暂不可用。这次迁移涉及终端解析、快捷键、草稿、粘贴、图片和 REPL，具体设计及逐批更新较多，不在本架构书重复记录，统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
+**输入迁移状态（2026-09-29）：**旧输入已归档；第 1 批终端宿主已完成，当前交互入口仍暂不可用。这次迁移涉及终端解析、快捷键、草稿、粘贴、图片和 REPL，具体设计及逐批更新较多，不在本架构书重复记录，统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -43,7 +43,7 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 |---|---|
 | 对话与工具 | Harness、内存多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 的内部实现仍在；REPL 交互入口因输入迁移暂不可用 |
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；旧 CLI 命令接线已移除，待新 REPL 接回 |
-| 终端输入 | 旧五文件已移至 `src/cli/input/stash/`，未接入运行入口；新输入按 [迁移计划](./claude-code-input-architecture.md) 分批实现 |
+| 终端输入 | 旧五文件已移至 `src/cli/input/stash/`，未接入运行入口；新宿主已能管理终端模式与渲染空界面，后续层按 [迁移计划](./claude-code-input-architecture.md) 分批实现 |
 | 图片输入 | `read` 和内部图文消息仍支持 jpeg/png/gif/webp；剪贴板图片读取工具仍在，但 CLI 快捷键随旧输入归档，待迁移计划第 5–7 批重新接线 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩和 `Harness.manualCompact()` 仍在；CLI 显示与 `/compact` 命令待新 REPL 接回。默认窗口 `256000`，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
@@ -144,6 +144,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
 | `src/harness/compaction.ts` | 已有阈值、溢出判断、切点、摘要与包装；真实 REPL 验收暂缓 |
+| `src/cli/ink/terminal-host.ts` | 第 1 批宿主：真实 stdin 的唯一读取者，管理 raw mode 和 bracketed paste；Ink 只负责渲染，解析事件待接 |
 | `src/cli/input/stash/*` | 迁移前五个输入文件的归档；只供对照，不接入运行入口 |
 | `docs/claude-code-input-architecture.md` | 新输入的数据流、源码入口、分批施工和验收边界 |
 | `src/cli/utils/image.ts` | 剪贴板读取和图片粘贴按键判断 |
