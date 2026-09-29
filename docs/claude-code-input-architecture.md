@@ -14,7 +14,7 @@ CC 使用 React 组件和仓库内的定制 Ink。新输入也按这两层组织
 
 | CC 源码入口 | 本项目目标职责 |
 |---|---|
-| `src/ink/components/App.tsx`、`src/ink/parse-keypress.ts`、`src/ink/termio/tokenizer.ts` | 唯一 stdin 读取者；raw mode、bracketed paste、终端能力和清理；跨 chunk 解析为带修饰键的按键、文本或完整粘贴事件 |
+| `src/ink/components/App.tsx`、`src/ink/parse-keypress.ts`、`src/ink/termio/tokenize.ts` | 唯一 stdin 读取者；raw mode、bracketed paste、终端能力和清理；跨 chunk 解析为带修饰键的按键、文本或完整粘贴事件 |
 | `src/ink/events/input-event.ts`、`src/ink/hooks/use-input.ts` | 统一事件对象；按聚焦状态分发，不给输入组件另设竞争性的 stdin 监听器 |
 | `src/keybindings/*` | 将键值、修饰键、上下文和动作分开；处理冲突、优先级与组合键；输入组件只实现动作 |
 | `src/hooks/useTextInput.ts`、`src/components/BaseTextInput.tsx` | 文本、光标、多行、历史和 Enter 行为；基础输入组件连接事件与编辑状态 |
@@ -60,7 +60,7 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 |---|---|---|
 | 0（本次） | 归档旧五文件、断开 `main.ts`、确定本文；不实现新输入 | 旧 `src/cli/input/stash/` |
 | 1 | 核对 React 与 CC 定制 Ink 的最小依赖；建立空宿主及唯一 stdin 所有者，接通 raw mode / bracketed paste 的启停与恢复 | Ink `App.tsx` |
-| 2 | 终端 tokenizer 和按键事件：跨 chunk、UTF-8、修饰键、粘贴 `isPasted`；事件只从宿主发出 | `tokenizer.ts`、`parse-keypress.ts`、`input-event.ts` |
+| 2 | 终端 tokenizer 和按键事件：跨 chunk、UTF-8、修饰键、粘贴 `isPasted`；事件只从宿主发出 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
 | 3 | 聚焦分发和快捷键注册；先接提交、换行、中断，再逐组加入编辑快捷键 | `use-input.ts`、`src/keybindings/*` |
 | 4 | 多行文本编辑：光标、删除、上下行、历史、普通 Enter 与换行键 | `useTextInput.ts`、`BaseTextInput.tsx` |
 | 5 | 粘贴处理：明确粘贴、100 ms 合并、大块后备、图片剪贴板；检查同批 Enter | `usePasteHandler.ts`、`imagePaste.ts` |
