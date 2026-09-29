@@ -6,11 +6,12 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **第 0–3 步已接通；第 5 步手动入口代码与假流验证完成，待 review 和真实模型验收。终端输入底层已接入，跨终端手测和独立 review 待完成；原第 4 步思考等级与第 6 步 BYOK 合并规划，v1.3 做 TUI** |
+| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入按 Claude Code 源码逐批重建；思考等级与 BYOK 后续规划仍在。** |
 | 架构书 | [architecture.md](./architecture.md) |
+| 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-26 |
+| 最后更新 | 2026-09-29 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -40,7 +41,7 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入插入项：** `main.ts` 已改从 `CliPrompt` 读取完整草稿；`src/cli/input/` 分开处理 TTY 原始输入与 bracketed paste、无标记快速粘贴判断、与终端无关的多行草稿和临时 CLI 渲染。Enter 负责提交，Ctrl+J / 可辨别的 Shift+Enter 负责换行；`/paste` 加 Ctrl+D 可显式保护无标记粘贴。单行命令、图片快捷键和非 TTY 管道输入已接线。输入测试、macOS 伪终端请求体验证和独立代码 review 已通过。慢速无标记粘贴无法可靠自动识别；Windows PowerShell、WebStorm 终端和 macOS Terminal.app 的实机手动验收仍待完成。v1.3 TUI 接入时复用输入解析和草稿层。
+**终端输入迁移：**旧输入五文件已移到 `src/cli/input/stash/`；旧 REPL 循环、图片暂存及其输入接线已从 `main.ts` 删除。当前入口明确报不可用，不提供临时交互回退。新目标、源码对照和每批 review 边界见 [输入迁移计划](./claude-code-input-architecture.md)。旧输入测试改用 `npm run test:input:stash`，只验证归档实现。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
@@ -52,9 +53,9 @@
 | 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [x] |
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / 会话名（前 10 字）/ `/new` / `/resume`（名字+上次打开时间） | [x] |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context`；阈值压缩；报错或空 `length` 重试；`stop` 超窗只压。代码和假流探针完成，真实模型验收待做 | [x] |
-| 5 | 手动 `/compact`：`used > window / 4` 时复用现有切点与摘要；无旧历史或无新消息时提示。代码与假流验证完成，待 review 和真实模型验收 | [ ] |
+| 5 | `Harness.manualCompact()` 及假流验证已完成；旧 CLI `/compact` 接线随输入层移除，待新 REPL 恢复并做真实模型验收 | [ ] |
 | 4+6 | 思考等级与 BYOK 合并规划：三协议基础接入、可配置的模型能力与请求映射、失败兜底；具体方案待调研 | [ ] |
-| 7 | 架构书 §7 REPL 验收与公开试用准备 | [ ] |
+| 7 | 新输入和 REPL 按迁移计划完成后，再做端到端验收与公开试用准备 | [ ] |
 
 第 3 步的内部状态：
 
@@ -69,6 +70,7 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)，后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
 | 2026-09-26 | 为多行代码粘贴提前发送的问题接入新的终端输入底层：raw mode 与 bracketed paste 解析输出独立的文本、按键、粘贴事件；`PasteBurst` 为无标记的快速输入提供时间判断兜底；`DraftEditor` 独立维护可编辑多行草稿；`CliPrompt` 暂时负责 CLI 显示与 Enter 提交，支持 Ctrl+J / 可辨别的 Shift+Enter 换行、`/paste` 后 Ctrl+D 退出安全粘贴、原有图片快捷键与斜杠命令。非 TTY 管道在 EOF 交付完整文本。输入测试、类型检查、构建、macOS 伪终端请求体与 SIGTERM 清理验证及独立代码 review 已通过。慢速无标记粘贴存在不可判别边界；实际 Windows / WebStorm / Terminal.app 手测待做。 |
 | 2026-09-26 | 思考等级与 BYOK 改为同一项待设计功能，不再按原第 4、6 步分别实现。规划要求模型能力与请求映射可在配置中调整，兼顾不同协议和网关差异，并设计明确反馈及有限重试或兜底；避免新厂商都要在核心代码追加特例。具体档位、能力信息来源、映射形状和重试条件待进一步对照 Kimi Code 等实现后决定。本次只更新规划文档，未改实现。 |
 | 2026-09-26 | 用户调整施工顺序，先接简单的手动入口。`Harness.manualCompact()` 在 `used > window / 4` 时调用现有 `compact()`，否则直接返回；无新消息时不重复压缩。REPL 加 `/compact` 与结果提示，摘要包装不再声称已耗尽上下文。验证：`npm run typecheck` 通过；一次性假 `StreamFn` 探针覆盖恰好 1/4、超过 1/4 但只有一轮、成功摘要和 JSONL 恢复、压后重复调用；PTY 里 `/compact` 的低用量提示正常。未调用真实模型，当前步骤等用户 review 后再继续。 |
@@ -104,7 +106,7 @@
 
 ## v1.3（后续）
 
-在 v1.2 的 CLI、手动压缩和三协议 BYOK 完成后做 TUI。终端事件解析、粘贴判断和可编辑草稿已先行落到 `src/cli/input/`；TUI 替换当前临时 CLI 显示与交互适配层，复用这些底层模块。视觉细节等 v1.2 收尾时确定；现阶段不把 TUI 作为公开 CLI 试用的必要条件。
+原计划在 v1.3 才替换 TUI；现已提前停用旧输入，并开始 Claude Code 输入架构迁移。现行分批顺序以 [输入迁移计划](./claude-code-input-architecture.md) 为准。旧输入的历史实现和验证记录保留在上文，不代表当前 CLI 可用。
 
 ---
 

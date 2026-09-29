@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PassThrough } from "node:stream";
 import type { WriteStream } from "node:tty";
-import { CliPrompt } from "../src/cli/input/cli-prompt.ts";
-import type { TerminalInputStream } from "../src/cli/input/terminal.ts";
+import { CliPrompt } from "../src/cli/input/stash/cli-prompt.ts";
+import type { TerminalInputStream } from "../src/cli/input/stash/terminal.ts";
 
 function makeTerminal(): {
 	input: PassThrough & TerminalInputStream;

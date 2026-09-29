@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { test } from "node:test";
 import type { WriteStream } from "node:tty";
-import { CliRenderer } from "../src/cli/input/cli-renderer.ts";
+import { CliRenderer } from "../src/cli/input/stash/cli-renderer.ts";
 
 class Terminal extends EventEmitter {
 	columns: number;

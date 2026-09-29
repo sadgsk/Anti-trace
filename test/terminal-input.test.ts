@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { PassThrough } from "node:stream";
 import test from "node:test";
-import { TerminalInput, type TerminalInputEvent } from "../src/cli/input/terminal.ts";
+import { TerminalInput, type TerminalInputEvent } from "../src/cli/input/stash/terminal.ts";
 
 class FakeTTY extends PassThrough {
 	isTTY = true;

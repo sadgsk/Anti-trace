@@ -1,6 +1,6 @@
 import { stdin, stdout } from "node:process";
 import type { WriteStream } from "node:tty";
-import { isImagePasteKey } from "../utils/image.ts";
+import { isImagePasteKey } from "../../utils/image.ts";
 import { CliRenderer } from "./cli-renderer.ts";
 import { DraftEditor } from "./draft.ts";
 import { PasteBurst, type BurstOutput } from "./paste-burst.ts";

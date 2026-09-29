@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DraftEditor } from "../src/cli/input/draft.ts";
+import { DraftEditor } from "../src/cli/input/stash/draft.ts";
 
 test("multiline paste stays one editable draft and submits with indentation intact", () => {
 	const draft = new DraftEditor();

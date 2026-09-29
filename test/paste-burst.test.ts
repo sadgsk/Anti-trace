@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PasteBurst } from "../src/cli/input/paste-burst.ts";
+import { PasteBurst } from "../src/cli/input/stash/paste-burst.ts";
 
 test("rapid unmarked lines are inserted as one paste, then a separate Enter submits", () => {
 	const burst = new PasteBurst({ characterGapMs: 8, burstIdleMs: 60, enterGuardMs: 120 });
