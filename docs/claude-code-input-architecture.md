@@ -2,7 +2,7 @@
 
 ## 当前状态与目标
 
-2026-09-29：旧输入的五个实现文件已移到 `src/cli/input/stash/`，`main.ts` 已断开交互输入。第 1 批终端宿主已完成：`src/cli/ink/terminal-host.ts` 独占真实 stdin，管理 raw mode 和 bracketed paste，并能渲染空 Ink 界面。按键解析、输入组件和 REPL 尚未接入；`npm start` 仍明确提示入口不可用。宿主已通过本机临时测试；旧测试 `npm run test:input:stash` 只验证归档代码。
+2026-09-30：旧输入的五个实现文件已移到 `src/cli/input/stash/`，`main.ts` 已断开交互输入。第 1 批终端宿主和第 2 批事件解析已完成：`src/cli/ink/terminal-host.ts` 独占真实 stdin，管理 raw mode、bracketed paste 和空 Ink 界面；`terminal-input.ts` 将字节转成文字、按键、完整粘贴、终端响应或鼠标事件。焦点、快捷键、输入组件和 REPL 尚未接入；`npm start` 仍明确提示入口不可用。新解析器已通过本机临时探针；旧测试 `npm run test:input:stash` 只验证归档代码。
 
 目标是按本地 `claude-code-rev` 的输入链路重建终端交互：**一个 stdin 所有者 → 按键/粘贴事件 → 聚焦的文本输入组件 → 草稿及附件状态 → 提交给 Harness**。逐层对齐 CC 的事件语义、粘贴行为、编辑行为和快捷键分发。每次只实现一个可 review 的小点，用户确认后再进入下一点；不批量复制整套 TUI。
 
@@ -22,7 +22,7 @@ CC 使用 React 组件和仓库内的定制 Ink。新输入也按这两层组织
 | `src/components/PromptInput/PromptInput.tsx`、`src/hooks/useInputBuffer.ts` | 提示词草稿、粘贴文本及图片引用、撤销、历史、显示和提交门槛 |
 | `src/history.ts`、`src/utils/handlePromptSubmit.ts`、`src/screens/REPL.tsx` | 提交前展开文本引用、筛出已删除的图片、命令分发并调用 Harness |
 
-输入主链路（目标；第 1 批目前只接通 stdin 与空界面）：
+输入主链路（目标；前两批目前接通到终端事件）：
 
 ```text
 stdin (唯一读取者)
@@ -74,7 +74,7 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 |---|---|---|---|
 | 0（完成） | 旧输入退出运行入口，新输入从宿主重新接线；确认 `main.ts` 暂不可交互 | 五个旧文件的搬移和旧 import 清理 | 旧 `src/cli/input/stash/` |
 | 1（完成） | 真实 stdin 只由宿主读取；raw mode 让字节及时到达；Ink 接虚拟 stdin、向 stdout 画界面；`rerender` 是后续状态更新的显示出口 | 终端能力检查、信号码、清理顺序与 bracketed paste 模式开关的逐行实现 | Ink `App.tsx` |
-| 2 | stdin 的任意字节块进入解析器，输出文字、按键或完整粘贴事件；跨 chunk 保留未完成内容，事件只从宿主发出 | 转义码分支表、UTF-8 拼接的字节下标、不同终端修饰键编码和异常序列恢复 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
+| 2（完成） | stdin 的任意字节块进入解析器，输出文字、按键或完整粘贴事件；跨 chunk 保留未完成内容，事件只从宿主发出 | 转义码分支表、UTF-8 拼接的字节下标、不同终端修饰键编码和异常序列恢复 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
 | 3 | 一个输入事件按焦点和快捷键映射变成动作，再交给当前组件；能说明提交、换行、中断分别由谁处理 | 每组快捷键的具体写法、冲突排序和连续组合键的状态分支 | `use-input.ts`、`src/keybindings/*` |
 | 4 | 编辑器持有文本与光标；动作更新草稿并触发重画；普通 Enter 提交，换行键只修改草稿 | 删除边界、Unicode 光标位移、上下行目标列和历史索引等编辑分支 | `useTextInput.ts`、`BaseTextInput.tsx` |
 | 5 | 粘贴事件进入粘贴处理，再写入草稿；同批 Enter 不得抢先提交；图片读取结果进入附件链路 | 100 ms 合并计时、800 字符后备判断、剪贴板平台差异、图片解码及路径识别的分支 | `usePasteHandler.ts`、`imagePaste.ts` |
@@ -86,7 +86,10 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 
 ## 当前代码边界
 
+- `src/cli/ink/terminal-input.ts`：第 2 批事件解析；`StringDecoder` 保留跨字节 UTF-8，解析器保留跨 chunk 的转义序列和粘贴状态。保留 `raw`、键名及 Ctrl/Alt/Shift/Meta；其中 Alt 对应 CC `ParsedKey.meta`，Meta 对应 CC `ParsedKey.super`。响应和鼠标事件单独分流，目前上层尚不消费。
 - `src/cli/input/stash/`：历史快照，不作为新输入的实现起点。
 - `src/cli/utils/image.ts`：现有剪贴板读取可在第 5 批评估是否适配 CC 的图片处理；在此之前不接回 `main.ts`。
 - `src/harness/`、`src/agent/`、`src/llm/`：本次不改。它们只在第 7 批通过明确的提交结果接入。
 - `src/cli/main.ts`：目前仅保留 Harness 装配并报告交互入口不可用。新输入完成前不提供临时 readline 或旧 `CliPrompt` 回退。
+
+第 2 批对照的 CC 源码实际在本机 `/Users/kyson/workspace/claudecode fork/claude-code-rev`，HEAD 仍为 `3b0498a`。本项目与 CC 一样对不完整的普通转义序列等待 50 ms，对进行中的粘贴等待 500 ms 后恢复；单独 Esc 与分批送达的粘贴起始字节存在终端协议自身的时间歧义。X10 鼠标尾部按常见单字节坐标整体分流，尚未启用鼠标跟踪；高坐标的旧式 X10 编码没有真实终端验收。临时探针 `test/terminal-parser.test.ts`（目录被忽略）6 例通过，`npm run typecheck` 和 `npm run build` 通过。
