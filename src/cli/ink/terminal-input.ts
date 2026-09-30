@@ -180,8 +180,61 @@ export class TerminalInputParser {
 	}
 }
 
-/** Keep physical modifiers separate; Meta is Kitty's Cmd/Win bit, Alt its own bit. */
+/**
+ * 终端按键编号速查（以下数字均为十进制）：这些编号用于 type="key" 事件的
+ * 按键编码参数。parseKey 把该参数传给 fromCodepoint(value)，由它填写 key.name，
+ * 必要时再填写 key.text。`CSI <key>;<modifiers>u` 用第一个参数作按键编码；
+ * modifyOtherKeys 的 `CSI 27;<modifiers>;<key>~` 用第三个参数作按键编码。
+ * modifiers 是另一个参数，不属于下面的编号范围。
+ * 这些编号与普通 CSI/SS3 序列里的数字不是同一张表。
+ *
+ * 0：C0 控制码；Kitty 在只知道输入文字、不知道对应按键时也用它作 key 编号。
+ * 1–31：Unicode C0 控制码；Kitty 特别把 9/13/27 用作 Tab/Enter/Esc。
+ * 32–126：基本拉丁字符。32 空格；33–47 标点；48–57 数字 0–9；
+ *         58–64 标点；65–90 大写 A–Z；91–96 标点；97–122 小写 a–z；
+ *         123–126 标点。Kitty 用未按 Shift 的字符编号：Shift+A 仍是 97。
+ * 127：DEL 控制码；Kitty 用作 Backspace。
+ * 128–159：Unicode C1 控制码，不是逐个分配的物理按键。
+ * 160–55295：Unicode 中的文字、符号、格式字符及未分配码位；没有按键类别分段。
+ * 55296–57343：UTF-16 代理码，不能单独表示一个 Unicode 字符。
+ *
+ * 57344–63743：Unicode 基本多文种平面的私用区；Kitty 只分配了其中一部分：
+ *   57344–57357：当前协议表未分配。
+ *   57358 Caps Lock；57359 Scroll Lock；57360 Num Lock。
+ *   57361 Print Screen；57362 Pause；57363 Menu。
+ *   57364–57375：当前协议表未分配。
+ *   57376–57398：F13–F35，编号按 F 键顺序递增。
+ *   57399–57408：小键盘数字 KP_0–KP_9，编号按数字顺序递增。
+ *   57409 KP_Decimal；57410 KP_Divide；57411 KP_Multiply；
+ *   57412 KP_Subtract；57413 KP_Add；57414 KP_Enter；
+ *   57415 KP_Equal；57416 KP_Separator。
+ *   57417 KP_Left；57418 KP_Right；57419 KP_Up；57420 KP_Down；
+ *   57421 KP_PageUp；57422 KP_PageDown；57423 KP_Home；57424 KP_End；
+ *   57425 KP_Insert；57426 KP_Delete；57427 KP_Begin。
+ *   57428 MediaPlay；57429 MediaPause；57430 MediaPlayPause；
+ *   57431 MediaReverse；57432 MediaStop；57433 MediaFastForward；
+ *   57434 MediaRewind；57435 MediaTrackNext；57436 MediaTrackPrevious；
+ *   57437 MediaRecord；57438 LowerVolume；57439 RaiseVolume；57440 MuteVolume。
+ *   57441 LeftShift；57442 LeftCtrl；57443 LeftAlt；57444 LeftSuper；
+ *   57445 LeftHyper；57446 LeftMeta；57447 RightShift；57448 RightCtrl；
+ *   57449 RightAlt；57450 RightSuper；57451 RightHyper；57452 RightMeta；
+ *   57453 ISO_Level3_Shift；57454 ISO_Level5_Shift。
+ *   57455–63743：当前协议表未分配。
+ *
+ * 63744–65535：其余基本多文种平面码位，不属于 Kitty 的功能键表。
+ * 65536–983039：增补平面码位，如 emoji；并非 Kitty 功能键编号。
+ * 983040–1048573、1048576–1114109：Unicode 增补私用区，也不属于 Kitty 功能键表。
+ * 1048574–1048575、1114110–1114111：Unicode 非字符码位。
+ * 小于 0 或大于 1114111 (0x10ffff)：超出 Unicode 码位范围。
+ *
+ * 方向键、Home/End、Insert/Delete、F1–F12 等通常使用 CSI/SS3 的
+ * 字母或波浪号序列，不靠上面的大数字逐个命名。
+ * 来源：https://sw.kovidgoyal.net/kitty/keyboard-protocol/#functional-key-definitions
+ * Unicode：https://www.unicode.org/faq/basic_q.html
+ * 修饰键与按键编号分开保存；本项目的 meta 字段对应 Kitty 的 Super 位。
+ */
 function parseKey(raw: string): Extract<TerminalInputEvent, { type: "key" }> {
+	// 传进来的是表示按键的原始字符或字符组合；函数把它解析成 key 事件返回，事件里记录识别出的按键、同时按下的修饰键，以及可能产生的文字。
 	let sequence = raw;
 	let alt = false;
 	if (sequence.startsWith("\x1b\x1b")) {
