@@ -4,7 +4,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-09-30）：**旧输入已归档；第 1–2 批终端宿主与事件解析已完成，当前交互入口仍暂不可用。下一批接焦点及快捷键分发。这次迁移涉及终端解析、快捷键、草稿、粘贴、图片和 REPL，具体设计及逐批更新较多，不在本架构书重复记录，统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
+**输入迁移状态（2026-10-02）：**旧输入已归档；第 1–2 批终端宿主与事件解析已完成，第 3 批的快捷键纯解析已写入，当前小点已 review，交互入口仍暂不可用。下一小点接焦点及动作分发。这次迁移涉及终端解析、快捷键、草稿、粘贴、图片和 REPL，具体设计及逐批更新较多，不在本架构书重复记录，统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -145,6 +145,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
 | `src/harness/compaction.ts` | 已有阈值、溢出判断、切点、摘要与包装；真实 REPL 验收暂缓 |
 | `src/cli/ink/terminal-host.ts`、`terminal-input.ts` | 第 1–2 批宿主与解析：真实 stdin 的唯一读取者，管理 raw mode 和 bracketed paste，并将字节解析为终端事件；Ink 只负责渲染 |
+| `src/cli/input/keybindings.ts` | 第 3 批第一小点：按键、修饰键及连续组合键的纯解析与默认映射已写入；焦点、pending 生命周期和动作分发待接，尚未做行为验收 |
 | `src/cli/input/stash/*` | 迁移前五个输入文件的归档；只供对照，不接入运行入口 |
 | `docs/claude-code-input-architecture.md` | 新输入的数据流、源码入口、分批施工和验收边界 |
 | `src/cli/utils/image.ts` | 剪贴板读取和图片粘贴按键判断 |

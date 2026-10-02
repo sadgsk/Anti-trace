@@ -6,12 +6,12 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–2 批终端宿主与事件解析已完成，下一批是焦点及快捷键分发；思考等级与 BYOK 后续规划仍在。** |
+| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–2 批已完成；第 3 批的快捷键纯解析已写入，焦点及动作分发待接，当前小点已 review；思考等级与 BYOK 后续规划仍在。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-09-30 |
+| 最后更新 | 2026-10-02 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -41,7 +41,7 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**旧输入五文件已移到 `src/cli/input/stash/`；旧 REPL 循环、图片暂存及其输入接线已从 `main.ts` 删除。第 1 批宿主和第 2 批事件解析已完成：真实 stdin 仍只有宿主读取，解析器跨 chunk 产出文字、按键、粘贴和终端响应；本机临时探针覆盖逐字节输入、修饰键、粘贴加 Enter、响应分流、超时恢复及宿主转发。`parseKey` 前已补充 Kitty/Unicode 按键编号及用途的注释，未改变解析行为。下一批接焦点及快捷键分发。当前入口仍明确报不可用，不提供临时交互回退。新目标、源码对照和每批 review 边界见 [输入迁移计划](./claude-code-input-architecture.md)。旧输入测试 `npm run test:input:stash` 只验证归档实现。
+**终端输入迁移：**旧输入五文件已移到 `src/cli/input/stash/`；旧 REPL 循环、图片暂存及其输入接线已从 `main.ts` 删除。第 1 批宿主和第 2 批事件解析已完成：真实 stdin 仍只有宿主读取，解析器跨 chunk 产出文字、按键、粘贴和终端响应；本机临时探针覆盖逐字节输入、修饰键、粘贴加 Enter、响应分流、超时恢复及宿主转发。`parseKey` 前已补充 Kitty/Unicode 按键编号及用途的注释，未改变解析行为。第 3 批先写入 `keybindings.ts` 的三个纯解析函数，提供修饰键精确匹配、上下文优先级、后置覆盖及连续组合键结果；当前小点已 review，焦点和动作处理器尚未接入。下一小点接分发并管理 pending 状态，第 3 批完整实现后再做行为探针。当前入口仍明确报不可用，不提供临时交互回退。新目标、源码对照和每批 review 边界见 [输入迁移计划](./claude-code-input-architecture.md)。旧输入测试 `npm run test:input:stash` 只验证归档实现。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
@@ -70,6 +70,7 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-02 | 新输入第 3 批第一小点：新增 `src/cli/input/keybindings.ts`，实现 `matchesKeystroke()`、`matchesChord()` 和 `resolveKeybinding()`。键名及 Ctrl/Alt/Shift/Meta 精确匹配；调用方按焦点上下文到 Global 排序，同上下文的相同绑定以后置配置为准；连续组合键返回 pending、完成或取消，null 覆盖不会单独留下长组合键前缀。默认映射覆盖提交、换行及中断动作名，未执行业务动作。参考 CC `match.ts` 和 `resolver.ts::resolveKeyWithChordState`，使用独立类型避开还原源码的 `keys` / `chord` 等声明差异。`npm run typecheck` 和 `npm run build` 通过；焦点、普通文字事件适配和动作分发未接入，行为探针待第 3 批完整实现后进行，当前小点已由用户逐段 review 并要求提交。 |
 | 2026-09-30 | 新输入第 2 批完成：`TerminalInputParser.feed()` 以 `StringDecoder` 保留跨 chunk UTF-8，缓冲不完整转义与 bracketed paste；`parseKey()` 保留按键名及 Ctrl/Alt/Shift/Meta，CSI u、modifyOtherKeys、CSI/SS3 均可解析；`startTerminalHost()` 将唯一 stdin 回调转发为事件，50 ms 恢复不完整普通转义、500 ms 恢复进行中的粘贴。终端响应和鼠标事件不流入文字。对照 CC `tokenize.ts`、`parseMultipleKeypresses`、`InputEvent`；本机参考仓库位置与文档原相对路径不同，HEAD 一致。`npm run typecheck`、`npm run build` 和被忽略目录中的临时探针 6 例通过。焦点、快捷键、编辑器及 REPL 尚未接入，`npm start` 仍不可对话。 |
 | 2026-09-29 | 新输入第 1 批完成：浅克隆 `oboard/claude-code-rev` 到并列目录，HEAD 为文档中的 `3b0498a`；核对其 `src/ink/components/App.tsx` 的 raw mode、stdin 与 bracketed paste 生命周期。项目用 React 19 + Ink 6.5.1 渲染，Ink 接虚拟输入流，`TerminalHost` 独占真实 stdin 的原始字节并管理终端模式。`npm run typecheck`、`npm run build` 通过；本机临时测试 2 例通过，按用户要求不入库。按键解析与 REPL 接线尚未实现，CLI 仍不可对话。 |
 | 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)，后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
