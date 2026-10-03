@@ -2,7 +2,7 @@
 
 ## 当前状态与目标
 
-2026-10-02：旧输入的五个实现文件已移到 `src/cli/input/stash/`，`main.ts` 已断开交互输入。第 1 批终端宿主和第 2 批事件解析已完成：`src/cli/ink/terminal-host.ts` 独占真实 stdin，管理 raw mode、bracketed paste 和空 Ink 界面；`terminal-input.ts` 将字节转成文字、按键、完整粘贴、终端响应或鼠标事件。第 3 批的快捷键纯解析及默认动作映射已写入 `src/cli/input/keybindings.ts`，当前小点已 review；焦点、动作分发、输入组件和 REPL 尚未接入，`npm start` 仍明确提示入口不可用。第 2 批解析器已通过本机临时探针；第 3 批行为探针待该批完整实现后进行。旧测试 `npm run test:input:stash` 只验证归档代码。
+2026-10-03：旧输入的五个实现文件已移到 `src/cli/input/stash/`，`main.ts` 已断开交互输入。第 1 批终端宿主和第 2 批事件解析已完成：`src/cli/ink/terminal-host.ts` 独占真实 stdin，管理 raw mode、bracketed paste 和空 Ink 界面；`terminal-input.ts` 将字节转成文字、按键、完整粘贴、终端响应或鼠标事件。第 3 批快捷键纯解析和独立分发器已完成并 review，焦点目标、动作调用及 pending 生命周期通过 10 个一次性内存探针。第 4 批已实现 `text-input-state.ts` 的文本/光标状态及纯编辑主流程，支持插入、左右移动和前后删除，本批已 review；上下行、Enter 行为、历史、输入组件及宿主运行接线仍待后续完成，`npm start` 继续明确提示入口不可用。旧测试 `npm run test:input:stash` 只验证归档代码。
 
 目标是按本地 `claude-code-rev` 的输入链路重建终端交互：**一个 stdin 所有者 → 按键/粘贴事件 → 聚焦的文本输入组件 → 草稿及附件状态 → 提交给 Harness**。逐层对齐 CC 的事件语义、粘贴行为、编辑行为和快捷键分发。每次只实现一个可 review 的小点，用户确认后再进入下一点；不批量复制整套 TUI。
 
@@ -22,7 +22,7 @@ CC 使用 React 组件和仓库内的定制 Ink。新输入也按这两层组织
 | `src/components/PromptInput/PromptInput.tsx`、`src/hooks/useInputBuffer.ts` | 提示词草稿、粘贴文本及图片引用、撤销、历史、显示和提交门槛 |
 | `src/history.ts`、`src/utils/handlePromptSubmit.ts`、`src/screens/REPL.tsx` | 提交前展开文本引用、筛出已删除的图片、命令分发并调用 Harness |
 
-输入主链路（目标；前两批目前接通到终端事件，第 3 批纯解析尚未接线）：
+输入主链路（目标；前两批接通到终端事件，第 3 批分发器已实现，尚未接入运行入口及真实组件）：
 
 ```text
 stdin (唯一读取者)
@@ -66,17 +66,17 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 
 ## 分批施工顺序
 
-每批开始前先说明对照的 CC 函数、拟改的本项目文件、预期行为；每批控制在少量函数和必要类型内。完成后给出差异与验证结果，停下供用户 review。下一批只在用户要求后开始。
+每批必须新增或完善一个主流程函数，明确它接收什么、如何调用配套功能、向外交付什么结果；期间更新的功能函数、必要类型和接线不计数量，不再按函数总数拆批。开始前先说明主流程函数、对照的 CC 函数、拟改的本项目文件和预期行为。完成后给出差异与验证结果，停下供用户 review。下一批只在用户要求后开始。
 
-下面的“可略读”只提醒阅读重点：实现和验收仍要覆盖这些分支。每个小点仍按上面的协作方式讲来源、改少量函数、交付 review；进入非核心段落时提醒用户可以不逐行细看，不替用户改变阅读节奏。
+下面的“可略读”只提醒阅读重点：实现和验收仍要覆盖这些分支。每批围绕一个主流程函数讲来源、补齐配套功能、交付 review；进入非核心段落时提醒用户可以不逐行细看，不替用户改变阅读节奏。
 
 | 批次 | 核心流程：需要能说清数据从哪来、到哪去 | 分支实现细节：协作时提醒可略读 | 主要源码对照 |
 |---|---|---|---|
 | 0（完成） | 旧输入退出运行入口，新输入从宿主重新接线；确认 `main.ts` 暂不可交互 | 五个旧文件的搬移和旧 import 清理 | 旧 `src/cli/input/stash/` |
 | 1（完成） | 真实 stdin 只由宿主读取；raw mode 让字节及时到达；Ink 接虚拟 stdin、向 stdout 画界面；`rerender` 是后续状态更新的显示出口 | 终端能力检查、信号码、清理顺序与 bracketed paste 模式开关的逐行实现 | Ink `App.tsx` |
 | 2（完成） | stdin 的任意字节块进入解析器，输出文字、按键或完整粘贴事件；跨 chunk 保留未完成内容，事件只从宿主发出 | 转义码分支表、UTF-8 拼接的字节下标、不同终端修饰键编码和异常序列恢复 | `tokenize.ts`、`parse-keypress.ts`、`input-event.ts` |
-| 3（进行中：纯解析已 review） | 一个输入事件按焦点和快捷键映射变成动作，再交给当前组件；已写入纯解析，焦点及动作分发待接 | 每组快捷键的具体写法、冲突排序和连续组合键的状态分支 | `use-input.ts`、`src/keybindings/*` |
-| 4 | 编辑器持有文本与光标；动作更新草稿并触发重画；普通 Enter 提交，换行键只修改草稿 | 删除边界、Unicode 光标位移、上下行目标列和历史索引等编辑分支 | `useTextInput.ts`、`BaseTextInput.tsx` |
+| 3（逻辑完成，已 review） | 一个输入事件按焦点和快捷键映射变成动作，再交给当前组件；纯解析及独立分发器已实现，真实组件接线随后续批次完成 | 每组快捷键的具体写法、冲突排序和连续组合键的状态分支 | `use-input.ts`、`src/keybindings/*` |
+| 4（进行中：纯编辑主流程已 review） | `applyTextInputAction` 接收文本/光标状态与编辑操作，调用插入、左右移动或前后删除并返回新状态；后续接上下行、Enter、历史与输入组件，再触发重画及交付提交 | 删除边界、Unicode 光标位移、上下行目标列和历史索引等编辑分支 | `useTextInput.ts`、`BaseTextInput.tsx` |
 | 5 | 粘贴事件进入粘贴处理，再写入草稿；同批 Enter 不得抢先提交；图片读取结果进入附件链路 | 100 ms 合并计时、800 字符后备判断、剪贴板平台差异、图片解码及路径识别的分支 | `usePasteHandler.ts`、`imagePaste.ts` |
 | 6 | `PromptInput` 把可见文字、原始长文本与图片附件保持在同一份草稿；提交时交出完整快照；草稿变化驱动界面更新 | 占位符编号和显示格式、删除引用的清理分支、撤销与历史恢复的边界情况 | `PromptInput.tsx`、`useInputBuffer.ts` |
 | 7 | 草稿快照进入 REPL；展开文本引用、筛选图片后分发命令或调用 `Harness.prompt`；Agent 事件进入显示链路，最终到 stdout | 各条斜杠命令的具体解析、附件筛选循环、退出和异常清理的分支；本批需确定现有直接写 stdout 的 `renderEvent` 如何与 Ink 配合 | `history.ts`、`handlePromptSubmit.ts`、`REPL.tsx` |
@@ -88,6 +88,8 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 
 - `src/cli/ink/terminal-input.ts`：第 2 批事件解析；`StringDecoder` 保留跨字节 UTF-8，解析器保留跨 chunk 的转义序列和粘贴状态。保留 `raw`、键名及 Ctrl/Alt/Shift/Meta；其中 Alt 对应 CC `ParsedKey.meta`，Meta 对应 CC `ParsedKey.super`。响应和鼠标事件单独分流，目前上层尚不消费。
 - `src/cli/input/keybindings.ts`：第 3 批第一小点，新增 `matchesKeystroke()`、`matchesChord()`、`resolveKeybinding()` 及必要类型。上下文由调用方按优先级传入（聚焦上下文在 Global 前），同上下文相同组合键以后置配置为准；长组合键优先于其短前缀，null 覆盖消费按键且不会单独启动长组合键等待。纯解析只返回动作名或 pending / cancelled / unbound / none，不读取 stdin、不调用编辑器或 Harness。默认 `Input` 映射 Enter 为 `input:submit`，Shift/Alt/Meta+Enter 及可识别的 Ctrl+J 为 `input:newline`；`Global` 的 Ctrl+C 为 `app:interrupt`。提交、换行由后续输入组件处理，中断由 REPL 处理。
+- `src/cli/input/input-dispatcher.ts`：第 3 批第二小点，新增 `eventToKeystroke()`、`InputDispatcher.configure()` 和 `dispatch()`。调用方按焦点组件、外层、Global 排列 `InputTarget`；稳定的 `id: symbol` 区分同上下文的不同组件，动作处理器按命中的上下文选择首个目标，未消费的输入只交给首个焦点目标。组件身份、上下文顺序或绑定数组替换时清空 pending；仅更新处理器不清空。普通单码位 text（含 emoji）参与匹配，ASCII 大写保留 Shift，空格规范为 `space`；完整粘贴及多字符块不拆分，清空 pending 后原样交给焦点输入。响应和鼠标不进入组件，也不打断组合键。没有动作处理器或处理器同步返回 false 时，原始事件回到焦点输入。
+- `src/cli/input/text-input-state.ts`：第 4 批的纯编辑状态与主流程。`TextInputState` 保存原始文本和按 UTF-16 下标表示的光标；`createTextInputState()` 限制位置范围并向左对齐字素边界。主流程 `applyTextInputAction()` 接收当前状态及 `TextInputAction`（插入、移动或删除），先校正光标，再调用对应功能函数并返回结果。`insertText()` 插入后重新分段，向右对齐到插入内容之后的有效边界；`moveCursor()` 每次越过一个完整字素；`deleteText()` 删除光标前后相邻字素，在起点/末尾不越界，删除换行可合并两行。删除后重新分段并向左对齐，防止相邻文字合成新字素后光标落在内部。这层不识别终端按键、不维护快捷键映射、不渲染；上下行、Enter、历史、输入组件与分发器接线尚未实现。
 - `src/cli/input/stash/`：历史快照，不作为新输入的实现起点。
 - `src/cli/utils/image.ts`：现有剪贴板读取可在第 5 批评估是否适配 CC 的图片处理；在此之前不接回 `main.ts`。
 - `src/harness/`、`src/agent/`、`src/llm/`：本次不改。它们只在第 7 批通过明确的提交结果接入。
@@ -95,4 +97,12 @@ src/cli/input/stash/  旧输入快照，不参与新运行链路
 
 第 2 批对照的 CC 源码实际在本机 `/Users/kyson/workspace/claudecode fork/claude-code-rev`，HEAD 仍为 `3b0498a`。本项目与 CC 一样对不完整的普通转义序列等待 50 ms，对进行中的粘贴等待 500 ms 后恢复；单独 Esc 与分批送达的粘贴起始字节存在终端协议自身的时间歧义。X10 鼠标尾部按常见单字节坐标整体分流，尚未启用鼠标跟踪；高坐标的旧式 X10 编码没有真实终端验收。临时探针 `test/terminal-parser.test.ts`（目录被忽略）6 例通过，`npm run typecheck` 和 `npm run build` 通过。
 
-第 3 批第一小点对照 `keybindings/match.ts` 与 `resolver.ts::resolveKeyWithChordState`。还原源码的类型声明与调用方存在 `keys` / `chord`、`super` 等差异，本项目不直接复制它的类型。`npm run typecheck`、`npm run build` 通过，尚未做行为探针。下一小点需要接焦点与动作处理器，同步管理 pending：切换组件（包括同上下文的组件）或替换配置时清空；无效后续键应重新按新组合键处理，保证 Ctrl+C 等独立动作仍可触发；普通文字目前是独立的 text 事件，需明确它参与快捷键匹配的方式，同时保留完整粘贴事件及长文字输入块供粘贴层消费。纯解析不会替调用方保存状态或重发当前按键。
+第 3 批第一小点对照 `keybindings/match.ts` 与 `resolver.ts::resolveKeyWithChordState`。还原源码的类型声明与调用方存在 `keys` / `chord`、`super` 等差异，本项目不直接复制它的类型；该小点已 review。
+
+第二小点对照 `ink/hooks/use-input.ts`、`KeybindingProviderSetup.tsx::ChordInterceptor` / `KeybindingSetup.setPendingChord` 和 `useKeybinding.ts` 的动作处理。分发器同步保存 pending，不依赖 React 重画；纯 Esc 在 pending 中只取消组合键，其余无效后续键清空 pending 后重新独立解析，保证 Ctrl+C 或另一组组合键前缀可立即生效。沿用 CC 的 1000 ms 有效期，用单调时钟在下次用户输入时检查过期；当前没有 pending 提示 UI，无需持有定时器。后续若显示等待状态，需要同时设计该 UI 的过期更新。
+
+第 3 批逻辑全部实现后，`npm run typecheck`、`npm run build` 和 10 个一次性内存探针通过。探针覆盖解析器事件进入默认动作、精确修饰键、同一动作换绑及 null 覆盖、连续组合键和接错重试、焦点优先级、同上下文组件切换、处理器更新、配置替换、Esc 取消、整块粘贴/长文字、响应/鼠标分流、Unicode、处理器拒绝与超时恢复。探针未写入仓库，未接真实终端或模型。第二小点已由用户逐段 review，并要求继续第 4 批。运行入口在第 7 批恢复。
+
+第 4 批的状态与插入基础参考 CC `utils/Cursor.ts::Cursor.fromText`、`Cursor.insert` / `modifyText` 和 `MeasuredText.getGraphemeBoundaries`。使用 `Intl.Segmenter` 按字素簇找边界，避免拆开代理对、组合字符与 ZWJ emoji；边界下标仍对应 JavaScript 的 `slice()`。本项目保留原始文本，不像 CC 的 `MeasuredText` 做 NFC 归一化，避免改写粘贴原文。插入后可能与相邻字符形成新字素簇，因此重新分段并将光标放在插入内容之后的有效边界。
+
+本批按新的协作约定增加主流程 `applyTextInputAction()`，配套的移动与删除参考 CC `Cursor.left/right/backspace/del`：先找相邻完整字符边界，再移动或删除该范围。主流程是本项目的纯函数入口，由后续 React hook 持有状态并调用；不照搬 CC 的 Cursor 类、屏幕测量或图片引用处理，引用与附件仍属于第 6 批。`npm run typecheck` 和 `npm run build` 通过；行为探针仍按约定待第 4 批完整实现后进行。本批已由用户逐段 review 并要求提交，后续推进上下行、Enter 行为、历史与基础输入组件。
