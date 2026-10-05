@@ -6,19 +6,19 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–3 批逻辑已完成并 review；第 4 批已实现文本/光标状态，以及插入、左右移动和前后删除的纯编辑主流程，本批已 review；思考等级与 BYOK 后续规划仍在。** |
+| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–3 批逻辑已完成并 review，第 4 批字素编辑、布局、Enter/历史、基础组件与独立宿主接线已完成并验证；第 5–8 批和思考等级/BYOK 后续规划仍待推进。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-10-03 |
+| 最后更新 | 2026-10-05 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
 1. 每批必须新增或完善一个主流程函数：说明它接收什么、如何调用配套功能、向外返回什么结果；期间更新的功能函数、必要类型和接线不计数量，不再按函数总数拆批。每批动手前先说明主流程函数和配套改动，再写入文件；写完停下等用户 review，确认后再继续下一批。用户不用手动粘贴代码。
 2. 一个功能全部实现完再开始测试，不在功能做到一半插入探针或验收；验证方式和结果在功能完成后一起交代。
 3. 实现过程中发现问题（设计冲突、边界情况、影响面）当场说明，不要等写完、用户 review 完再补一句「这里有问题」。
-4. 带着写时，讲解应覆盖参考来源和本项目的取舍；有 Pi 对照时给出路径、函数名，自定义设计则直接说明理由。表达形式按内容选择，不固定为四段。
+4. 带着写时，讲解应覆盖参考来源和本项目的取舍；有 Pi 对照时给出路径、函数名，自定义设计则直接说明理由。只有用户明确要求逐行解释某个函数时，才启用 [架构书 §0.4](./architecture.md#04-源码讲解方式) 的讲解标准；其他情况下按当前问题直接说明概念、逻辑或作用。
 5. 已确定的框架可以先留接口或函数，明确未实现状态，后续继续填充。允许修改已有实现和类型，以局部、可审阅的差异推进，减少不必要的重写。
 6. 用户问概念时先回答；是否同时修改代码按当次请求执行。未明确要求 `git commit` 时不做版本提交。
 7. 暂不处理的 bug 记录到 [future-issues.md](./future-issues.md)，沿用编号并写清环境、版本、现象和影响；已确认的原因或处理方向可以补充，并与待验证推测区分。
@@ -41,7 +41,7 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**旧输入五文件已移到 `src/cli/input/stash/`；旧 REPL 循环、图片暂存及其输入接线已从 `main.ts` 删除。第 1 批宿主和第 2 批事件解析已完成：真实 stdin 仍只有宿主读取，解析器跨 chunk 产出文字、按键、粘贴和终端响应；本机临时探针覆盖逐字节输入、修饰键、粘贴加 Enter、响应分流、超时恢复及宿主转发。`parseKey` 前已补充 Kitty/Unicode 按键编号及用途的注释，未改变解析行为。第 3 批 `keybindings.ts` 与 `input-dispatcher.ts` 已完成并 review，将终端事件按焦点和规则分发，同步管理组合键等待；10 个一次性内存探针、类型检查与构建通过。第 4 批 `text-input-state.ts` 已实现字素边界、文本/光标状态，以及主流程 `applyTextInputAction()` 和配套的插入、左右移动、前后删除；本批类型检查与构建通过，已 review。后续推进上下行、Enter 行为、历史、输入组件与事件接线；第 4 批完整后再做行为探针。真实输入组件与 REPL 尚未接入，当前入口仍明确报不可用，不提供临时交互回退。新目标、源码对照和每批 review 边界见 [输入迁移计划](./claude-code-input-architecture.md)。旧输入测试 `npm run test:input:stash` 只验证归档实现。
+**终端输入迁移：**旧输入五文件已归档，`main.ts` 当前只报告入口不可用。第 1–3 批宿主、事件解析和焦点/快捷键分发已完成并 review。第 4 批已补齐 `applyTextInputAction()` 的共享布局和上下移动，新增 `TextInputController.handleAction()` 串联 Enter、历史及同步草稿状态，`useTextInput` / `BaseTextInput` 驱动 Ink 重画，`startTerminalTextInput()` 连接宿主和分发器并处理 resize/清理。提交回调收到最新文本/光标快照，历史回到当前草稿时恢复原文字与光标；粘贴 pending、附件、撤销、完整草稿及 REPL 在第 5–8 批继续。新增 `npm run test:input` 的持久行为测试，类型检查和构建通过；没有模型调用。旧输入测试 `npm run test:input:stash` 只验证归档实现。源码对照、行为差异及边界见 [输入迁移计划](./claude-code-input-architecture.md)。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
@@ -70,6 +70,10 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-05 | 按本次“未完成就继续，完成后提交推送”的要求收尾输入迁移第 4 批。新增同步主流程 `TextInputController.handleAction()`、文本历史、`useTextInput`、`BaseTextInput` 和独立宿主适配器；补齐 Enter/换行、编辑快捷键、历史草稿光标恢复、resize 和提交快照。参考 CC `useTextInput`、`BaseTextInput`、`useArrowKeyHistory`，以同步控制器避免同批文字加 Enter 读取旧状态。修复 Unicode 协议文字/小键盘数字丢失，显示投影处理孤立代理和单独零宽字素；宿主在回调停止后丢弃同批剩余事件，回调异常时恢复 raw mode 并清理监听。新增持久 `npm run test:input`：36 项行为测试通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。通过真实 Ink 加模拟 TTY 验证，未调用模型。第 5–8 批及最终真实终端手测仍待推进，`main.ts` 未恢复交互。 |
+| 2026-10-05 | 为架构书 §0.4 补充适用前提：只有明确要求逐行解释某个函数时才启用，其他情况下忽略该格式，直接回答当前问题；同步进度页协作约定。 |
+| 2026-10-05 | 按用户确认的讲解方式，在架构书新增 §0.4：保留原代码，每行解释紧跟对应代码行；自然语言直接说明参数、变量、条件、状态变化与调用效果，仅补充理解所需的语法；每段说明用途，必要时用具体数值演示参数传递。进度页协作约定改为链接该节，后续对话沿用。 |
+| 2026-10-05 | 继续第 4 批，完善主流程 `applyTextInputAction()`：上下移动操作要求调用方传入 `availableColumns`，经 `moveVerticalCursor()` 依次生成布局、定位当前行列、寻找相邻行字素边界并返回状态；首末行保持光标。新增 `text-input-layout.ts` 的 `layoutTextInput()` 与行列互转函数，以原始 UTF-16 下标关联显示列；参考 CC `Cursor.up/down` 和 `MeasuredText`。本项目按字素满列折行并保留空白，软折行共享下标归下一行；Tab 显示按 4 列制表位、窄行限制到可用宽度，控制字符及超宽字素只在显示层用 `�` 替代，CRLF 和原文不改写。将已有 `string-width 8.3.0` 列为直接依赖。`npm run typecheck`、`npm run build` 通过；第 4 批完整前不做行为探针，当前小批待用户 review，尚未接输入组件或真实终端。 |
 | 2026-10-03 | 按用户要求取消每批最多三个函数的限制，改为每批必须新增或完善一个主流程函数，配套功能函数、类型和接线不计数量；同步进度、架构书与输入迁移计划。继续第 4 批，新增纯编辑主流程 `applyTextInputAction()` 及 `TextInputAction`，统一调用插入、左右移动和前后删除；新增 `moveCursor()`、`deleteText()`，按完整字素移动/删除，支持跨换行，删除后重新校正光标边界。参考 CC `Cursor.left/right/backspace/del`，不引入终端按键判断或屏幕测量。`npm run typecheck`、`npm run build` 通过；第 4 批完整前不做行为探针。本批已由用户逐段 review 并要求提交，上下行、Enter、历史与输入组件仍待后续完成。 |
 | 2026-10-03 | 第 3 批分发器经用户逐段 review 后，按要求进入第 4 批。第一小点新增 `src/cli/input/text-input-state.ts` 的 `TextInputState`、`getGraphemeBoundaries()`、`createTextInputState()` 和 `insertText()`：文本保持原样，光标按 UTF-16 下标及字素边界处理，支持初始状态和光标处插入；返回新状态，不读取事件或渲染。参考 CC `Cursor.fromText`、`insert` / `modifyText`、`MeasuredText.getGraphemeBoundaries`，采用纯函数作为后续 React 输入状态的编辑基础。`npm run typecheck`、`npm run build` 通过；按约定，第 4 批完整后再做行为探针。当前插入小点待 review，移动、删除、输入组件及 REPL 尚未实现或接线。 |
 | 2026-10-03 | 新输入第 3 批第二小点：新增 `src/cli/input/input-dispatcher.ts`，实现 `eventToKeystroke()`、`InputDispatcher.configure()` 和 `dispatch()`。焦点目标以稳定 symbol 身份区分组件，按焦点到 Global 的顺序解析并按命中上下文调用动作；单字符 text 参与快捷键匹配，完整粘贴及多字符块原样交给焦点输入。同步管理 pending：组件或配置改变时清空、接错后续键时重新独立匹配、Esc 取消、按 CC 的 1 秒有效期在下次输入时检查过期；响应和鼠标不打断组合键。参考 CC `use-input.ts`、`ChordInterceptor`、`KeybindingSetup.setPendingChord` 和 `useKeybinding.ts`，通过集中分发避免依赖多个监听器的注册顺序。第 3 批逻辑完整实现后，10 个一次性内存行为探针、`npm run typecheck` 和 `npm run build` 通过；探针未写入仓库，未接真实终端或模型。当前小点待 review，确认后进入第 4 批编辑器与基础组件，`npm start` 仍不可对话。 |

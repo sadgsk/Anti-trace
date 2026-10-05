@@ -35,14 +35,26 @@ export function startTerminalHost(
 	let escapeTimer: NodeJS.Timeout | undefined;
 	let active = false;
 	let ink: ReturnType<typeof render> | undefined;
+	const emitEvents = (events: readonly TerminalInputEvent[]): void => {
+		try {
+			for (const event of events) {
+				// A submit/exit handler can stop the host while this byte batch is being delivered.
+				if (!active) break;
+				onEvent(event);
+			}
+		} catch (error) {
+			stop();
+			throw error;
+		}
+	};
 	const handleData = (chunk: Buffer): void => {
 		if (escapeTimer) clearTimeout(escapeTimer);
 		escapeTimer = undefined;
-		for (const event of parser.feed(chunk)) onEvent(event);
+		emitEvents(parser.feed(chunk));
 		if (active && (parser.awaitingEscape || parser.awaitingPaste)) {
 			escapeTimer = setTimeout(() => {
 				escapeTimer = undefined;
-			for (const event of parser.feed(null)) onEvent(event);
+			emitEvents(parser.feed(null));
 			}, parser.awaitingPaste ? 500 : 50);
 		}
 	};

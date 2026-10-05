@@ -35,6 +35,22 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 	{ context: "Input", chord: [{ name: "enter", alt: true }], action: "input:newline" },
 	{ context: "Input", chord: [{ name: "enter", meta: true }], action: "input:newline" },
 	{ context: "Input", chord: [{ name: "j", ctrl: true }], action: "input:newline" },
+	{ context: "Input", chord: [{ name: "left" }], action: "input:left" },
+	{ context: "Input", chord: [{ name: "right" }], action: "input:right" },
+	{ context: "Input", chord: [{ name: "up" }], action: "input:up" },
+	{ context: "Input", chord: [{ name: "down" }], action: "input:down" },
+	{ context: "Input", chord: [{ name: "backspace" }], action: "input:backspace" },
+	{ context: "Input", chord: [{ name: "delete" }], action: "input:delete" },
+	{ context: "Input", chord: [{ name: "home" }], action: "input:home" },
+	{ context: "Input", chord: [{ name: "end" }], action: "input:end" },
+	{ context: "Input", chord: [{ name: "b", ctrl: true }], action: "input:left" },
+	{ context: "Input", chord: [{ name: "f", ctrl: true }], action: "input:right" },
+	{ context: "Input", chord: [{ name: "p", ctrl: true }], action: "input:up" },
+	{ context: "Input", chord: [{ name: "n", ctrl: true }], action: "input:down" },
+	{ context: "Input", chord: [{ name: "h", ctrl: true }], action: "input:backspace" },
+	{ context: "Input", chord: [{ name: "d", ctrl: true }], action: "input:delete" },
+	{ context: "Input", chord: [{ name: "a", ctrl: true }], action: "input:home" },
+	{ context: "Input", chord: [{ name: "e", ctrl: true }], action: "input:end" },
 ];
 
 /** Omitted modifiers mean false, so Ctrl+Shift+C never matches Ctrl+C. */

@@ -1,3 +1,5 @@
+import { getTextInputOffset, getTextInputPosition, layoutTextInput } from "./text-input-layout.ts";
+
 /** Text is kept verbatim; cursor is a UTF-16 offset at a grapheme boundary. */
 export interface TextInputState {
 	readonly text: string;
@@ -8,6 +10,8 @@ export interface TextInputState {
 export type TextInputAction =
 	| { type: "insert"; text: string }
 	| { type: "move"; direction: "left" | "right" }
+	| { type: "move"; direction: "up"; availableColumns: number }
+	| { type: "move"; direction: "down"; availableColumns: number }
 	| { type: "delete"; direction: "backward" | "forward" };
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
@@ -53,6 +57,20 @@ function moveCursor(state: TextInputState, direction: "left" | "right"): TextInp
 	return cursor === state.cursor ? state : { text: state.text, cursor };
 }
 
+/** Move by display rows; the component can handle history when no adjacent row exists. */
+function moveVerticalCursor(
+	state: TextInputState,
+	direction: "up" | "down",
+	availableColumns: number,
+): TextInputState {
+	const layout = layoutTextInput(state.text, availableColumns);
+	const position = getTextInputPosition(layout, state.cursor);
+	const line = position.line + (direction === "up" ? -1 : 1);
+	if (!layout.lines[line]) return state;
+	const cursor = getTextInputOffset(layout, { line, column: position.column });
+	return cursor === state.cursor ? state : { text: state.text, cursor };
+}
+
 /** Remove the adjacent grapheme, including a newline when moving across lines. */
 function deleteText(state: TextInputState, direction: "backward" | "forward"): TextInputState {
 	const adjacent = moveCursor(state, direction === "backward" ? "left" : "right");
@@ -71,7 +89,9 @@ export function applyTextInputAction(state: TextInputState, action: TextInputAct
 		case "insert":
 			return insertText(current, action.text);
 		case "move":
-			return moveCursor(current, action.direction);
+			return action.direction === "up" || action.direction === "down"
+				? moveVerticalCursor(current, action.direction, action.availableColumns)
+				: moveCursor(current, action.direction);
 		case "delete":
 			return deleteText(current, action.direction);
 	}

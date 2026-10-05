@@ -253,7 +253,8 @@ function parseKey(raw: string): Extract<TerminalInputEvent, { type: "key" }> {
 		key.meta = (bits & 8) !== 0;
 	};
 	const fromCodepoint = (value: number): void => {
-		if (!Number.isInteger(value) || value < 0 || value > 0x10ffff) return;
+		if (!Number.isInteger(value) || value < 0 || value > 0x10ffff
+			|| (value >= 0xd800 && value <= 0xdfff)) return;
 		const special: Record<number, string> = {
 			9: "tab", 13: "enter", 27: "escape", 32: "space", 127: "backspace",
 			57399: "0", 57400: "1", 57401: "2", 57402: "3", 57403: "4",
@@ -261,8 +262,11 @@ function parseKey(raw: string): Extract<TerminalInputEvent, { type: "key" }> {
 		};
 		key.name = special[value] ?? (value >= 57344 && value <= 63743
 			? "unknown" : String.fromCodePoint(value).toLowerCase());
-		if (value >= 32 && value !== 127 && value < 57399) {
-			const character = String.fromCodePoint(value);
+		const isKeypadDigit = value >= 57399 && value <= 57408;
+		const isText = value >= 32 && !(value >= 127 && value <= 159)
+			&& !(value >= 57344 && value <= 63743);
+		if (isText || isKeypadDigit) {
+			const character = isKeypadDigit ? special[value]! : String.fromCodePoint(value);
 			key.text = key.shift && /^[a-z]$/.test(character) ? character.toUpperCase() : character;
 		}
 	};

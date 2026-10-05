@@ -1,17 +1,19 @@
 node_modules/
 dist/
 .env
+.DS_Store
 test/*
 !test/terminal-input.test.ts
 !test/draft-editor.test.ts
 !test/cli-renderer.test.ts
 !test/paste-burst.test.ts
 !test/cli-prompt.test.ts
+!test/text-input-state.test.ts
+!test/text-input-controller.test.ts
+!test/base-text-input.test.tsx
 
 # 工具产生的本地状态（会话记录等），不进仓库
 .workbuddy/
 
 # 设计稿 / 本地素材，不进仓库
 designcraft/
-
-
