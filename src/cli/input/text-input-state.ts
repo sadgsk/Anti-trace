@@ -57,7 +57,7 @@ function moveCursor(state: TextInputState, direction: "left" | "right"): TextInp
 	return cursor === state.cursor ? state : { text: state.text, cursor };
 }
 
-/** Move by display rows; the component can handle history when no adjacent row exists. */
+/** Move by display rows, keeping the cursor in place at the first and last rows. */
 function moveVerticalCursor(
 	state: TextInputState,
 	direction: "up" | "down",

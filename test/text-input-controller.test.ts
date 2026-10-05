@@ -127,11 +127,10 @@ test("unbound function, modified, control and unknown keys do not alter text or 
 	assert.equal(input.controller.handleAction("app:unrecognized"), false);
 });
 
-test("vertical row movement precedes history at hard and soft line boundaries", () => {
+test("vertical movement follows hard and soft rows and stays within the current input", () => {
 	const input = makeInput({
 		availableColumns: 3,
 		initialState: createTextInputState("abcdef\nXY", 8),
-		history: [createTextInputState("older")],
 	});
 	input.feed(UP);
 	assert.deepEqual(input.controller.getState(), createTextInputState("abcdef\nXY", 4));
@@ -142,52 +141,35 @@ test("vertical row movement precedes history at hard and soft line boundaries", 
 	input.feed(DOWN);
 	assert.deepEqual(input.controller.getState(), createTextInputState("abcdef\nXY", 8));
 	input.feed(UP + UP + UP);
-	assert.deepEqual(input.controller.getState(), createTextInputState("older", 0));
+	assert.deepEqual(input.controller.getState(), createTextInputState("abcdef\nXY", 1));
+	input.feed(DOWN + DOWN + DOWN);
+	assert.deepEqual(input.controller.getState(), createTextInputState("abcdef\nXY", 8));
 });
 
-test("rapid history navigation restores the exact draft cursor and discards recalled edits", () => {
-	const draft = createTextInputState("unsent", 2);
-	const input = makeInput({ initialState: draft, history: [createTextInputState("first"), createTextInputState("second")] });
-	input.feed(UP + "edited " + UP + UP);
-	assert.deepEqual(input.controller.getState(), createTextInputState("first", 0));
-	input.feed(DOWN);
-	assert.deepEqual(input.controller.getState(), createTextInputState("second"));
-	input.feed(DOWN + DOWN);
-	assert.deepEqual(input.controller.getState(), draft);
-	input.feed(UP + UP + DOWN + DOWN);
-	assert.deepEqual(input.controller.getState(), draft);
-	for (const text of ["", " \t "]) {
-		const emptyDraft = createTextInputState(text, 0);
-		input.controller.replaceState(emptyDraft);
-		input.feed(UP + DOWN);
-		assert.deepEqual(input.controller.getState(), emptyDraft);
+test("single-row Up and Down preserve draft text and cursor without publishing changes", () => {
+	for (const text of ["unsent", "", " \t "]) {
+		const draft = createTextInputState(text, Math.min(2, text.length));
+		const input = makeInput({ initialState: draft });
+		input.feed(UP + UP + DOWN + DOWN + "\x10\x0e");
+		assert.deepEqual(input.controller.getState(), draft);
+		assert.deepEqual(input.changes, []);
+		assert.deepEqual(input.submitted, []);
 	}
 });
 
-test("replaceState and replaceHistory reset browsing and snapshot caller data", () => {
+test("initial state and replacement state snapshot caller data and correct cursor boundaries", () => {
 	const initial = { text: "A😀Z", cursor: 2 };
-	const history = [{ text: "old", cursor: 1 }];
-	const input = makeInput({ initialState: initial, history });
+	const input = makeInput({ initialState: initial });
 	initial.text = "mutated";
-	history[0]!.text = "mutated";
 	assert.deepEqual(input.controller.getState(), createTextInputState("A😀Z", 1));
-	input.feed(UP);
-	assert.deepEqual(input.controller.getState(), createTextInputState("old", 0));
-	input.controller.replaceState({ text: "new draft", cursor: 100 });
-	input.feed(DOWN);
+	const replacement = { text: "new draft", cursor: 100 };
+	input.controller.replaceState(replacement);
+	replacement.text = "mutated";
 	assert.deepEqual(input.controller.getState(), createTextInputState("new draft"));
 	input.feed(UP + DOWN);
 	assert.deepEqual(input.controller.getState(), createTextInputState("new draft"));
-	const replacement = [{ text: "replacement", cursor: -5 }];
-	input.controller.replaceHistory(replacement);
-	replacement[0]!.text = "mutated";
-	input.feed(UP);
-	assert.deepEqual(input.controller.getState(), createTextInputState("replacement", 0));
-	input.feed(DOWN);
-	assert.deepEqual(input.controller.getState(), createTextInputState("new draft"));
-	input.controller.replaceHistory([]);
-	input.feed(UP + DOWN);
-	assert.deepEqual(input.controller.getState(), createTextInputState("new draft"));
+	input.controller.replaceState({ text: "A😀Z", cursor: 2 });
+	assert.deepEqual(input.controller.getState(), createTextInputState("A😀Z", 1));
 });
 
 test("delegated paste synchronously gates a trailing Enter in the same chunk", () => {
@@ -218,21 +200,6 @@ test("ordinary complete paste inserts once at the cursor and never treats pasted
 	assert.deepEqual(input.controller.getState(), createTextInputState("A中\n\t\x03Z", 5));
 	assert.deepEqual(input.changes, [createTextInputState("A中\n\t\x03Z", 5)]);
 	assert.deepEqual(input.submitted, []);
-});
-
-test("external history receives boundary actions after row navigation", () => {
-	const directions: string[] = [];
-	const input = makeInput({
-		initialState: createTextInputState("ab\ncd", 4),
-		history: [createTextInputState("unused")],
-		onHistory: direction => directions.push(direction),
-	});
-	input.feed(UP + UP);
-	assert.deepEqual(input.controller.getState(), createTextInputState("ab\ncd", 1));
-	assert.deepEqual(directions, ["up"]);
-	input.feed(DOWN + DOWN);
-	assert.deepEqual(input.controller.getState(), createTextInputState("ab\ncd", 4));
-	assert.deepEqual(directions, ["up", "down"]);
 });
 
 test("focused outer context consumes its input, and existing editing actions can be rebound", () => {

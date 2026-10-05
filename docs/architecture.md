@@ -4,7 +4,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-10-05）：**旧输入已归档；第 1–3 批终端宿主、事件解析、快捷键及独立焦点分发逻辑已完成并 review。第 4 批已补齐字素编辑、共享屏幕布局、Enter/换行、文本历史、基础输入组件及独立宿主接线，通过新输入行为测试、类型检查和构建。粘贴缓冲、附件草稿、REPL 及最终终端验收按第 5–8 批继续，交互入口仍暂不可用。具体设计和验证统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
+**输入迁移状态（2026-10-05）：**旧输入已归档；第 1–3 批终端宿主、事件解析、快捷键及独立焦点分发逻辑已完成并 review。第 4 批已补齐字素编辑、共享屏幕布局、Enter/换行、基础输入组件及独立宿主接线，通过新输入行为测试、类型检查和构建。粘贴缓冲、附件草稿、REPL 及最终终端验收按第 5–8 批继续，交互入口仍暂不可用。按用户要求取消输入历史召回，上下键仅在当前输入中移动光标。具体设计和验证统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -174,7 +174,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/cli/ink/terminal-host.ts`、`terminal-input.ts` | 第 1–2 批宿主与解析：真实 stdin 的唯一读取者，管理 raw mode 和 bracketed paste，并将字节解析为终端事件；Ink 只负责渲染 |
 | `src/cli/input/keybindings.ts`、`input-dispatcher.ts` | 第 3 批逻辑已完成并 review：快捷键纯解析、默认映射与独立分发器通过 10 个本层探针；真实组件与运行入口尚未接线 |
 | `src/cli/input/text-input-state.ts`、`text-input-layout.ts` | 第 4 批完成：纯字素编辑及共享显示行列映射，供上下移动和基础组件渲染共用；保留原文 |
-| `src/cli/input/text-input-controller.ts`、`text-input-history.ts`、`use-text-input.ts`、`base-text-input.tsx`、`terminal-text-input.tsx` | 第 4 批完成：同步动作主流程、Enter/历史、React 重画与独立终端接线，提交文本/光标快照；主入口与完整附件草稿仍待后续批次 |
+| `src/cli/input/text-input-controller.ts`、`use-text-input.ts`、`base-text-input.tsx`、`terminal-text-input.tsx` | 第 4 批完成：同步动作主流程、Enter/换行、React 重画与独立终端接线，提交文本/光标快照；主入口与完整附件草稿仍待后续批次 |
 | `src/cli/input/stash/*` | 迁移前五个输入文件的归档；只供对照，不接入运行入口 |
 | `docs/claude-code-input-architecture.md` | 新输入的数据流、源码入口、分批施工和验收边界 |
 | `src/cli/utils/image.ts` | 剪贴板读取和图片粘贴按键判断 |

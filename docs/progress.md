@@ -6,7 +6,7 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–3 批逻辑已完成并 review，第 4 批字素编辑、布局、Enter/历史、基础组件与独立宿主接线已完成并验证；第 5–8 批和思考等级/BYOK 后续规划仍待推进。** |
+| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–3 批逻辑已完成并 review，第 4 批字素编辑、布局、Enter/换行、基础组件与独立宿主接线已完成并验证；输入历史召回已按用户要求移除；第 5–8 批和思考等级/BYOK 后续规划仍待推进。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
@@ -41,7 +41,7 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**旧输入五文件已归档，`main.ts` 当前只报告入口不可用。第 1–3 批宿主、事件解析和焦点/快捷键分发已完成并 review。第 4 批已补齐 `applyTextInputAction()` 的共享布局和上下移动，新增 `TextInputController.handleAction()` 串联 Enter、历史及同步草稿状态，`useTextInput` / `BaseTextInput` 驱动 Ink 重画，`startTerminalTextInput()` 连接宿主和分发器并处理 resize/清理。提交回调收到最新文本/光标快照，历史回到当前草稿时恢复原文字与光标；粘贴 pending、附件、撤销、完整草稿及 REPL 在第 5–8 批继续。新增 `npm run test:input` 的持久行为测试，类型检查和构建通过；没有模型调用。旧输入测试 `npm run test:input:stash` 只验证归档实现。源码对照、行为差异及边界见 [输入迁移计划](./claude-code-input-architecture.md)。
+**终端输入迁移：**旧输入五文件已归档，`main.ts` 当前只报告入口不可用。第 1–3 批宿主、事件解析和焦点/快捷键分发已完成并 review。第 4 批已补齐 `applyTextInputAction()` 的共享布局和上下移动，新增 `TextInputController.handleAction()` 串联 Enter 和同步草稿状态，`useTextInput` / `BaseTextInput` 驱动 Ink 重画，`startTerminalTextInput()` 连接宿主和分发器并处理 resize/清理。提交回调收到最新文本/光标快照，上下键只在当前输入中移动光标，首末显示行保持原位，已取消输入历史召回及其后续规划；粘贴 pending、附件、撤销、完整草稿及 REPL 在第 5–8 批继续。新增 `npm run test:input` 的持久行为测试，类型检查和构建通过；没有模型调用。旧输入测试 `npm run test:input:stash` 只验证归档实现。源码对照、行为差异及边界见 [输入迁移计划](./claude-code-input-architecture.md)。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
@@ -70,6 +70,7 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-05 | 按用户要求取消输入框的历史召回。删除 `text-input-history.ts`，清理控制器的历史列表、草稿备份、`onHistory` 回调和 `replaceHistory()` 接口；Up/Down 直接调用当前文本的纯编辑操作，首末显示行保持光标原位。同步移除相关测试和第 6 批的输入历史规划，保留完整草稿撤销的计划。更新行移动边界和状态替换验证，`npm run test:input` 35 项通过，`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。 |
 | 2026-10-05 | 按本次“未完成就继续，完成后提交推送”的要求收尾输入迁移第 4 批。新增同步主流程 `TextInputController.handleAction()`、文本历史、`useTextInput`、`BaseTextInput` 和独立宿主适配器；补齐 Enter/换行、编辑快捷键、历史草稿光标恢复、resize 和提交快照。参考 CC `useTextInput`、`BaseTextInput`、`useArrowKeyHistory`，以同步控制器避免同批文字加 Enter 读取旧状态。修复 Unicode 协议文字/小键盘数字丢失，显示投影处理孤立代理和单独零宽字素；宿主在回调停止后丢弃同批剩余事件，回调异常时恢复 raw mode 并清理监听。新增持久 `npm run test:input`：36 项行为测试通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。通过真实 Ink 加模拟 TTY 验证，未调用模型。第 5–8 批及最终真实终端手测仍待推进，`main.ts` 未恢复交互。 |
 | 2026-10-05 | 为架构书 §0.4 补充适用前提：只有明确要求逐行解释某个函数时才启用，其他情况下忽略该格式，直接回答当前问题；同步进度页协作约定。 |
 | 2026-10-05 | 按用户确认的讲解方式，在架构书新增 §0.4：保留原代码，每行解释紧跟对应代码行；自然语言直接说明参数、变量、条件、状态变化与调用效果，仅补充理解所需的语法；每段说明用途，必要时用具体数值演示参数传递。进度页协作约定改为链接该节，后续对话沿用。 |

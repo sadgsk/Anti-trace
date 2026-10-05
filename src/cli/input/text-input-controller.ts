@@ -1,5 +1,4 @@
 import type { InputTarget, RoutedInputEvent } from "./input-dispatcher.ts";
-import { TextInputHistory } from "./text-input-history.ts";
 import { getTextInputOffset, getTextInputPosition, layoutTextInput } from "./text-input-layout.ts";
 import { applyTextInputAction, createTextInputState, type TextInputAction, type TextInputState } from "./text-input-state.ts";
 
@@ -7,16 +6,12 @@ export interface TextInputOptions {
 	/** Text columns only; reserve one additional column for the trailing cursor. */
 	availableColumns: number;
 	initialState?: TextInputState;
-	/** Oldest first. Persistence and recording accepted submissions belong to the caller. */
-	history?: readonly TextInputState[];
 	multiline?: boolean;
 	onChange?: (state: TextInputState) => void;
 	onSubmit?: (state: TextInputState) => void;
 	/** A synchronous gate for the later paste buffer and prompt submission rules. */
 	canSubmit?: () => boolean;
 	onPaste?: (event: Extract<RoutedInputEvent, { type: "paste" }>) => void;
-	/** Rich prompt history can replace the base text-only navigator. */
-	onHistory?: (direction: "up" | "down") => void;
 }
 
 export interface TextInputSnapshot {
@@ -33,7 +28,6 @@ const INPUT_ACTIONS = [
 export class TextInputController {
 	private snapshot: TextInputSnapshot;
 	private readonly listeners = new Set<() => void>();
-	private readonly history: TextInputHistory;
 	readonly target: InputTarget;
 
 	constructor(private readonly options: TextInputOptions) {
@@ -44,7 +38,6 @@ export class TextInputController {
 			state: createTextInputState(state.text, state.cursor),
 			availableColumns: options.availableColumns,
 		};
-		this.history = new TextInputHistory(options.history);
 		this.target = {
 			id: Symbol("text-input"),
 			context: "Input",
@@ -63,14 +56,9 @@ export class TextInputController {
 		return () => { this.listeners.delete(listener); };
 	};
 
-	/** Replace the draft after submission, session changes or richer history restoration. */
+	/** Replace the draft after submission or session changes. */
 	replaceState(state: TextInputState): void {
-		this.history.reset();
 		this.update(createTextInputState(state.text, state.cursor));
-	}
-
-	replaceHistory(entries: readonly TextInputState[]): void {
-		this.history.replace(entries);
 	}
 
 	setAvailableColumns(availableColumns: number): void {
@@ -89,7 +77,7 @@ export class TextInputController {
 				if (this.options.multiline !== false && state.text[state.cursor - 1] === "\\") {
 					this.insertNewline(true);
 				} else {
-					// No automatic clearing/history write: the caller owns acceptance of the snapshot.
+					// The caller accepts the snapshot and clears the draft when appropriate.
 					this.options.onSubmit?.({ ...state });
 				}
 				return true;
@@ -100,7 +88,11 @@ export class TextInputController {
 				this.edit({ type: "move", direction: action === "input:left" ? "left" : "right" });
 				return true;
 			case "input:up": case "input:down":
-				this.moveVertical(action === "input:up" ? "up" : "down");
+				this.edit({
+					type: "move",
+					direction: action === "input:up" ? "up" : "down",
+					availableColumns: this.snapshot.availableColumns,
+				});
 				return true;
 			case "input:backspace": case "input:delete":
 				this.edit({ type: "delete", direction: action === "input:backspace" ? "backward" : "forward" });
@@ -143,21 +135,6 @@ export class TextInputController {
 			state = applyTextInputAction(state, { type: "delete", direction: "backward" });
 		}
 		this.update(applyTextInputAction(state, { type: "insert", text: "\n" }));
-	}
-
-	private moveVertical(direction: "up" | "down"): void {
-		const state = this.getState();
-		const layout = layoutTextInput(state.text, this.snapshot.availableColumns);
-		const position = getTextInputPosition(layout, state.cursor);
-		const adjacent = position.line + (direction === "up" ? -1 : 1);
-		if (layout.lines[adjacent]) {
-			this.edit({ type: "move", direction, availableColumns: this.snapshot.availableColumns });
-		} else if (this.options.onHistory) {
-			this.options.onHistory(direction);
-		} else {
-			const recalled = this.history.move(state, direction);
-			if (recalled) this.update(recalled);
-		}
 	}
 
 	private update(state: TextInputState): void {
