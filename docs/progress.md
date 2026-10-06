@@ -6,7 +6,7 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **Harness 与 Agent 内部能力保留；旧终端输入和 REPL 接线已归档，`npm start` 暂不能对话。新输入第 1–4 批已完成；第 5 批粘贴缓冲、同步提交门槛、异步图片路径/剪贴板读取及生命周期清理已整批完成、验证并经用户 review 确认；输入历史召回已移除；第 6–8 批和思考等级/BYOK 后续规划仍待推进。** |
+| 阶段 | **剩余输入第 6–8 批已实现，完整附件草稿、撤销/重做、REPL/Harness 提交及显示接通，`npm start` 恢复交互。本机 115 项扩展测试通过；现按用户要求删除旧 stash 和同步 image.ts，提交推送且排除全部新增测试及 PTY 辅助。仓库 test:input 保留原 68 项基础回归。macOS POSIX PTY 与本地 HTTP SSE 已验收；其他平台原生终端与真实剪贴板仍需手测。上下键不召回历史；思考等级/BYOK 仍待合并设计。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
@@ -41,11 +41,11 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**旧输入五文件已归档，`main.ts` 当前只报告入口不可用。第 1–4 批已完成，提交回调收到最新文本/光标快照，上下键只在当前输入中移动光标。第 5 批按本次要求一次性交付：`PasteHandler.handleInput()` 合并明确粘贴、超过 800 字符的块、图片路径和 pending 后续文字；100 ms 静默后按顺序交付文本/图片。pending 同步覆盖缓冲与异步读取，Enter 被消费且不延迟提交；编辑动作先完成前面的粘贴。图片读取异步进行，失败路径及剩余正文原样保留，宿主停止或草稿替换后不接受旧结果。基础输入通过 `onImagePaste` 交付图片，第 6 批再统一附件草稿、占位符与撤销，第 7–8 批接 REPL 和做终端验收。`npm run test:input` 68 项通过，类型检查、构建和差异检查通过；未调用模型或读取真实剪贴板。旧输入测试 `npm run test:input:stash` 只验证归档实现。源码对照、行为差异及边界见 [输入迁移计划](./claude-code-input-architecture.md)。
+**终端输入迁移：**第 1–5 批已实现并 review，剩余第 6–8 批已一次性交付，现获用户提交推送授权。长粘贴原文、图片内容、可见占位符及可信引用范围同属 `PromptDraft`；移动/删除按完整引用处理，撤销/重做恢复整份草稿。提交只展开仍被引用的长文本和图片，手打同名标签保留为正文。REPL 接回命令、会话选择、busy 门槛、中断退出、Agent 流式和工具显示；交互由 Ink 输出，非 TTY 在 EOF 提交一次原文，上下键只移动当前输入光标。本机扩展 115 项测试已通过；按用户要求本次不提交新增测试或 PTY 脚本，仓库 `test:input` 保留现有 68 项基础回归。macOS 真实 PTY 和本地 HTTP 验证长文本/PNG 请求、会话、压缩与续聊，未调用真实模型/读取真实剪贴板；其他平台及具体终端应用仍需手测。旧 stash 和同步 CLI image.ts 已删除，历史可从 Git 查阅。源码与 review 顺序见 [输入迁移计划](./claude-code-input-architecture.md)。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
-**主线下一步：** 第 5 步 `/compact` 入口已接通：仅当 `used > window / 4` 才尝试现有压缩；没有旧轮次或刚压完没有新消息则不调用模型。假 `StreamFn` 已验证门槛、写盘与恢复；真实模型摘要和续聊仍待验收。review 后先调研 Kimi Code 等实现，确定思考等级与 BYOK 共用的模型能力、配置、映射和失败兜底方案，再分小批实现。具体档位、映射方式及重试条件尚未定。默认 `256000` 窗口下，手动入口需 `used > 64000`，不再以短会话作为真实模型验收方式。
+**主线下一步：** 补充实际终端/剪贴板手测。`/compact` 已接回：仅当 `used > window / 4` 才尝试现有压缩；无旧轮次或刚压完无新消息不调用模型。假流及本地 HTTP 已验证门槛、摘要写盘和续聊，真实模型摘要仍待验收。之后按用户安排调研 Kimi Code 等实现，确定思考等级与 BYOK 共用的模型能力、配置、映射和失败兜底方案，再分小批实现。具体档位、映射及重试条件尚未定。默认 `256000` 窗口下，手动入口需 `used > 64000`。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
@@ -53,9 +53,9 @@
 | 1 | `src/harness/harness.ts` 框架 + `test/probe-harness.ts`；`main.ts` 改用 Harness | [x] |
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / 会话名（前 10 字）/ `/new` / `/resume`（名字+上次打开时间） | [x] |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context`；阈值压缩；报错或空 `length` 重试；`stop` 超窗只压。代码和假流探针完成，真实模型验收待做 | [x] |
-| 5 | `Harness.manualCompact()` 及假流验证已完成；旧 CLI `/compact` 接线随输入层移除，待新 REPL 恢复并做真实模型验收 | [ ] |
+| 5 | `Harness.manualCompact()` 及新 REPL `/compact` 接线完成，假流与本地 HTTP 摘要/写盘/续聊验证通过；真实模型验收待做 | [x] |
 | 4+6 | 思考等级与 BYOK 合并规划：三协议基础接入、可配置的模型能力与请求映射、失败兜底；具体方案待调研 | [ ] |
-| 7 | 新输入和 REPL 按迁移计划完成后，再做端到端验收与公开试用准备 | [ ] |
+| 7 | 新输入和 REPL 实现及本地端到端验收完成；实际跨平台终端/剪贴板、真实模型和公开试用准备仍待做 | [ ] |
 
 第 3 步的内部状态：
 
@@ -70,6 +70,8 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-07 | 用户 review 后要求删除旧输入 `src/cli/input/stash/` 和不用的 `src/cli/utils/image.ts`，提交并推送本轮功能，明确不提交任何测试文件。生产依赖检查确认只有旧 stash 使用同步 image，保留新 `image-paste.ts` 与 Harness 的图片工具。删除六个旧源码和 `test:input:stash` 脚本；本轮六个新增测试及 PTY 辅助只留本地，基础 `test:input` 恢复原五个已跟踪文件，68 项复测通过。类型检查、构建与差异检查也通过。此前本机完整 115 项扩展验收记录保留；旧归档测试退役，不作为当前运行命令。 |
+| 2026-10-07 | 按用户要求一次性实现剩余输入第 6–8 批：新增 `PromptDraft`、`PromptInputController`、`PromptInput`，统一文字/可信引用/真实图片与撤销重做；长文本展开一次，原子引用移动删除，手打标签不复活附件。新增 `ReplController.submit()`、`startTerminalRepl()` 和 `runCli()`，恢复所有既有斜杠命令、会话选择、busy 门槛、流式/工具显示、中断退出及非 TTY EOF；Ink 统一交互输出。补齐 Harness 全程及摘要取消，覆盖生成结束到自动压缩的空档，中断摘要不改历史、不落盘，下一轮可继续。纳入持久解析器回归，新增草稿/组件/REPL/入口和真实 POSIX PTY 验收。`test:input` 115 项、类型检查、构建及差异检查通过；本地 HTTP SSE 验证真实 PNG Base64、长文本还原、会话及压缩续聊。未调用真实模型/读取真实剪贴板，Windows/Linux 原生终端和具体应用仍需手测。代码留待用户 review，未提交本轮修改。 |
 | 2026-10-07 | 用户 review 确认输入迁移第 5 批，并要求提交推送。提交前复跑 `npm run test:input`，68 项通过；`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。同步当前状态与迁移计划；图片附件草稿、占位符、撤销及 REPL/Harness 接线仍按第 6–8 批继续。 |
 | 2026-10-06 | 按用户要求一次性完成输入迁移第 5 批，待 review。新增主流程 `PasteHandler.handleInput()`：明确粘贴、超过 800 字符的输入块、图片路径与 pending 连续片段进入 100 ms 缓冲；同步 pending 覆盖缓冲及全部异步读取，粘贴同批 Enter 不抢先提交，编辑动作与文本/图片结果按事件顺序交付。新增 `image-paste.ts` 的保序路径解析、异步文件/剪贴板读取、2000 边长缩放；失败图片路径和其他正文原样保留，空 macOS 图片粘贴独立处理，防止立即打字吞掉附件。快捷键集中映射 `input:paste-image`（Windows Alt+V，其他平台 Ctrl+V），允许换绑。宿主 stop、EOF、close、错误和信号退出通知控制器清理，草稿替换/停止通过 generation 丢弃旧结果。新增持久粘贴及图片测试，更新原有延迟粘贴行为测试；`npm run test:input` 68 项、`npm run typecheck`、`npm run build`、`git diff --check` 通过。验证使用模拟 TTY、注入图片 reader 和 PATH 假剪贴板命令，未读真实剪贴板、未调用模型。图片完整草稿、长文本占位、撤销、REPL 和真实跨终端/平台验收仍属于第 6–8 批；未提交 Git。 |
 | 2026-10-05 | 按用户要求取消输入框的历史召回。删除 `text-input-history.ts`，清理控制器的历史列表、草稿备份、`onHistory` 回调和 `replaceHistory()` 接口；Up/Down 直接调用当前文本的纯编辑操作，首末显示行保持光标原位。同步移除相关测试和第 6 批的输入历史规划，保留完整草稿撤销的计划。更新行移动边界和状态替换验证，`npm run test:input` 35 项通过，`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。 |
@@ -119,7 +121,7 @@
 
 ## v1.3（后续）
 
-原计划在 v1.3 才替换 TUI；现已提前停用旧输入，并开始 Claude Code 输入架构迁移。现行分批顺序以 [输入迁移计划](./claude-code-input-architecture.md) 为准。旧输入的历史实现和验证记录保留在上文，不代表当前 CLI 可用。
+原计划在 v1.3 替换 TUI；输入底座已提前按 Claude Code 链路重建并接回 REPL，完整 TUI 仍是后续版本目标。当前实现与待手测范围以 [输入迁移计划](./claude-code-input-architecture.md) 为准；旧输入历史保留作对照。
 
 ---
 

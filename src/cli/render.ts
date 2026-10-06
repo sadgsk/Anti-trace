@@ -2,7 +2,7 @@ import type { AgentEvent, AgentMessage, AgentToolResult } from "../types.ts";
 
 let wroteText = false;
 
-function previewToolResult(result: unknown): string {
+export function previewToolResult(result: unknown): string {
 	if (!result || typeof result !== "object" || !("content" in result)) {
 		return "";
 	}

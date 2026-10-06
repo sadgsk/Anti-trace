@@ -40,6 +40,8 @@ export class Harness {
 	private readonly sessionsRoot: string;
 	private session!: SessionFile;
 	private usedTokens = 0;
+	private promptController: AbortController | undefined;
+	private compactionController: AbortController | undefined;
 
 	constructor(options: HarnessOptions) {
 		const tools = [
@@ -72,6 +74,20 @@ export class Harness {
 	}
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
+		if (this.promptController || this.compactionController) {
+			throw new Error("Harness is already processing.");
+		}
+		// Own the entire prompt, including the gap between an agent turn and its summary/retry.
+		const controller = new AbortController();
+		this.promptController = controller;
+		try {
+			await this.runPrompt(text, images, controller.signal);
+		} finally {
+			this.promptController = undefined;
+		}
+	}
+
+	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal): Promise<void> {
 		// Images stay in context as real blocks (so the model sees them right away) and are also
 		// written next to the session jsonl, so the model can `read` one back after compaction
 		// replaces that part of the history with a summary.
@@ -85,6 +101,7 @@ export class Harness {
 		// Provider-reported usage is authoritative; fall back to the character estimate when the
 		// gateway does not send it (or when the stream was aborted before the usage chunk).
 		this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
+		if (signal.aborted) return;
 		const lastMessage = this.agent.state.messages.at(-1);
 		if (lastMessage?.role !== "assistant") {
 			return;
@@ -96,7 +113,7 @@ export class Harness {
 			this.agent.state.messages = originalMessages.slice(0, -1);
 			let compacted: boolean;
 			try {
-				compacted = await this.compact();
+				compacted = await this.compactWithSignal(undefined, signal);
 			} catch (error) {
 				this.agent.state.messages = originalMessages;
 				throw error;
@@ -105,6 +122,7 @@ export class Harness {
 				this.agent.state.messages = originalMessages;
 				return;
 			}
+			if (signal.aborted) return;
 			await this.agent.continueFromContext();
 			this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
 			return;
@@ -113,7 +131,7 @@ export class Harness {
 			lastMessage.stopReason === "stop" &&
 			(overflow || shouldCompact(this.usedTokens, window, DEFAULT_COMPACTION_SETTINGS))
 		) {
-			await this.compact();
+			await this.compactWithSignal(undefined, signal);
 		}
 	}
 
@@ -134,6 +152,8 @@ export class Harness {
 	}
 
 	abort(): void {
+		this.promptController?.abort();
+		this.compactionController?.abort();
 		this.agent.abort();
 	}
 
@@ -189,7 +209,7 @@ export class Harness {
 	}
 
 	async manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact"> {
-		if (this.agent.state.isStreaming) {
+		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
 			throw new Error("Cannot compact while the agent is processing");
 		}
 		const { used, window } = this.contextUsage();
@@ -203,7 +223,14 @@ export class Harness {
 	}
 
 	async compact(customInstructions?: string): Promise<boolean> {
-		if (this.agent.state.isStreaming) {
+		if (this.promptController) {
+			throw new Error("Cannot compact while the agent is processing");
+		}
+		return this.compactWithSignal(customInstructions);
+	}
+
+	private async compactWithSignal(customInstructions?: string, parentSignal?: AbortSignal): Promise<boolean> {
+		if (this.agent.state.isStreaming || this.compactionController) {
 			throw new Error("Cannot compact while the agent is processing");
 		}
 		const messages = this.agent.state.messages;
@@ -215,41 +242,53 @@ export class Harness {
 		if (!apiKey) {
 			throw new Error("Compaction requires an API key");
 		}
-
-		const summary = await summarizeConversation({
-			streamFn: this.agent.streamFunction,
-			model: this.agent.state.model,
-			context: {
-				systemPrompt: this.agent.state.systemPrompt,
-				messages: await this.agent.convertToLlm(messages),
-				tools: this.agent.state.tools,
-			},
-			apiKey,
-			reserveTokens: DEFAULT_COMPACTION_SETTINGS.reserveTokens,
-			customInstructions,
-		});
-		const keptMessages = messages.slice(cutIndex);
-		const wrappedSummary = buildCompactSummaryMessage(summary, {
-			transcriptPath: this.session.path,
-			recentMessagesPreserved: keptMessages.length > 0,
-		});
-		const headerTime = Date.parse(this.session.header.timestamp);
-		const compactedMessages = [
-			{
-				role: "user" as const,
-				content: [{ type: "text" as const, text: wrappedSummary }],
-				timestamp: Number.isNaN(headerTime) ? 0 : headerTime,
-			},
-			...keptMessages,
-		];
-		appendEntry(this.session, {
-			type: "compaction",
-			summary: wrappedSummary,
-			keptMessages,
-			tokensBefore: this.usedTokens,
-		});
-		this.agent.state.messages = compactedMessages;
-		this.usedTokens = estimateMessagesTokens(compactedMessages);
-		return true;
+		const controller = new AbortController();
+		const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
+		this.compactionController = controller;
+		try {
+			signal.throwIfAborted();
+			const converted = await this.agent.convertToLlm(messages);
+			signal.throwIfAborted();
+			const summary = await summarizeConversation({
+				streamFn: this.agent.streamFunction,
+				model: this.agent.state.model,
+				context: {
+					systemPrompt: this.agent.state.systemPrompt,
+					messages: converted,
+					tools: this.agent.state.tools,
+				},
+				apiKey,
+				reserveTokens: DEFAULT_COMPACTION_SETTINGS.reserveTokens,
+				customInstructions,
+				signal,
+			});
+			// Even an injected provider that ignores cancellation must not commit an aborted summary.
+			signal.throwIfAborted();
+			const keptMessages = messages.slice(cutIndex);
+			const wrappedSummary = buildCompactSummaryMessage(summary, {
+				transcriptPath: this.session.path,
+				recentMessagesPreserved: keptMessages.length > 0,
+			});
+			const headerTime = Date.parse(this.session.header.timestamp);
+			const compactedMessages = [
+				{
+					role: "user" as const,
+					content: [{ type: "text" as const, text: wrappedSummary }],
+					timestamp: Number.isNaN(headerTime) ? 0 : headerTime,
+				},
+				...keptMessages,
+			];
+			appendEntry(this.session, {
+				type: "compaction",
+				summary: wrappedSummary,
+				keptMessages,
+				tokensBefore: this.usedTokens,
+			});
+			this.agent.state.messages = compactedMessages;
+			this.usedTokens = estimateMessagesTokens(compactedMessages);
+			return true;
+		} finally {
+			this.compactionController = undefined;
+		}
 	}
 }

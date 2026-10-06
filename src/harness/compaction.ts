@@ -242,6 +242,7 @@ export interface SummarizeConversationOptions {
 	apiKey: string;
 	reserveTokens: number;
 	customInstructions?: string;
+	signal?: AbortSignal;
 }
 
 /** Request a summary without adding either attempt to the live transcript. */
@@ -253,6 +254,7 @@ export async function summarizeConversation(options: SummarizeConversationOption
 
 	const instruction = buildCompactInstruction(options.customInstructions);
 	for (let attempt = 0; attempt < 2; attempt += 1) {
+		options.signal?.throwIfAborted();
 		const retryNote =
 			attempt === 0
 				? ""
@@ -271,8 +273,10 @@ export async function summarizeConversation(options: SummarizeConversationOption
 		const stream = await options.streamFn(options.model, context, {
 			apiKey: options.apiKey,
 			maxTokens,
+			signal: options.signal,
 		});
 		const reply = await stream.result();
+		options.signal?.throwIfAborted();
 		if (reply.stopReason === "error" || reply.stopReason === "aborted") {
 			throw new Error(`Compaction summary failed: ${reply.errorMessage ?? reply.stopReason}`);
 		}

@@ -9,7 +9,12 @@ export interface TextInputOptions {
 	availableColumns: number;
 	initialState?: TextInputState;
 	multiline?: boolean;
-	onChange?: (state: TextInputState) => void;
+	onChange?: (state: TextInputState, edit?: TextInputEdit) => void;
+	/** Draft owners can keep a placeholder indivisible without teaching the editor about attachments. */
+	transformEdit?: (edit: TextInputEdit, state: TextInputState) => TextInputEdit;
+	transformCursor?: (cursor: number, state: TextInputState) => number;
+	onUndo?: () => void;
+	onRedo?: () => void;
 	onSubmit?: (state: TextInputState) => void;
 	/** Additional prompt submission rules, checked after the built-in paste pending gate. */
 	canSubmit?: () => boolean;
@@ -18,6 +23,13 @@ export interface TextInputOptions {
 	onPasteError?: (error: unknown) => void;
 	/** Injectable readers let tests and future hosts avoid a real system clipboard. */
 	pasteOptions?: Pick<PasteHandlerOptions, "readImage" | "readClipboard" | "platform">;
+}
+
+/** Exact replacement range, so repeated identical text cannot confuse attachment ownership. */
+export interface TextInputEdit {
+	readonly start: number;
+	readonly end: number;
+	readonly text: string;
 }
 
 export interface TextInputSnapshot {
@@ -30,6 +42,7 @@ const INPUT_ACTIONS = [
 	"input:submit", "input:newline", "input:left", "input:right", "input:up", "input:down",
 	"input:backspace", "input:delete", "input:home", "input:end",
 	"input:paste-image",
+	"input:undo", "input:redo",
 ] as const;
 
 /** Synchronous editing state; React subscribes without becoming another stdin reader. */
@@ -91,8 +104,15 @@ export class TextInputController {
 		this.replacingState = true;
 		try { this.pasteHandler.cancel(); }
 		finally { this.replacingState = false; }
-		this.update(next);
+		this.update(next, { start: 0, end: this.getState().text.length, text: next.text });
 		if (!changed && wasPending) this.notify();
+	}
+
+	/** Restore an undo snapshot while preserving events queued after that undo action. */
+	restoreState(state: TextInputState): void {
+		if (!this.active) return;
+		const next = createTextInputState(state.text, state.cursor);
+		this.update(next, { start: 0, end: this.getState().text.length, text: next.text });
 	}
 
 	/** Paste consumers can insert a placeholder without cancelling the remaining ordered delivery. */
@@ -134,6 +154,8 @@ export class TextInputController {
 	private applyAction(action: string, isEnter: boolean): boolean {
 		const state = this.getState();
 		switch (action) {
+			case "input:undo": this.options.onUndo?.(); return true;
+			case "input:redo": this.options.onRedo?.(); return true;
 			case "input:submit":
 				if (this.options.multiline !== false && state.text[state.cursor - 1] === "\\") {
 					this.insertNewline(true);
@@ -188,23 +210,46 @@ export class TextInputController {
 	}
 
 	private edit(action: TextInputAction): void {
-		this.update(applyTextInputAction(this.getState(), action));
+		const current = this.getState();
+		if (action.type === "move") {
+			this.update(applyTextInputAction(current, action));
+		} else if (action.type === "insert") {
+			this.applyEdit({ start: current.cursor, end: current.cursor, text: action.text });
+		} else {
+			const next = applyTextInputAction(current, action);
+			const removed = current.text.length - next.text.length;
+			const start = action.direction === "backward" ? current.cursor - removed : current.cursor;
+			this.applyEdit({ start, end: start + removed, text: "" });
+		}
+	}
+
+	private applyEdit(edit: TextInputEdit): void {
+		const current = this.getState();
+		const replacement = this.options.transformEdit?.(edit, current) ?? edit;
+		const text = current.text.slice(0, replacement.start) + replacement.text + current.text.slice(replacement.end);
+		const after = replacement.start + replacement.text.length;
+		let next = createTextInputState(text, after);
+		if (replacement.text.length > 0 && next.cursor < after) {
+			next = applyTextInputAction(next, { type: "move", direction: "right" });
+		}
+		this.update(next, replacement);
 	}
 
 	private insertNewline(replaceBackslash: boolean): void {
-		let state = this.getState();
-		if (replaceBackslash && state.text[state.cursor - 1] === "\\") {
-			state = applyTextInputAction(state, { type: "delete", direction: "backward" });
-		}
-		this.update(applyTextInputAction(state, { type: "insert", text: "\n" }));
+		const state = this.getState();
+		const start = replaceBackslash && state.text[state.cursor - 1] === "\\" ? state.cursor - 1 : state.cursor;
+		this.applyEdit({ start, end: state.cursor, text: "\n" });
 	}
 
-	private update(state: TextInputState): void {
+	private update(state: TextInputState, edit?: TextInputEdit): void {
 		const current = this.getState();
+		if (!edit && this.options.transformCursor) {
+			state = createTextInputState(state.text, this.options.transformCursor(state.cursor, current));
+		}
 		if (current.text === state.text && current.cursor === state.cursor) return;
 		this.snapshot = { ...this.snapshot, state: { ...state } };
 		try {
-			this.options.onChange?.({ ...state });
+			this.options.onChange?.({ ...state }, edit);
 		} finally {
 			this.notify();
 		}

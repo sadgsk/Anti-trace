@@ -4,7 +4,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-10-07）：**旧输入已归档；第 1–4 批已完成。第 5 批粘贴缓冲、同步提交门槛、图片路径/剪贴板异步读取及停止清理已整批完成，并经用户 review 确认；新输入 68 项行为测试、类型检查和构建通过。附件完整草稿、REPL 及最终终端验收按第 6–8 批继续，交互入口仍暂不可用。按用户要求取消输入历史召回，上下键仅在当前输入中移动光标。具体设计和验证统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
+**输入迁移状态（2026-10-07）：**剩余第 6–8 批已按用户要求一次性实现，现按要求清理旧输入 `stash`、旧同步 `utils/image.ts` 并提交推送。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 恢复交互。本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE；新增测试及辅助脚本本次不提交，`test:input` 只引用仓库现有基础测试。其他平台原生终端、真实剪贴板和具体终端应用仍需手测。上下键仅移动当前输入光标，不提供历史召回。具体数据流、对照源码和验证边界见 [输入迁移计划](./claude-code-input-architecture.md)。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -68,12 +68,12 @@ startLine(index + segment.length);
 
 | 能力 | 当前状态 |
 |---|---|
-| 对话与工具 | Harness、内存多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 的内部实现仍在；REPL 交互入口因输入迁移暂不可用 |
-| 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；旧 CLI 命令接线已移除，待新 REPL 接回 |
-| 终端输入 | 旧五文件已归档；新宿主、解析、焦点分发、基础文本输入与粘贴缓冲已完成并独立接线，完整草稿和 REPL 按 [迁移计划](./claude-code-input-architecture.md) 继续；运行入口仍未恢复 |
-| 图片输入 | `read` 和内部图文消息仍支持 jpeg/png/gif/webp；新基础输入通过集中快捷键和异步图片路径/剪贴板读取向 `onImagePaste` 交付结果，第 6–7 批再接附件草稿与 Harness |
+| 对话与工具 | Harness、多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 已接入新 REPL；交互入口已恢复 |
+| 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；新 REPL 已接回 `/new`、`/resume` 列表与序号选择 |
+| 终端输入 | 唯一 stdin 宿主、协议解析、焦点分发、多行字素编辑、粘贴合并、完整附件草稿、撤销/重做和提交展开已接通；非 TTY 在 EOF 提交一次原文；本轮待 review |
+| 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
-| 上下文容量 | 窗口、用量、摘要、自动压缩和 `Harness.manualCompact()` 仍在；CLI 显示与 `/compact` 命令待新 REPL 接回。默认窗口 `256000`，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
+| 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。默认窗口 `256000`，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
 | 思考等级与 BYOK | 思考等级已有类型和状态，尚未接到模型请求与 CLI；BYOK 尚未接通。两者合并规划，具体方案待定 |
 
 **这一版（v1.2）的既定目标：**
@@ -84,7 +84,7 @@ startLine(index + segment.length);
 4. **上下文容量**：窗口设置、用量记录、REPL 显示、自动压缩与溢出重试；手动 `/compact` 在用量超过窗口 1/4 时可用。
 5. 思考等级与 BYOK 作为一项功能设计和实现：用户配置模型连接，按实际模型能力选择思考设置；协议适配支持 OpenAI Chat Completions、Anthropic Messages 和 OpenAI Responses 的基础对话与工具调用。
 
-图片读取和内部图文消息能力保留；剪贴板粘贴的交互入口按输入迁移计划重建。
+图片文件和剪贴板读取已通过新输入接入完整草稿；提交时按有效引用收集真实图片内容。
 
 **后续范围：** v1.3 做 TUI。v1.2 先以三种协议的基础接入和可用的思考控制为目标；能力信息来源、配置方式和适配边界在合并功能的设计阶段确定。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
 
@@ -92,7 +92,7 @@ startLine(index + segment.length);
 
 ## 2. v1.2 目标行为
 
-以下是 REPL 恢复后的目标行为，并非当前可运行状态；当前实现状态以 §1 和进度文档为准。输入链路的具体方案见迁移计划。
+下面的会话、命令和上下文行为已接入新 REPL；思考等级与 BYOK 仍按各节说明等待设计。输入链路的具体方案见迁移计划。
 
 ```text
 main（屏幕）
@@ -112,7 +112,7 @@ Agent / loop（已有，不改职责）
         └── 协议适配器（Chat Completions / Anthropic Messages / OpenAI Responses）
 ```
 
-新 REPL 将从输入组件接收完整草稿、处理斜杠命令、订阅打印和处理中断；不创建工具，不 `new Agent`。终端事件、文本输入与提交状态的职责按输入迁移计划建立。当前 `main.ts` 只保留 Harness 装配，交互入口未接线。
+新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 装配 Harness 并选择 TTY 交互或非 TTY EOF 提交。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
 
 磁盘采用按项目分桶的线性会话，格式由本项目定义：
 
@@ -166,34 +166,37 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 | 文件 | 职责与状态 |
 |---|---|
-| `src/harness/harness.ts` | 装配、会话、窗口、用量、自动压缩与手动入口已接通；思考入口待接 |
+| `src/harness/harness.ts` | 装配、会话、窗口、用量、自动/手动压缩已接通；本轮补齐 prompt 全程和摘要取消，中断摘要不改历史；思考入口待接 |
 | `src/harness/session.ts` | cwd 分桶、jsonl 持久化、命名、列表和恢复；已有 compaction 行读写结构 |
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
-| `src/harness/compaction.ts` | 已有阈值、溢出判断、切点、摘要与包装；真实 REPL 验收暂缓 |
+| `src/harness/compaction.ts` | 阈值、溢出判断、切点、摘要与包装；本地 HTTP 摘要/持久化/续聊已验证，真实模型验收暂缓 |
 | `src/cli/ink/terminal-host.ts`、`terminal-input.ts` | 第 1–2 批宿主与解析：真实 stdin 的唯一读取者，管理 raw mode 和 bracketed paste，并将字节解析为终端事件；Ink 只负责渲染 |
-| `src/cli/input/keybindings.ts`、`input-dispatcher.ts` | 第 3 批逻辑已完成并 review：快捷键纯解析、默认映射与独立分发器通过 10 个本层探针；真实组件与运行入口尚未接线 |
+| `src/cli/input/keybindings.ts`、`input-dispatcher.ts` | 快捷键纯解析、默认编辑/撤销/图片映射、REPL 退出覆盖与焦点分发；已接入真实组件和运行入口 |
 | `src/cli/input/text-input-state.ts`、`text-input-layout.ts` | 第 4 批完成：纯字素编辑及共享显示行列映射，供上下移动和基础组件渲染共用；保留原文 |
-| `src/cli/input/text-input-controller.ts`、`use-text-input.ts`、`base-text-input.tsx`、`terminal-text-input.tsx` | 第 4 批完成：同步动作主流程、Enter/换行、React 重画与独立终端接线，提交文本/光标快照；主入口与完整附件草稿仍待后续批次 |
-| `src/cli/input/paste-handler.ts`、`src/cli/utils/image-paste.ts` | 第 5 批完成：100 ms 粘贴合并、同步 pending、按事件顺序交付文本/图片、异步文件/剪贴板读取及停止/草稿替换清理；图片附件由第 6 批完整草稿层持有 |
-| `src/cli/input/stash/*` | 迁移前五个输入文件的归档；只供对照，不接入运行入口 |
+| `src/cli/input/text-input-controller.ts`、`use-text-input.ts`、`base-text-input.tsx`、`terminal-text-input.tsx` | 同步动作、Enter/换行、精确编辑范围、上层引用变换与 React 重画；基础适配器可独立运行，正式 REPL 复用控制器和组件 |
+| `src/cli/input/paste-handler.ts`、`src/cli/utils/image-paste.ts` | 100 ms 粘贴合并、同步 pending、按序交付文本/图片、异步读取及停止/换草稿清理；图片交给完整草稿层 |
+| `src/cli/input/prompt-draft.ts` | 文字、光标、可信引用范围与附件同属不可变草稿；`preparePromptSubmission()` 展开原文并收集图片 |
+| `src/cli/input/prompt-input-controller.ts`、`prompt-input.tsx` | 长文本/图片占位、原子移动与删除、完整草稿撤销/重做、提交门槛与输入显示 |
+| `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx` | 命令/会话选择、同步 busy 门槛、Harness 事件投影、唯一终端宿主装配、Ink 显示与退出清理 |
+| `src/cli/main.ts` | `runCli()` 装配 Harness，TTY 交互和非 TTY EOF 提交共用 REPL 逻辑；导入不启动进程 |
 | `docs/claude-code-input-architecture.md` | 新输入的数据流、源码入口、分批施工和验收边界 |
-| `src/cli/utils/image.ts` | 旧同步剪贴板读取及按键判断，保留给归档代码；新输入使用异步 `image-paste.ts`，快捷键由 `keybindings.ts` 定义 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
 | `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
-| `test/probe-context.ts` | 本地假 `StreamFn` 探针已覆盖压缩与重试；`test/` 当前被 `.gitignore` 忽略，公开试用前需把必要测试纳入仓库 |
+| `test/probe-context.ts` | 历史本地假流探针曾覆盖压缩与重试；当前工作区无该文件，不能作为可运行命令 |
+| 仓库已有的基础输入测试 | `test:input` 覆盖编辑、布局、组件、粘贴和图片读取；本轮完整草稿/REPL/本地 HTTP/PTY 扩展用例只保留在本机，不提交 |
 
-**v1.2 后续接线：** `/context`、`/compact` 和每轮后的 `ctx` 显示曾在旧 REPL 接通，现等待新输入完成后接回。思考等级与 BYOK 的合并设计仍待确定；保留现有 Agent / Harness 的消息和事件边界。
+**v1.2 后续：** 新输入及 `/new`、`/resume`、`/context`、`/compact`、每轮 `ctx` 已接回，本轮已获提交推送授权。思考等级与 BYOK 的合并设计仍待确定；保留 Agent / Harness 的消息和事件边界。
 
 ---
 
 ## 4. 分层
 
 ```
-输入层（待逐批实现；详见 claude-code-input-architecture.md）
+输入层（宿主 → 分发 → 文本编辑 → 完整草稿；详见输入迁移计划）
    │ 提交草稿快照
    ▼
-cli/main.ts + render.ts（当前未接入交互输入）
+cli/main.ts + cli/repl/*（展开引用、命令与 Harness 事件；Ink 统一交互输出）
    │
    ▼
 harness/harness.ts
@@ -217,7 +220,7 @@ Agent / loop
 
 工具位于 `src/harness/tools/`，系统提示位于 `src/harness/prompt.ts`，由 `Harness` 装配。`createXxxTool` / `buildSystemPrompt` 是现有入口。
 
-剪贴板读取工具仍在，CLI 图片入口待新输入重新接线。接线后图片沿 `Harness.prompt(text, images?)` → `Agent.prompt(text, images?)` 传递；`read` 返回的图片放在对应的 `ToolResultMessage.content` 中。文本和图片使用内部内容块表示，OpenAI 请求格式由 `openai-chat.ts` 转换。协议所需的附加消息只在构造请求时生成，不作为真实用户输入写回会话；工具来源和图文对应关系需要在转换中保留。
+新输入异步读取图片文件/剪贴板，经回调把真实图片内容交给 `PromptInputController`，草稿显示 `[Image #N]`。提交时只收集仍被引用的图片，沿 `Harness.prompt(text, images?)` → `Agent.prompt(text, images?)` 传递；`read` 的图片放在对应的 `ToolResultMessage.content` 中。图片不进入文本粘贴 `chunks`。OpenAI 格式由 `openai-chat.ts` 转换；协议附加消息只在构造请求时生成，不作为真实用户输入写回会话，工具来源和图文顺序保留。
 
 ---
 
@@ -341,9 +344,9 @@ v1.2 的基础接入目标仍是：用户提供模型 ID、API key、API base UR
 
 ### 5.5 `main.ts` 装配
 
-启动：`getOpenAIConfig` + `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`，`subscribe(renderEvent)`。
+启动：`runCli()` 读取 `getOpenAIConfig` 并装配 `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`。TTY 进入 `startTerminalRepl()`；非 TTY 收集原始 UTF-8 输入到 EOF，再交给同一个 `ReplController`。
 
-当前只保留上述 Harness 装配，`main.ts` 会报告交互入口不可用并退出。旧 REPL 循环及其 `/new`、`/resume`、`/context`、`/compact`、图片和信号接线已经移除；Harness 中对应能力没有删除。新 REPL 边界按 [迁移计划](./claude-code-input-architecture.md) 第 7 批接回，再做跨终端验收。
+`npm start` 已恢复交互：输入完整草稿展开后调用 Harness，命令包括 `/new`、`/resume`、`/context`、`/compact`、`/help` 和 `/exit`。接受提交后清理整份草稿；生成时允许编辑下一条但不提前提交。Agent 事件由 REPL 投影到 Ink，不同时订阅直接写 stdout 的 `renderEvent`。退出、EOF、信号、回调异常统一清理订阅和终端模式；非 TTY 只打印模型/命令输出，退出码反映错误或信号。
 
 ---
 
@@ -366,7 +369,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 ## 7. 这一版验收
 
-本节是新 REPL 接通后的最终验收清单；当前 `npm start` 会报告交互入口不可用。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起真实摘要请求。默认窗口 `256000` 的手动门槛是 `64000`。
+新 REPL 已接通，本机 115 项扩展输入测试通过，包括 macOS 真实 POSIX PTY、实际 Harness 与本地 HTTP SSE；扩展文件按用户要求不提交，仓库脚本只运行已有基础测试。下列清单仍包含真实模型、特定终端应用及尚未实现的思考/BYOK 验收，不能以本地测试替代。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。默认窗口 `256000` 的手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
 2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
@@ -409,7 +412,7 @@ src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*，实现按本项目需求调整
 src/harness/prompt.ts             本项目的系统提示
 思考等级与 BYOK                    模型能力、协议适配和可配置映射，待合并设计
-cli/input/stash/*                 旧输入归档，不接运行入口
-cli/input/*                       新输入按 Claude Code 输入架构迁移计划逐批实现
-cli/main.ts                       当前保留 Harness 装配；命令分派待重新接线
+cli/input/*                       新输入、完整附件草稿与撤销；参考 CC 输入链路
+cli/repl/*                        提交展开、命令分派、Harness 事件与 Ink 显示
+cli/main.ts                       Harness 装配；TTY 交互 / 非 TTY EOF 提交
 ```

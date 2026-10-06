@@ -29,6 +29,7 @@ export type KeybindingResult =
 /** The editor owns input:* actions; the REPL owns app:* actions. */
 export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 	{ context: "Global", chord: [{ name: "c", ctrl: true }], action: "app:interrupt" },
+	{ context: "Global", chord: [{ name: "d", ctrl: true }], action: "app:exit" },
 	{ context: "Input", chord: [{ name: "enter" }], action: "input:submit" },
 	{ context: "Input", chord: [{ name: "enter", shift: true }], action: "input:newline" },
 	// CC's legacy Meta/Option+Enter is Alt+Enter in our terminal event type.
@@ -53,6 +54,17 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 	{ context: "Input", chord: [{ name: "d", ctrl: true }], action: "input:delete" },
 	{ context: "Input", chord: [{ name: "a", ctrl: true }], action: "input:home" },
 	{ context: "Input", chord: [{ name: "e", ctrl: true }], action: "input:end" },
+	{ context: "Input", chord: [{ name: "_", ctrl: true }], action: "input:undo" },
+	{ context: "Input", chord: [{ name: "-", ctrl: true, shift: true }], action: "input:undo" },
+	{ context: "Input", chord: [{ name: "y", ctrl: true }], action: "input:redo" },
+	{ context: "Input", chord: [{ name: "z", ctrl: true }], action: "input:undo" },
+	{ context: "Input", chord: [{ name: "z", ctrl: true, shift: true }], action: "input:redo" },
+];
+
+/** The REPL owns EOF/exit; standalone text editors keep their Ctrl+D delete shortcut. */
+export const REPL_KEYBINDINGS: readonly Keybinding[] = [
+	...DEFAULT_KEYBINDINGS,
+	{ context: "Input", chord: [{ name: "d", ctrl: true }], action: "app:exit" },
 ];
 
 /** Omitted modifiers mean false, so Ctrl+Shift+C never matches Ctrl+C. */
