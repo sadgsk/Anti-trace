@@ -172,7 +172,7 @@ test("initial state and replacement state snapshot caller data and correct curso
 	assert.deepEqual(input.controller.getState(), createTextInputState("A😀Z", 1));
 });
 
-test("delegated paste synchronously gates a trailing Enter in the same chunk", () => {
+test("buffered delegated paste synchronously gates a trailing Enter in the same chunk", async () => {
 	let pending = false;
 	const pasted: string[] = [];
 	const input = makeInput({
@@ -185,6 +185,10 @@ test("delegated paste synchronously gates a trailing Enter in the same chunk", (
 		canSubmit: () => !pending,
 	});
 	input.feed("\x1b[200~line 1\r\nline 2\t\x1b[201~\r");
+	assert.equal(input.controller.getSnapshot().isPasting, true);
+	assert.deepEqual(pasted, []);
+	assert.deepEqual(input.submitted, []);
+	await new Promise(resolve => setTimeout(resolve, 130));
 	assert.deepEqual(pasted, ["line 1\r\nline 2\t"]);
 	assert.deepEqual(input.controller.getState(), createTextInputState("before"));
 	assert.deepEqual(input.submitted, []);
@@ -194,9 +198,11 @@ test("delegated paste synchronously gates a trailing Enter in the same chunk", (
 	assert.deepEqual(input.submitted, [createTextInputState("line 1\r\nline 2\t")]);
 });
 
-test("ordinary complete paste inserts once at the cursor and never treats pasted controls as actions", () => {
+test("ordinary complete paste inserts once at the cursor and never treats pasted controls as actions", async () => {
 	const input = makeInput({ initialState: createTextInputState("AZ", 1) });
 	input.feed("\x1b[200~中\n\t\x03\x1b[201~");
+	assert.deepEqual(input.controller.getState(), createTextInputState("AZ", 1));
+	await new Promise(resolve => setTimeout(resolve, 130));
 	assert.deepEqual(input.controller.getState(), createTextInputState("A中\n\t\x03Z", 5));
 	assert.deepEqual(input.changes, [createTextInputState("A中\n\t\x03Z", 5)]);
 	assert.deepEqual(input.submitted, []);

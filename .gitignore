@@ -11,6 +11,8 @@ test/*
 !test/text-input-state.test.ts
 !test/text-input-controller.test.ts
 !test/base-text-input.test.tsx
+!test/paste-handler.test.ts
+!test/image-paste.test.ts
 
 # 工具产生的本地状态（会话记录等），不进仓库
 .workbuddy/

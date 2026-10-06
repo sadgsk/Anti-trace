@@ -20,6 +20,7 @@ export interface TerminalHost {
 export function startTerminalHost(
 	onEvent: (event: TerminalInputEvent) => void,
 	streams: TerminalStreams = { stdin: process.stdin, stdout: process.stdout },
+	onStop?: () => void,
 ): TerminalHost {
 	const { stdin, stdout } = streams;
 	if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== "function") {
@@ -48,14 +49,19 @@ export function startTerminalHost(
 		}
 	};
 	const handleData = (chunk: Buffer): void => {
-		if (escapeTimer) clearTimeout(escapeTimer);
-		escapeTimer = undefined;
-		emitEvents(parser.feed(chunk));
-		if (active && (parser.awaitingEscape || parser.awaitingPaste)) {
-			escapeTimer = setTimeout(() => {
-				escapeTimer = undefined;
-			emitEvents(parser.feed(null));
-			}, parser.awaitingPaste ? 500 : 50);
+		try {
+			if (escapeTimer) clearTimeout(escapeTimer);
+			escapeTimer = undefined;
+			emitEvents(parser.feed(chunk));
+			if (active && (parser.awaitingEscape || parser.awaitingPaste)) {
+				escapeTimer = setTimeout(() => {
+					escapeTimer = undefined;
+					emitEvents(parser.feed(null));
+				}, parser.awaitingPaste ? 500 : 50);
+			}
+		} catch (error) {
+			stop();
+			throw error;
 		}
 	};
 
@@ -68,6 +74,9 @@ export function startTerminalHost(
 		process.off("SIGTERM", onSigterm);
 		process.off("exit", stop);
 		stdin.off("data", handleData);
+		stdin.off("end", stop);
+		stdin.off("close", stop);
+		stdin.off("error", onInputError);
 		stdin.pause();
 		try {
 			ink?.unmount();
@@ -77,7 +86,8 @@ export function startTerminalHost(
 			try {
 				stdout.write(DISABLE_BRACKETED_PASTE);
 			} finally {
-				if (!wasRaw) stdin.setRawMode(false);
+				try { if (!wasRaw) stdin.setRawMode(false); }
+				finally { onStop?.(); }
 			}
 		}
 	};
@@ -87,12 +97,19 @@ export function startTerminalHost(
 	};
 	const onSigint = onSignal.bind(null, 130);
 	const onSigterm = onSignal.bind(null, 143);
+	const onInputError = (error: Error): void => {
+		stop();
+		throw error;
+	};
 
 	try {
 		if (!wasRaw) stdin.setRawMode(true);
 		active = true;
 		stdout.write(ENABLE_BRACKETED_PASTE);
 		stdin.on("data", handleData);
+		stdin.once("end", stop);
+		stdin.once("close", stop);
+		stdin.once("error", onInputError);
 		stdin.resume();
 		process.once("SIGINT", onSigint);
 		process.once("SIGTERM", onSigterm);

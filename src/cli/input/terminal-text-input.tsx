@@ -15,24 +15,28 @@ export function startTerminalTextInput(
 	streams: TerminalStreams = { stdin: process.stdin, stdout: process.stdout },
 ) {
 	const columns = () => Math.max(1, (streams.stdout.columns || 80) - 1);
-	const controller = new TextInputController({ ...options, availableColumns: columns() });
+	const controller = new TextInputController({
+		...options, availableColumns: columns(),
+		onPasteError: error => {
+			stop();
+			if (options.onPasteError) options.onPasteError(error);
+			else queueMicrotask(() => { throw error; });
+		},
+	});
 	const dispatcher = new InputDispatcher();
 	dispatcher.configure([controller.target, ...options.outerTargets ?? []], options.bindings ?? DEFAULT_KEYBINDINGS);
 	let host: TerminalHost | undefined;
 	const resize = () => controller.setAvailableColumns(columns());
-	const stop = () => {
+	const cleanup = () => {
 		streams.stdout.off("resize", resize);
-		host?.stop();
+		controller.dispose();
 	};
-	host = startTerminalHost(event => {
-		try {
-			dispatcher.dispatch(event);
-		} catch (error) {
-			stop();
-			throw error;
-		}
-	}, streams);
+	const stop = () => {
+		try { host?.stop(); }
+		finally { cleanup(); }
+	};
 	try {
+		host = startTerminalHost(event => dispatcher.dispatch(event), streams, cleanup);
 		streams.stdout.on("resize", resize);
 		host.rerender(<BaseTextInput controller={controller} />);
 	} catch (error) {

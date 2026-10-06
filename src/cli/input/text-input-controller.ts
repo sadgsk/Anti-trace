@@ -1,4 +1,6 @@
 import type { InputTarget, RoutedInputEvent } from "./input-dispatcher.ts";
+import { PasteHandler, type PasteHandlerOptions } from "./paste-handler.ts";
+import type { PastedImage } from "../utils/image-paste.ts";
 import { getTextInputOffset, getTextInputPosition, layoutTextInput } from "./text-input-layout.ts";
 import { applyTextInputAction, createTextInputState, type TextInputAction, type TextInputState } from "./text-input-state.ts";
 
@@ -9,25 +11,34 @@ export interface TextInputOptions {
 	multiline?: boolean;
 	onChange?: (state: TextInputState) => void;
 	onSubmit?: (state: TextInputState) => void;
-	/** A synchronous gate for the later paste buffer and prompt submission rules. */
+	/** Additional prompt submission rules, checked after the built-in paste pending gate. */
 	canSubmit?: () => boolean;
 	onPaste?: (event: Extract<RoutedInputEvent, { type: "paste" }>) => void;
+	onImagePaste?: (image: PastedImage) => void;
+	onPasteError?: (error: unknown) => void;
+	/** Injectable readers let tests and future hosts avoid a real system clipboard. */
+	pasteOptions?: Pick<PasteHandlerOptions, "readImage" | "readClipboard" | "platform">;
 }
 
 export interface TextInputSnapshot {
 	readonly state: TextInputState;
 	readonly availableColumns: number;
+	readonly isPasting: boolean;
 }
 
 const INPUT_ACTIONS = [
 	"input:submit", "input:newline", "input:left", "input:right", "input:up", "input:down",
 	"input:backspace", "input:delete", "input:home", "input:end",
+	"input:paste-image",
 ] as const;
 
 /** Synchronous editing state; React subscribes without becoming another stdin reader. */
 export class TextInputController {
 	private snapshot: TextInputSnapshot;
 	private readonly listeners = new Set<() => void>();
+	readonly pasteHandler: PasteHandler;
+	private active = true;
+	private replacingState = false;
 	readonly target: InputTarget;
 
 	constructor(private readonly options: TextInputOptions) {
@@ -37,7 +48,22 @@ export class TextInputController {
 		this.snapshot = {
 			state: createTextInputState(state.text, state.cursor),
 			availableColumns: options.availableColumns,
+			isPasting: false,
 		};
+		this.pasteHandler = new PasteHandler({
+			...options.pasteOptions,
+			onInput: event => this.insertInput(event),
+			onPaste: text => {
+				if (options.onPaste) options.onPaste({ type: "paste", text, isPasted: true });
+				else this.insertText(text);
+			},
+			onImagePaste: options.onImagePaste,
+			onError: options.onPasteError,
+			onPendingChange: isPasting => {
+				this.snapshot = { ...this.snapshot, isPasting };
+				if (!this.replacingState) this.notify();
+			},
+		});
 		this.target = {
 			id: Symbol("text-input"),
 			context: "Input",
@@ -58,10 +84,31 @@ export class TextInputController {
 
 	/** Replace the draft after submission or session changes. */
 	replaceState(state: TextInputState): void {
-		this.update(createTextInputState(state.text, state.cursor));
+		if (!this.active) return;
+		const next = createTextInputState(state.text, state.cursor);
+		const wasPending = this.snapshot.isPasting;
+		const changed = next.text !== this.getState().text || next.cursor !== this.getState().cursor;
+		this.replacingState = true;
+		try { this.pasteHandler.cancel(); }
+		finally { this.replacingState = false; }
+		this.update(next);
+		if (!changed && wasPending) this.notify();
+	}
+
+	/** Paste consumers can insert a placeholder without cancelling the remaining ordered delivery. */
+	insertText(text: string): void {
+		if (this.active) this.edit({ type: "insert", text });
+	}
+
+	dispose(): void {
+		if (!this.active) return;
+		this.active = false;
+		this.listeners.clear();
+		this.pasteHandler.dispose();
 	}
 
 	setAvailableColumns(availableColumns: number): void {
+		if (!this.active) return;
 		layoutTextInput("", availableColumns);
 		if (availableColumns === this.snapshot.availableColumns) return;
 		this.snapshot = { ...this.snapshot, availableColumns };
@@ -70,10 +117,24 @@ export class TextInputController {
 
 	/** Actions arrive from the dispatcher; return false for actions owned by another layer. */
 	handleAction(action: string, isEnter = false): boolean {
+		if (!INPUT_ACTIONS.includes(action as typeof INPUT_ACTIONS[number])) return false;
+		if (!this.active) return true;
+		if (action === "input:submit") {
+			if (this.pasteHandler.isPending() || this.options.canSubmit?.() === false) return true;
+		} else if (action === "input:paste-image") {
+			this.pasteHandler.pasteClipboard();
+			return true;
+		} else if (this.pasteHandler.isPending()) {
+			this.pasteHandler.runAfterPaste(() => { if (this.active) this.applyAction(action, isEnter); });
+			return true;
+		}
+		return this.applyAction(action, isEnter);
+	}
+
+	private applyAction(action: string, isEnter: boolean): boolean {
 		const state = this.getState();
 		switch (action) {
 			case "input:submit":
-				if (this.options.canSubmit?.() === false) return true;
 				if (this.options.multiline !== false && state.text[state.cursor - 1] === "\\") {
 					this.insertNewline(true);
 				} else {
@@ -114,10 +175,11 @@ export class TextInputController {
 
 	/** Unbound keys never insert their raw escape sequences or modifier shortcuts. */
 	handleInput(event: RoutedInputEvent): void {
-		if (event.type === "paste") {
-			if (this.options.onPaste) this.options.onPaste(event);
-			else this.edit({ type: "insert", text: event.text });
-		} else if (event.type === "text") {
+		if (this.active) this.pasteHandler.handleInput(event);
+	}
+
+	private insertInput(event: RoutedInputEvent): void {
+		if (event.type === "text" || event.type === "paste") {
 			this.edit({ type: "insert", text: event.text });
 		} else if (event.text && !event.ctrl && !event.alt && !event.meta
 			&& !/[\u0000-\u001f\u007f-\u009f]/u.test(event.text)) {

@@ -35,6 +35,8 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 	{ context: "Input", chord: [{ name: "enter", alt: true }], action: "input:newline" },
 	{ context: "Input", chord: [{ name: "enter", meta: true }], action: "input:newline" },
 	{ context: "Input", chord: [{ name: "j", ctrl: true }], action: "input:newline" },
+	// Windows terminals usually reserve Ctrl+V for their own text paste.
+	{ context: "Input", chord: [process.platform === "win32" ? { name: "v", alt: true } : { name: "v", ctrl: true }], action: "input:paste-image" },
 	{ context: "Input", chord: [{ name: "left" }], action: "input:left" },
 	{ context: "Input", chord: [{ name: "right" }], action: "input:right" },
 	{ context: "Input", chord: [{ name: "up" }], action: "input:up" },

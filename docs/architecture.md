@@ -4,7 +4,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-10-05）：**旧输入已归档；第 1–3 批终端宿主、事件解析、快捷键及独立焦点分发逻辑已完成并 review。第 4 批已补齐字素编辑、共享屏幕布局、Enter/换行、基础输入组件及独立宿主接线，通过新输入行为测试、类型检查和构建。粘贴缓冲、附件草稿、REPL 及最终终端验收按第 5–8 批继续，交互入口仍暂不可用。按用户要求取消输入历史召回，上下键仅在当前输入中移动光标。具体设计和验证统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
+**输入迁移状态（2026-10-07）：**旧输入已归档；第 1–4 批已完成。第 5 批粘贴缓冲、同步提交门槛、图片路径/剪贴板异步读取及停止清理已整批完成，并经用户 review 确认；新输入 68 项行为测试、类型检查和构建通过。附件完整草稿、REPL 及最终终端验收按第 6–8 批继续，交互入口仍暂不可用。按用户要求取消输入历史召回，上下键仅在当前输入中移动光标。具体设计和验证统一查看 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)。本文保留项目整体架构和输入与 Harness 的边界；下文若仍出现旧输入已接通的描述，以迁移计划中的当前状态为准。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -70,8 +70,8 @@ startLine(index + segment.length);
 |---|---|
 | 对话与工具 | Harness、内存多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 的内部实现仍在；REPL 交互入口因输入迁移暂不可用 |
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；旧 CLI 命令接线已移除，待新 REPL 接回 |
-| 终端输入 | 旧五文件已归档；新宿主、解析、焦点分发和基础文本输入已完成并独立接线，粘贴缓冲与完整草稿按 [迁移计划](./claude-code-input-architecture.md) 继续；运行入口仍未恢复 |
-| 图片输入 | `read` 和内部图文消息仍支持 jpeg/png/gif/webp；剪贴板图片读取工具仍在，但 CLI 快捷键随旧输入归档，待迁移计划第 5–7 批重新接线 |
+| 终端输入 | 旧五文件已归档；新宿主、解析、焦点分发、基础文本输入与粘贴缓冲已完成并独立接线，完整草稿和 REPL 按 [迁移计划](./claude-code-input-architecture.md) 继续；运行入口仍未恢复 |
+| 图片输入 | `read` 和内部图文消息仍支持 jpeg/png/gif/webp；新基础输入通过集中快捷键和异步图片路径/剪贴板读取向 `onImagePaste` 交付结果，第 6–7 批再接附件草稿与 Harness |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩和 `Harness.manualCompact()` 仍在；CLI 显示与 `/compact` 命令待新 REPL 接回。默认窗口 `256000`，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
 | 思考等级与 BYOK | 思考等级已有类型和状态，尚未接到模型请求与 CLI；BYOK 尚未接通。两者合并规划，具体方案待定 |
@@ -175,9 +175,10 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/cli/input/keybindings.ts`、`input-dispatcher.ts` | 第 3 批逻辑已完成并 review：快捷键纯解析、默认映射与独立分发器通过 10 个本层探针；真实组件与运行入口尚未接线 |
 | `src/cli/input/text-input-state.ts`、`text-input-layout.ts` | 第 4 批完成：纯字素编辑及共享显示行列映射，供上下移动和基础组件渲染共用；保留原文 |
 | `src/cli/input/text-input-controller.ts`、`use-text-input.ts`、`base-text-input.tsx`、`terminal-text-input.tsx` | 第 4 批完成：同步动作主流程、Enter/换行、React 重画与独立终端接线，提交文本/光标快照；主入口与完整附件草稿仍待后续批次 |
+| `src/cli/input/paste-handler.ts`、`src/cli/utils/image-paste.ts` | 第 5 批完成：100 ms 粘贴合并、同步 pending、按事件顺序交付文本/图片、异步文件/剪贴板读取及停止/草稿替换清理；图片附件由第 6 批完整草稿层持有 |
 | `src/cli/input/stash/*` | 迁移前五个输入文件的归档；只供对照，不接入运行入口 |
 | `docs/claude-code-input-architecture.md` | 新输入的数据流、源码入口、分批施工和验收边界 |
-| `src/cli/utils/image.ts` | 剪贴板读取和图片粘贴按键判断 |
+| `src/cli/utils/image.ts` | 旧同步剪贴板读取及按键判断，保留给归档代码；新输入使用异步 `image-paste.ts`，快捷键由 `keybindings.ts` 定义 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
 | `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
 | `test/probe-context.ts` | 本地假 `StreamFn` 探针已覆盖压缩与重试；`test/` 当前被 `.gitignore` 忽略，公开试用前需把必要测试纳入仓库 |

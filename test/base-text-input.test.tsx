@@ -8,6 +8,7 @@ import { TextInputController } from "../src/cli/input/text-input-controller.ts";
 import { createTextInputState } from "../src/cli/input/text-input-state.ts";
 import { startTerminalTextInput } from "../src/cli/input/terminal-text-input.tsx";
 import type { TerminalStreams } from "../src/cli/ink/terminal-host.ts";
+import type { PastedImage } from "../src/cli/utils/image-paste.ts";
 
 class Output extends Writable {
 	columns = 10;
@@ -139,5 +140,86 @@ test("a throwing input callback restores the terminal and detaches input listene
 		assert.equal(stdin.isRaw, false);
 		assert.equal(stdin.listenerCount("data"), 0);
 		assert.equal(stdout.listenerCount("resize"), baselineResize);
+	} finally { input.stop(); stdin.destroy(); stdout.destroy(); }
+});
+
+test("terminal stop and stdin EOF discard a buffered paste and restore terminal modes", async () => {
+	for (const exit of ["stop", "end", "close"] as const) {
+		const stdin = new Input();
+		const stdout = new Output();
+		stdout.isTTY = true;
+		const pasted: string[] = [];
+		const baselineResize = stdout.listenerCount("resize");
+		const input = startTerminalTextInput({ onPaste: event => pasted.push(event.text) },
+			{ stdin, stdout } as unknown as TerminalStreams);
+		try {
+			stdin.emit("data", Buffer.from("\x1b[200~discarded\x1b[201~"));
+			assert.equal(input.controller.getSnapshot().isPasting, true);
+			if (exit === "stop") input.stop();
+			else stdin.emit(exit);
+			await new Promise(resolve => setTimeout(resolve, 130));
+			assert.deepEqual(pasted, [], exit);
+			assert.equal(input.controller.getSnapshot().isPasting, false);
+			assert.equal(stdin.isRaw, false);
+			assert.equal(stdin.listenerCount("data"), 0);
+			assert.equal(stdout.listenerCount("resize"), baselineResize);
+		} finally { input.stop(); stdin.destroy(); stdout.destroy(); }
+	}
+});
+
+test("async image callbacks are discarded after the terminal stops", async () => {
+	const stdin = new Input();
+	const stdout = new Output();
+	stdout.isTTY = true;
+	let resolveImage!: (image: PastedImage) => void;
+	const pendingImage = new Promise<PastedImage>(resolve => { resolveImage = resolve; });
+	let reads = 0;
+	const input = startTerminalTextInput({
+		pasteOptions: { readClipboard: () => { reads++; return pendingImage; } },
+		onImagePaste: () => assert.fail("stale image"),
+	}, { stdin, stdout } as unknown as TerminalStreams);
+	try {
+		input.controller.handleAction("input:paste-image");
+		assert.equal(reads, 1);
+		assert.equal(input.controller.getSnapshot().isPasting, true);
+		input.stop();
+		resolveImage({ image: { type: "image", mimeType: "image/png", data: "fixture" } });
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(input.controller.getSnapshot().isPasting, false);
+		assert.equal(stdin.isRaw, false);
+	} finally { input.stop(); stdin.destroy(); stdout.destroy(); }
+});
+
+test("an asynchronous paste delivery error stops the host before reporting it", async () => {
+	const stdin = new Input();
+	const stdout = new Output();
+	stdout.isTTY = true;
+	const errors: unknown[] = [];
+	const input = startTerminalTextInput({
+		onPaste: () => { throw new Error("paste rejected"); },
+		onPasteError: error => { assert.equal(stdin.isRaw, false); errors.push(error); },
+	}, { stdin, stdout } as unknown as TerminalStreams);
+	try {
+		stdin.emit("data", Buffer.from("\x1b[200~text\x1b[201~"));
+		await new Promise(resolve => setTimeout(resolve, 130));
+		assert.equal(errors.length, 1);
+		assert.equal(stdin.listenerCount("data"), 0);
+		assert.equal(input.controller.getSnapshot().isPasting, false);
+	} finally { input.stop(); stdin.destroy(); stdout.destroy(); }
+});
+
+test("stdin errors restore the host and cancel buffered paste before propagating", async () => {
+	const stdin = new Input();
+	const stdout = new Output();
+	stdout.isTTY = true;
+	const input = startTerminalTextInput({ onPaste: () => assert.fail("cancelled paste") },
+		{ stdin, stdout } as unknown as TerminalStreams);
+	try {
+		stdin.emit("data", Buffer.from("\x1b[200~pending\x1b[201~"));
+		assert.throws(() => stdin.emit("error", new Error("stdin failed")), /stdin failed/);
+		assert.equal(stdin.isRaw, false);
+		assert.equal(stdin.listenerCount("data"), 0);
+		assert.equal(input.controller.getSnapshot().isPasting, false);
+		await new Promise(resolve => setTimeout(resolve, 130));
 	} finally { input.stop(); stdin.destroy(); stdout.destroy(); }
 });
