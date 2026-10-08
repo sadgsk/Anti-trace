@@ -250,3 +250,48 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 **建议方向**
 
 在确认恢复结果后决定是否显示这条错误；如果压缩或重试失败，仍应显示最终错误。修改时需核对事件订阅者的行为，避免只隐藏 CLI 文案却让其他订阅者收到含义不明的中间失败事件。
+
+---
+
+## No.4 — 提交时图片位置丢失，模型无法知道图片在 prompt 的哪一处
+
+| 项 | 值 |
+|---|---|
+| 评审号 | No.4 |
+| 评审日期 | 2026-10-08 |
+| 评审模型 | Claude |
+| 平台 | Windows |
+| 项目版本 | v1.2（`package.json` `0.1.0`） |
+| 仓库快照 | `main` `8506419`，工作区干净 |
+| 评审范围 | `src/cli/input/prompt-draft.ts` 的 `preparePromptSubmission()`；`src/cli/input/prompt-input-controller.ts` 的图片引用创建；`src/harness/harness.ts::prompt()`；`src/llm/openai-chat.ts` 的图片序列化。对照本地 `claude-code-rev` 的 `src/history.ts::expandPastedTextRefs()`、`src/utils/processUserInput/processTextPrompt.ts` |
+| 评审方式 | 通读当前源码并与本地 `claude-code-rev` 逐处对照；未调用真实模型验证模型实际响应 |
+
+**总体判断**
+
+这是一处**行为保真度**的限制，不是崩溃或多数路径出错：图片字节流照常发给模型，模型能看到图片内容，只是**看不到图片在文本中的位置**。级别 P3，记录备查。
+
+**问题1 — 图片占位符在提交时被整段删除，位置信息不进请求**
+
+| 项 | 值 |
+|---|---|
+| 位置 | `src/cli/input/prompt-draft.ts:60-66`（`preparePromptSubmission` 的循环）；`src/harness/harness.ts:94-100`（`runPrompt` 组装文本）；`src/llm/openai-chat.ts:36`（图片转 data URL 块） |
+| 级别 | P3 |
+| 状态 | **代码路径可推导，模型侧未实测** |
+
+**现象**
+
+`preparePromptSubmission` 按引用逐段拼接最终文本：文本引用（`[Pasted text #N]`）用原文 `content.text` 顶替，图片引用（`[Image #N]`）只把图片收进 `images` 数组、对应的占位符区间**不产出任何文本**（`offset = ref.end` 直接跳过）。因此提交后的文本里不会出现图片占位符，图片只以“独立块 + 先后顺序”进入请求。记录占位符精确位置的 `references`（含 `start`/`end`/`label`）是编辑器的内部数据，随提交一起丢弃，不会再往下传。
+
+结果是：模型能知道“这条消息里有几张图、它们的先后顺序”，但**无法判断某张图原来夹在哪段文字之间、属于哪个粘贴块**。例如 `"开头 [Pasted text #1] 中间 [Image #2] 结尾"` 提交后，模型看到的文本是“开头 + 粘贴块1原文 + 中间 + 结尾”（图片位置变成空），图片另成一块，图与文字的相邻关系丢失。
+
+**证据**
+
+- `prompt-draft.ts:63`（文本引用展开 `parts.push(content.text)`）与 `prompt-draft.ts:64`（图片只 `images.push(...)`，文本分支不产出）形成不对称：文本保留内容、图片只留顺序。
+- `harness.ts:100` —— `await this.agent.prompt(promptText, images)`，文本与图片作为两个并列参数下传，文本中无位置标记。
+- `openai-chat.ts:36` —— 图片被序列化为 `data:${mimeType};base64,...` 块，不带任何指向文本位置的标识。
+- 对照 `claude-code-rev/src/history.ts:79`（`expandPastedTextRefs` 注释：`Image refs are left alone — they become content blocks, not inlined text`）与 `processTextPrompt.ts:75-76`（`content: [...textContent, ...imageContentBlocks]`）：CC 的文本里**保留** `[Image #N]` 字面量，模型据此能看到图片在文本中的位置。本项目删掉了该字面量，位置随之丢失。
+- **未验证**：未调用真实模型确认其是否真的“无法推断位置”；结论由代码路径直接得出。
+
+**建议方向**
+
+若要让模型知道图片位置，可选其一：① 提交时**不删**图片占位符，保留 `[Image #N]` 字面量随文本一起发（对齐 CC 的做法）；② 把占位符替换成可读的位置标记。两条都会改变发给模型的文本形态，需同时确认是否影响命令解析（单行斜杠命令判断）与压缩摘要。当前 `references` 只服务编辑器内部（原子编辑、提交展开），**不发送给模型**，因此无法靠它补位置信息。
