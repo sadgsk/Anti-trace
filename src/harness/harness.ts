@@ -1,5 +1,5 @@
 import { Agent } from "../agent/agent.ts";
-import type { AgentEvent, ImageContent, Model, StreamFn, ThinkingLevel } from "../types.ts";
+import type { AgentEvent, ImageContent, Model, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
 import {
 	buildCompactSummaryMessage,
 	DEFAULT_COMPACTION_SETTINGS,
@@ -31,6 +31,7 @@ export interface HarnessOptions {
 	apiKey: string;
 	model: Model;
 	streamFn: StreamFn;
+	thinking?: ThinkingPreferences;
 	sessionsRoot?: string;
 }
 
@@ -61,6 +62,7 @@ export class Harness {
 					toolNames: tools.map((tool) => tool.name),
 				}),
 				model: options.model,
+				thinking: options.thinking,
 				tools,
 			},
 		});

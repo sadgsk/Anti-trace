@@ -4,7 +4,7 @@
 
 换对话先看 **[docs/progress.md](docs/progress.md)**，再按 **[docs/architecture.md](docs/architecture.md)** 对照。
 
-思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按功能分块、小批次实现并逐批 review；当前尚未实现。
+思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按小批次实现并逐批 review。第 01 批已建立统一请求数据、固定五档／独立开关和运行快照，已由用户 review 确认；配置加载、三协议完整能力、思考编码与 CLI 控制尚未接通，完整 BYOK 仍不可用。
 
 使用 Node.js 22 或更新版本，运行 `npm install`。将 `.env.example` 复制为 `.env`，填写 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 和模型窗口 `OPENAI_CONTEXT_WINDOW`，然后运行 `npm start`。当前协议为 OpenAI Chat Completions，思考等级和 BYOK 三协议配置仍待实现。
 

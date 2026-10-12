@@ -62,7 +62,7 @@ function createMutableAgentState(initialState?: AgentStateInit): MutableAgentSta
 	return {
 		systemPrompt: initialState?.systemPrompt ?? "",
 		model: initialState?.model ?? DEFAULT_MODEL,
-		thinkingLevel: initialState?.thinkingLevel ?? "off",
+		thinking: initialState?.thinking ? { ...initialState.thinking } : { effort: "medium" },
 		get tools() {
 			return tools;
 		},
@@ -235,7 +235,9 @@ export class Agent {
 
 	private createLoopConfig(): AgentLoopConfig {
 		return {
-			model: this._state.model,
+			// Detach request settings from state so tools and subscribers cannot change this run.
+			model: structuredClone(this._state.model),
+			thinking: { ...this._state.thinking },
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
 			apiKey: this.apiKey,

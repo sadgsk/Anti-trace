@@ -1,5 +1,33 @@
 import type { Static,TSchema } from "typebox";
 
+// Public request data. Provider field names and thinking mappings stay inside adapters.
+export type ModelApi = "openai-completions" | "openai-responses" | "anthropic-messages";
+
+export type ThinkingLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface ThinkingPreferences {
+	/** Omitted means leave thinking to the server default, including effort. */
+	readonly enabled?: boolean;
+	/** Retained when disabled or unspecified; this is the user's level, not a native effort. */
+	readonly effort: ThinkingLevel;
+}
+
+export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
+
+export interface ReasoningSource {
+	api: ModelApi;
+	provider: string;
+	model: string;
+	/** Interface identity only: adapters must omit URL credentials and secret query parameters. */
+	baseUrl: string;
+}
+
+export interface ReasoningReplay {
+	source: ReasoningSource;
+	/** Complete native reasoning data (including signatures / opaque items), never credentials. */
+	payload: { [key: string]: JsonValue };
+}
+
 // Content blocks：一条消息 content 数组里的单项
 export interface TextContent{
      type: "text";
@@ -9,6 +37,8 @@ export interface TextContent{
 export interface ThinkingContent{
      type: "thinking";
      thinking: string;
+	/** Added only when the adapter has assembled valid, complete data for replay. */
+	replay?: ReasoningReplay;
 }
 
 export interface ImageContent{
@@ -60,14 +90,24 @@ export interface CustomAgentMessages {}
 export type AgentMessage = Message | CustomAgentMessages[keyof CustomAgentMessages];
 
 // LLM request：一次模型调用用的模型、工具说明书、上下文
+export interface ModelCapabilities {
+	/** Omitted capabilities are unknown, rather than unsupported. */
+	images?: boolean;
+	tools?: boolean;
+	thinking?: boolean;
+}
+
 export interface Model {
 	id: string;
 	name: string;
 	provider: string;
 	baseUrl: string;
-	api: "openai-completions";
+	api: ModelApi;
 	/** Context window in tokens. Required at runtime; supplied by env / model config. */
 	contextWindow: number;
+	/** Default output limit; a request can supply its own maxTokens. */
+	maxOutputTokens?: number;
+	capabilities?: ModelCapabilities;
 }
 
 export interface Tool<TParameters extends TSchema = TSchema> {
@@ -87,6 +127,7 @@ export interface StreamOptions{
      apiKey?: string;
      signal?: AbortSignal;
 	maxTokens?: number;
+	thinking?: ThinkingPreferences;
 }
 
 export type AssistantMessageEvent =
@@ -152,8 +193,7 @@ export interface AgentContext {
 	tools?: AgentTool[];
 }
 
-// Loop config：v1 会用 model / convertToLlm / apiKey；其余 hook 先留口子
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high";
+// Loop config：模型、请求选项和工具循环 hooks。
 
 export interface BeforeToolCallResult {
 	block?: boolean;
@@ -193,8 +233,9 @@ export interface ShouldStopAfterTurnContext {
 
 export interface AgentLoopTurnUpdate {
 	context?: AgentContext;
+	/** Explicit internal overrides for the next request; ordinary state changes use the next run. */
 	model?: Model;
-	thinkingLevel?: ThinkingLevel;
+	thinking?: ThinkingPreferences;
 }
 
 export type PrepareNextTurnContext = ShouldStopAfterTurnContext;
@@ -221,7 +262,7 @@ export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 export interface AgentState {
 	systemPrompt: string;
 	model: Model;
-	thinkingLevel: ThinkingLevel;
+	thinking: ThinkingPreferences;
 	set tools(tools: AgentTool[]);
 	get tools(): AgentTool[];
 	set messages(messages: AgentMessage[]);

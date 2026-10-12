@@ -1,6 +1,6 @@
 # BYOK build：按小批次接入模型与思考控制
 
-状态：**设计与施工路线，尚未实现**。更新：2026-10-12。
+状态：**第 01 批请求数据边界已实现并经用户 review 确认；配置加载、规则编码与三协议完整能力尚未接通**。更新：2026-10-12。
 
 这份文档用于后续模型带着用户逐步开发。先读 [progress.md](./progress.md) 的当前状态和协作约定，再按本文件选择当前小批次。不要把整份文档当成一次性实施指令。
 
@@ -32,7 +32,7 @@
 - 上层只调用一个适配器入口。思考映射、接口兼容、请求组装和流式解析集中在适配器模块内部，以小函数和配置表组织。
 - 规则优先覆盖一手 LLM 厂商。聚合商和套餐网关次级考虑，不为 Command Code、OpenCode Go 等逐个建设专用分支。
 
-当前 Agent 的旧 `ThinkingLevel` 包含 `off`、`minimal`，只是占位。施工时改成独立开关与固定五档，不沿用旧枚举作为产品设计。
+第 01 批已将 `ThinkingLevel` 改成固定五档，Agent 使用 `thinking: { enabled?, effort }` 保存偏好。`enabled` 未指定表示保留服务端默认，不发送档位控制；初始保存档位为 `medium`。明确开启／关闭时仍保留选中档位。线上字段编码及 CLI 控制尚未实现，当前 Chat 适配器对明确开关返回“未实现”，不声称已经生效。
 
 ## 3. 参考仓库与阅读入口
 
@@ -85,10 +85,10 @@ CC Switch 的多家预设不是“所有模型参数都已知”的证明。其�
 | 现状 | 施工时需要补什么 |
 |---|---|
 | `src/cli/main.ts` 的 `runCli()` 固定读取 `getOpenAIConfig()` | 增加 BYOK 配置入口和运行模型选择，保留已有 `.env` 用户的启动路径 |
-| `src/types.ts` 的 `Model.api` 只有 `openai-completions` | 扩充协议标识和模型能力；沿用已有名字或提供明确转换，不凭空改遍所有代码 |
-| `StreamOptions` 只有 key、signal、maxTokens | 增加统一思考偏好和必要请求上下文，不把厂商 JSON 字段传入 Agent |
-| `ThinkingContent` 只有字符串 | 增加必要的签名／opaque reasoning／来源信息，支持流式、会话持久化及回传 |
-| `Agent.createLoopConfig()` 未传递思考；loop 不完整应用思考更新 | 贯通保存、快照、请求；保持同一用户轮次内工具链使用一致设置 |
+| 第 01 批已定义三协议 `ModelApi`，`Model` 增加可选能力和默认输出上限 | 补配置加载、模型规则及协议实现；类型声明不表示三协议均可运行 |
+| `StreamOptions.thinking` 已接收统一偏好 | 补实际映射、字段编码与请求校验，不把厂商 JSON 字段传入 Agent |
+| `ThinkingContent.replay` 已预留来源与完整 JSON payload | 补协议流式组装、合法签名／opaque 数据回传和跨来源处理；目前只验证已有 JSONL 能保留这些数据 |
+| `Agent.createLoopConfig()` 已复制模型和偏好，loop 已传递并应用显式 hook 更新 | 后续补设置入口、busy 门槛和动态凭据；普通 state 变更不污染本轮工具续接，内部 hook 可明确覆盖下一次请求 |
 | `Harness.setThinkingLevel()` 抛“未接上” | 改成可用的独立开关与档位设置入口 |
 | 只有 `streamOpenAIChat()` | 在同一 `StreamFn` 边界上补齐 Responses、Anthropic，保留已有 Chat 图文／工具行为 |
 | 普通请求可调用 `getApiKey`，压缩直接读 `agent.apiKey` | 统一当前模型的凭据与请求设置来源，避免主对话可用但 `/compact` 失败 |
@@ -130,6 +130,8 @@ Agent 仍通过 `StreamFn(model, context, options)` 一类入口发请求。适�
 ### C. Agent、Harness 与会话
 
 Agent 保存用户意图，Harness 管理模型切换、凭据和会话。开始一轮时快照模型、规则、开关和档位；本轮的工具后续请求继续使用这份设置。v1.2 可在 busy 时拒绝切换，不必先实现复杂的运行中热切换。
+
+第 01 批保留已有内部 `prepareNextTurn` hook 的显式请求覆盖能力：它可以返回下一次请求的 `model` 和／或完整 `thinking` 偏好，返回的对象会复制，未返回的设置继续沿用。该覆盖只影响当前 loop，不自动改写用户偏好；普通 UI／state 变更仍在下一次运行读取。静态 API key 随运行配置保存，动态 `getApiKey` 目前仍按每次请求调用；统一动态凭据与 busy 入口在第 10／11 批完成。
 
 压缩和普通请求走同一适配器入口、凭据获取路径及当前规则。压缩可降低总输出上限，但同时重新校验思考预算，不能直接复用一份不满足输出限制的请求体。
 
@@ -239,7 +241,7 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 
 #### 01｜建立本功能的数据边界
 
-- 主流程：确定并接通请求设置的构造入口，例如 `createRequestSettings()`。
+- 主流程：完善现有 `Agent.createLoopConfig()`，不另建重复 wrapper；已实现并经用户 review 确认。
 - 输入／处理／输出：现有模型与 Agent 偏好 → 统一连接、模型和思考类型 → 后续适配器可接收的数据。
 - 改动范围：`src/types.ts`，Agent 初始状态与必要类型接线；定义三协议、独立开关／五档、回传元数据的最小形状。
 - 阅读：Kimi `LlmRequestConfig`、`ThinkingConfigSchema`、当前 `StreamOptions`。
@@ -377,14 +379,26 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 
 ## 12. 当前交付与后续记录
 
-本轮仅完成方案文档、参考仓库检查与同级副本，不表示任何 BYOK 功能已经可用。后续从用户选定的小批次开始，先讲该批主流程和参考取舍。
+第 01 批已完成公共数据边界及必要接线，用户已 review 确认并授权提交推送；完整 BYOK 仍不可用。第 02 批配置加载尚未开始，下一步按用户安排推进。
 
 | 批次 | 状态 | 完成／review／验证记录 |
 |---|---|---|
-| 01–03 | 未开始 | 类型、配置、统一适配器入口 |
+| 01 | 已实现，review 已确认 | `createLoopConfig()` 模型／偏好快照、loop 传递与 hook 更新；9 项本地行为验证和相关既有回归通过；用户授权提交推送 |
+| 02–03 | 未开始 | 配置加载、统一适配器入口与规则选择 |
 | 04–08 | 未开始 | 三协议基础能力 |
 | 09-a… | 未开始 | 一次一家的规则补充 |
 | 10–12 | 未开始 | 请求、压缩与会话状态 |
 | 13–14 | 未开始 | CLI 与整条验收 |
 
 进入开发后把当前批次单独展开记录，不只勾选整个功能。已确认的产品行为继续保持；实现组织随源码和 review 调整，修改后同步本文与 [progress.md](./progress.md)。
+
+### 01｜实际交付记录（2026-10-12，review 已确认）
+
+- **输入与输出：** `Agent.createLoopConfig()` 从当前 `Model`、`thinking` 偏好和现有 Agent 请求设置构造 `AgentLoopConfig`。模型用 `structuredClone` 复制（包含嵌套能力），偏好单独复制；普通 state 修改不改变本轮工具后续请求。`continueFromContext()` 复用同一入口。
+- **公共字段：** `ModelApi` 为 `openai-completions / openai-responses / anthropic-messages`；`ThinkingLevel` 为固定五档；`ThinkingPreferences.enabled?` 区分未指定／开启／关闭，`effort` 始终保存选中档位。`Model.capabilities` 中缺失项表示未知，当前尚未按能力限制请求；`maxOutputTokens?` 为模型默认输出设置，显式请求 `maxTokens` 优先。
+- **loop 接线：** `streamAssistantResponse()` 只向适配器传 `apiKey / signal / maxTokens / thinking`，不再把循环 hooks 一并展开。保留动态 key 获取路径；`prepareNextTurn` 原来的模型覆盖仍可用，补齐完整思考偏好覆盖并复制返回对象。仅更新 context 时保留请求设置。
+- **回传边界：** `ThinkingContent.thinking` 保留显示文字，`replay?` 单独保存 `{ source: { api, provider, model, baseUrl }, payload }`。payload 为完整、可 JSON 序列化的原生思考数据，可包含签名／opaque items；source 仅存无凭据的接口身份。适配器完成合法数据组装后才附加 replay；其生成、校验、发送和来源清理尚未实现。已有 JSONL 消息行能原样保存这些可选数据，无需改格式，旧 thinking 块继续可读。
+- **Harness 与 Chat：** `HarnessOptions.thinking?` 传入 Agent；`setThinkingLevel()` 仍明确未实现，CLI 未新增命令。现有 Chat 请求在未指定开关时保持原行为；给 Chat 适配器传另两种协议或明确开关时，在 HTTP 前返回未实现错误。
+- **参考取舍：** 阅读固定 TS Kimi Code 的 `LlmRequestConfig`、`ThinkingConfigSchema`、`ThinkPart` 和 provider 定义，借鉴统一请求边界与偏好分离。保留本项目 `StreamFn`、事件与工具循环；完整 JSON replay payload 及固定五档是本项目的数据设计，未复制 Kimi 的 DI、动态档位或 CC Switch 代理代码。
+- **验证：** 本地 `node --import tsx --test test/byok-request-settings.test.ts` 9 项通过，覆盖五档传递、三种开关状态、保留档位、工具续接快照、显式 hook 更新、输出上限、Harness 初始偏好、旧／新消息 JSONL 和旧 CLI 配置请求，以及未实现能力不发 HTTP。既有 Agent 3 项、loop 4 项、图片序列化 13 项均通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。只使用假流、mock fetch 与临时会话目录，不读取真实 key、不调用真实模型。新增验证文件按现有约定只留本地，未改 package scripts。
+- **Review 与提交范围：** 用户已逐项阅读类型、Agent 状态与快照、loop 更新和适配器边界，确认本批并要求提交推送。提交范围为本批 5 个源码文件及 README／3 份设计进度文档；不纳入本地测试、凭据和构建产物。

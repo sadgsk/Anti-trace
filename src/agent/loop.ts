@@ -114,7 +114,8 @@ async function runLoop(
 			currentContext = nextTurnSnapshot.context ?? currentContext;
 			config = {
 				...config,
-				model: nextTurnSnapshot.model ?? config.model,
+				model: nextTurnSnapshot.model ? structuredClone(nextTurnSnapshot.model) : config.model,
+				thinking: nextTurnSnapshot.thinking ? { ...nextTurnSnapshot.thinking } : config.thinking,
 			};
 		}
 
@@ -158,9 +159,10 @@ async function streamAssistantResponse(
 	const resolvedApiKey =
 		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
 	const response = await streamFn(config.model, llmContext, {
-		...config,
 		apiKey: resolvedApiKey,
 		signal,
+		maxTokens: config.maxTokens ?? config.model.maxOutputTokens,
+		thinking: config.thinking ? { ...config.thinking } : undefined,
 	});
 
 	let partialMessage: AssistantMessage | null = null;

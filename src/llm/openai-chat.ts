@@ -184,6 +184,12 @@ async function fetchChatCompletions(
 	tools: OpenAITool[] | undefined,
 	options?: StreamOptions,
 ): Promise<Response> {
+	if (model.api !== "openai-completions") {
+		throw new Error(`OpenAI Chat adapter does not implement '${model.api}'.`);
+	}
+	if (options?.thinking?.enabled !== undefined) {
+		throw new Error("OpenAI Chat thinking controls are not implemented yet.");
+	}
 	const apiKey = options?.apiKey;
 	if (!apiKey) {
 		throw new Error("No API key");
