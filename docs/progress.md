@@ -6,12 +6,12 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **剩余输入第 6–8 批已实现，完整附件草稿、撤销/重做、REPL/Harness 提交及显示接通，`npm start` 恢复交互。本机 115 项扩展测试通过；现按用户要求删除旧 stash 和同步 image.ts，提交推送且排除全部新增测试及 PTY 辅助。仓库 test:input 保留原 68 项基础回归。macOS POSIX PTY 与本地 HTTP SSE 已验收；其他平台原生终端与真实剪贴板仍需手测。上下键不召回历史；思考等级/BYOK 仍待合并设计。** |
+| 阶段 | **剩余输入第 6–8 批已实现，完整附件草稿、撤销/重做、REPL/Harness 提交及显示接通，`npm start` 恢复交互。本机 115 项扩展测试通过；已按用户要求删除旧 stash 和同步 image.ts，提交推送且排除全部新增测试及 PTY 辅助。仓库 test:input 保留原 68 项基础回归。macOS POSIX PTY 与本地 HTTP SSE 已验收；其他平台原生终端与真实剪贴板仍需手测。上下键不召回历史；思考等级/BYOK 的 build 文档已整理，功能尚未开始实现。** |
 | 架构书 | [architecture.md](./architecture.md) |
-| 输入迁移计划 | [claude-code-input-architecture.md](./claude-code-input-architecture.md) |
+| BYOK build | [byok-build.md](./byok-build.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
-| 对照代码 | `e:\pi-harness\pi` |
-| 最后更新 | 2026-10-07 |
+| 对照代码 | `e:\pi-harness\pi`、新版 TS `e:\pi-harness\kimi-code`；CC Switch 固定源码入口见 BYOK build |
+| 最后更新 | 2026-10-12 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -19,7 +19,7 @@
 2. 一个功能全部实现完再开始测试，不在功能做到一半插入探针或验收；验证方式和结果在功能完成后一起交代。
 3. 实现过程中发现问题（设计冲突、边界情况、影响面）当场说明，不要等写完、用户 review 完再补一句「这里有问题」。
 4. 带着写时，讲解应覆盖参考来源和本项目的取舍；有 Pi 对照时给出路径、函数名，自定义设计则直接说明理由。只有用户明确要求逐行解释某个函数时，才启用 [架构书 §0.4](./architecture.md#04-源码讲解方式) 的讲解标准；其他情况下按当前问题直接说明概念、逻辑或作用。
-5. 已确定的框架可以先留接口或函数，明确未实现状态，后续继续填充。允许修改已有实现和类型，以局部、可审阅的差异推进，减少不必要的重写。
+5. 每个功能点尽量按整体完成后的最终结构实现，避免临时类型、接线、假实现或短期分支导致后续大改。依赖紧密、单独实现需要大量过渡代码时，扩大本批范围并合并相关步骤，完成一个完整功能后再 review。已确定的最终接口可以预留并标明未实现；允许必要的局部修改，后续主要补齐周边能力和扩展已有实现。
 6. 用户问概念时先回答；是否同时修改代码按当次请求执行。未明确要求 `git commit` 时不做版本提交。
 7. 暂不处理的 bug 记录到 [future-issues.md](./future-issues.md)，沿用编号并写清环境、版本、现象和影响；已确认的原因或处理方向可以补充，并与待验证推测区分。
 
@@ -41,11 +41,11 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**第 1–5 批已实现并 review，剩余第 6–8 批已一次性交付，现获用户提交推送授权。长粘贴原文、图片内容、可见占位符及可信引用范围同属 `PromptDraft`；移动/删除按完整引用处理，撤销/重做恢复整份草稿。提交只展开仍被引用的长文本和图片，手打同名标签保留为正文。REPL 接回命令、会话选择、busy 门槛、中断退出、Agent 流式和工具显示；交互由 Ink 输出，非 TTY 在 EOF 提交一次原文，上下键只移动当前输入光标。本机扩展 115 项测试已通过；按用户要求本次不提交新增测试或 PTY 脚本，仓库 `test:input` 保留现有 68 项基础回归。macOS 真实 PTY 和本地 HTTP 验证长文本/PNG 请求、会话、压缩与续聊，未调用真实模型/读取真实剪贴板；其他平台及具体终端应用仍需手测。旧 stash 和同步 CLI image.ts 已删除，历史可从 Git 查阅。源码与 review 顺序见 [输入迁移计划](./claude-code-input-architecture.md)。
+**终端输入迁移：**功能已完成并提交，已完成的施工计划按用户要求删除，过程和旧文档可从 Git 历史查看。长粘贴原文、图片内容、可见占位符及可信引用范围同属 `PromptDraft`；移动/删除按完整引用处理，撤销/重做恢复整份草稿。提交只展开仍被引用的长文本和图片，手打同名标签保留为正文。REPL 接回命令、会话选择、busy 门槛、中断退出、Agent 流式和工具显示；交互由 Ink 输出，非 TTY 在 EOF 提交一次原文，上下键只移动当前输入光标。此前本机扩展 115 项测试已通过；按当时要求未提交新增测试或 PTY 脚本，仓库 `test:input` 保留现有 68 项基础回归。macOS 真实 PTY 和本地 HTTP 已验证长文本/PNG 请求、会话、压缩与续聊，未调用真实模型/读取真实剪贴板；其他平台及具体终端应用仍需手测。旧 stash 和同步 CLI image.ts 已删除；当前模块职责与验收边界见架构书 §3、§7。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
-**主线下一步：** 补充实际终端/剪贴板手测。`/compact` 已接回：仅当 `used > window / 4` 才尝试现有压缩；无旧轮次或刚压完无新消息不调用模型。假流及本地 HTTP 已验证门槛、摘要写盘和续聊，真实模型摘要仍待验收。之后按用户安排调研 Kimi Code 等实现，确定思考等级与 BYOK 共用的模型能力、配置、映射和失败兜底方案，再分小批实现。具体档位、映射及重试条件尚未定。默认 `256000` 窗口下，手动入口需 `used > 64000`。
+**主线下一步：** 按用户安排选择 [BYOK build](./byok-build.md) 的一个小批次，先讲主流程和参考取舍，再实现并停下 review。已确定固定 `low / medium / high / xhigh / max` 与独立思考开关；适配器对上层统一入口，内部复用三协议和接口兼容模板，结合新版 TS Kimi Code 与 CC Switch，一手厂商规则优先。具体配置字段、预算数值及辅助函数在各批阅读源码后确定，不能一次实现整份路线。实际终端/剪贴板手测仍待补；`/compact` 已接回且真实模型摘要待验收，默认 `256000` 窗口下手动门槛仍为 `used > 64000`。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
@@ -54,7 +54,7 @@
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / 会话名（前 10 字）/ `/new` / `/resume`（名字+上次打开时间） | [x] |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context`；阈值压缩；报错或空 `length` 重试；`stop` 超窗只压。代码和假流探针完成，真实模型验收待做 | [x] |
 | 5 | `Harness.manualCompact()` 及新 REPL `/compact` 接线完成，假流与本地 HTTP 摘要/写盘/续聊验证通过；真实模型验收待做 | [x] |
-| 4+6 | 思考等级与 BYOK 合并规划：三协议基础接入、可配置的模型能力与请求映射、失败兜底；具体方案待调研 | [ ] |
+| 4+6 | 思考等级与 BYOK：build 文档已整理，三协议、模型规则与五档／开关按小批次推进；功能尚未实现 | [ ] |
 | 7 | 新输入和 REPL 实现及本地端到端验收完成；实际跨平台终端/剪贴板、真实模型和公开试用准备仍待做 | [ ] |
 
 第 3 步的内部状态：
@@ -70,6 +70,8 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-12 | 用户确认输入迁移功能已完成，要求删除 `claude-code-input-architecture.md` 并提交推送剩余文档更新。退役施工计划，清理 README、架构书、进度页的失效链接和过时施工状态，保留历史与未覆盖的平台手测范围；纳入 BYOK build 和“按最终结构交付、依赖紧密时合并步骤”的协作约定。本轮仅文档变更，未实现 BYOK。 |
+| 2026-10-12 | 按用户要求整理 `byok-build.md`：固定五档与独立开关，适配器统一边界、三协议粗分类、共用兼容模板；新版 Kimi Code 参考请求流程，CC Switch 补规则与映射，一手厂商优先。施工路线分四块与建议小批次，要求每批说明主流程并停下 review，具体组织可随源码调整。确认 `E:\kimi-code` 为官方 TS 仓库、CLI 2.1.1／提交 `be7d5f5`，创建同级 `../kimi-code` 独立参考副本并保留原目录；此前 Python 路径不作为新版主要参考。同步 README 和架构入口。本轮只改文档、准备参考，未实现 BYOK、未提交 Git。 |
 | 2026-10-07 | 用户 review 后要求删除旧输入 `src/cli/input/stash/` 和不用的 `src/cli/utils/image.ts`，提交并推送本轮功能，明确不提交任何测试文件。生产依赖检查确认只有旧 stash 使用同步 image，保留新 `image-paste.ts` 与 Harness 的图片工具。删除六个旧源码和 `test:input:stash` 脚本；本轮六个新增测试及 PTY 辅助只留本地，基础 `test:input` 恢复原五个已跟踪文件，68 项复测通过。类型检查、构建与差异检查也通过。此前本机完整 115 项扩展验收记录保留；旧归档测试退役，不作为当前运行命令。 |
 | 2026-10-07 | 按用户要求一次性实现剩余输入第 6–8 批：新增 `PromptDraft`、`PromptInputController`、`PromptInput`，统一文字/可信引用/真实图片与撤销重做；长文本展开一次，原子引用移动删除，手打标签不复活附件。新增 `ReplController.submit()`、`startTerminalRepl()` 和 `runCli()`，恢复所有既有斜杠命令、会话选择、busy 门槛、流式/工具显示、中断退出及非 TTY EOF；Ink 统一交互输出。补齐 Harness 全程及摘要取消，覆盖生成结束到自动压缩的空档，中断摘要不改历史、不落盘，下一轮可继续。纳入持久解析器回归，新增草稿/组件/REPL/入口和真实 POSIX PTY 验收。`test:input` 115 项、类型检查、构建及差异检查通过；本地 HTTP SSE 验证真实 PNG Base64、长文本还原、会话及压缩续聊。未调用真实模型/读取真实剪贴板，Windows/Linux 原生终端和具体应用仍需手测。代码留待用户 review，未提交本轮修改。 |
 | 2026-10-07 | 用户 review 确认输入迁移第 5 批，并要求提交推送。提交前复跑 `npm run test:input`，68 项通过；`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。同步当前状态与迁移计划；图片附件草稿、占位符、撤销及 REPL/Harness 接线仍按第 6–8 批继续。 |
@@ -85,7 +87,7 @@
 | 2026-10-02 | 新输入第 3 批第一小点：新增 `src/cli/input/keybindings.ts`，实现 `matchesKeystroke()`、`matchesChord()` 和 `resolveKeybinding()`。键名及 Ctrl/Alt/Shift/Meta 精确匹配；调用方按焦点上下文到 Global 排序，同上下文的相同绑定以后置配置为准；连续组合键返回 pending、完成或取消，null 覆盖不会单独留下长组合键前缀。默认映射覆盖提交、换行及中断动作名，未执行业务动作。参考 CC `match.ts` 和 `resolver.ts::resolveKeyWithChordState`，使用独立类型避开还原源码的 `keys` / `chord` 等声明差异。`npm run typecheck` 和 `npm run build` 通过；焦点、普通文字事件适配和动作分发未接入，行为探针待第 3 批完整实现后进行，当前小点已由用户逐段 review 并要求提交。 |
 | 2026-09-30 | 新输入第 2 批完成：`TerminalInputParser.feed()` 以 `StringDecoder` 保留跨 chunk UTF-8，缓冲不完整转义与 bracketed paste；`parseKey()` 保留按键名及 Ctrl/Alt/Shift/Meta，CSI u、modifyOtherKeys、CSI/SS3 均可解析；`startTerminalHost()` 将唯一 stdin 回调转发为事件，50 ms 恢复不完整普通转义、500 ms 恢复进行中的粘贴。终端响应和鼠标事件不流入文字。对照 CC `tokenize.ts`、`parseMultipleKeypresses`、`InputEvent`；本机参考仓库位置与文档原相对路径不同，HEAD 一致。`npm run typecheck`、`npm run build` 和被忽略目录中的临时探针 6 例通过。焦点、快捷键、编辑器及 REPL 尚未接入，`npm start` 仍不可对话。 |
 | 2026-09-29 | 新输入第 1 批完成：浅克隆 `oboard/claude-code-rev` 到并列目录，HEAD 为文档中的 `3b0498a`；核对其 `src/ink/components/App.tsx` 的 raw mode、stdin 与 bracketed paste 生命周期。项目用 React 19 + Ink 6.5.1 渲染，Ink 接虚拟输入流，`TerminalHost` 独占真实 stdin 的原始字节并管理终端模式。`npm run typecheck`、`npm run build` 通过；本机临时测试 2 例通过，按用户要求不入库。按键解析与 REPL 接线尚未实现，CLI 仍不可对话。 |
-| 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增 [Claude Code 输入架构迁移计划](./claude-code-input-architecture.md)，后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
+| 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增当时的 Claude Code 输入架构迁移计划（现已完成并退役，历史内容可从 Git 查看），后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
 | 2026-09-26 | 为多行代码粘贴提前发送的问题接入新的终端输入底层：raw mode 与 bracketed paste 解析输出独立的文本、按键、粘贴事件；`PasteBurst` 为无标记的快速输入提供时间判断兜底；`DraftEditor` 独立维护可编辑多行草稿；`CliPrompt` 暂时负责 CLI 显示与 Enter 提交，支持 Ctrl+J / 可辨别的 Shift+Enter 换行、`/paste` 后 Ctrl+D 退出安全粘贴、原有图片快捷键与斜杠命令。非 TTY 管道在 EOF 交付完整文本。输入测试、类型检查、构建、macOS 伪终端请求体与 SIGTERM 清理验证及独立代码 review 已通过。慢速无标记粘贴存在不可判别边界；实际 Windows / WebStorm / Terminal.app 手测待做。 |
 | 2026-09-26 | 思考等级与 BYOK 改为同一项待设计功能，不再按原第 4、6 步分别实现。规划要求模型能力与请求映射可在配置中调整，兼顾不同协议和网关差异，并设计明确反馈及有限重试或兜底；避免新厂商都要在核心代码追加特例。具体档位、能力信息来源、映射形状和重试条件待进一步对照 Kimi Code 等实现后决定。本次只更新规划文档，未改实现。 |
 | 2026-09-26 | 用户调整施工顺序，先接简单的手动入口。`Harness.manualCompact()` 在 `used > window / 4` 时调用现有 `compact()`，否则直接返回；无新消息时不重复压缩。REPL 加 `/compact` 与结果提示，摘要包装不再声称已耗尽上下文。验证：`npm run typecheck` 通过；一次性假 `StreamFn` 探针覆盖恰好 1/4、超过 1/4 但只有一轮、成功摘要和 JSONL 恢复、压后重复调用；PTY 里 `/compact` 的低用量提示正常。未调用真实模型，当前步骤等用户 review 后再继续。 |
@@ -121,7 +123,7 @@
 
 ## v1.3（后续）
 
-原计划在 v1.3 替换 TUI；输入底座已提前按 Claude Code 链路重建并接回 REPL，完整 TUI 仍是后续版本目标。当前实现与待手测范围以 [输入迁移计划](./claude-code-input-architecture.md) 为准；旧输入历史保留作对照。
+原计划在 v1.3 替换 TUI；输入底座已提前按 Claude Code 链路重建并接回 REPL，完整 TUI 仍是后续版本目标。当前实现与待手测范围见架构书 §3、§7 及本页当前状态；已退役施工计划和旧输入历史可从 Git 查看。
 
 ---
 

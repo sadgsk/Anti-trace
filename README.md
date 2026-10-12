@@ -1,8 +1,10 @@
 # cli-agent
 
-参考 `../pi` 逐步构建的个人 CLI agent，目标是可开源、可持续演进的产品级 agent。现有 `Harness`、线性 jsonl 会话、四个工具和上下文压缩已接入新 REPL；`npm start` 可交互对话。新输入支持多行编辑、粘贴合并、长文本/图片引用、撤销和重做。输入设计与验收边界见 [输入迁移计划](docs/claude-code-input-architecture.md)，整体设计见 [架构书](docs/architecture.md)，开发历史与待办见 [进度文档](docs/progress.md)。
+参考 `../pi` 逐步构建的个人 CLI agent，目标是可开源、可持续演进的产品级 agent。现有 `Harness`、线性 jsonl 会话、四个工具和上下文压缩已接入新 REPL；`npm start` 可交互对话。新输入支持多行编辑、粘贴合并、长文本/图片引用、撤销和重做，输入迁移功能已完成。整体设计与验收边界见 [架构书](docs/architecture.md)，开发历史与待办见 [进度文档](docs/progress.md)。
 
 换对话先看 **[docs/progress.md](docs/progress.md)**，再按 **[docs/architecture.md](docs/architecture.md)** 对照。
+
+思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按功能分块、小批次实现并逐批 review；当前尚未实现。
 
 使用 Node.js 22 或更新版本，运行 `npm install`。将 `.env.example` 复制为 `.env`，填写 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_MODEL` 和模型窗口 `OPENAI_CONTEXT_WINDOW`，然后运行 `npm start`。当前协议为 OpenAI Chat Completions，思考等级和 BYOK 三协议配置仍待实现。
 
