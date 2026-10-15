@@ -169,6 +169,7 @@ Agent 保存用户意图，Harness 管理模型切换、凭据和会话。开始
 - **地址：** `baseUrl` 必填，包含所需版本前缀，适配器只追加协议路径，不自动加 `/v1`。可选 `endpoint` 为完整推理 URL，存在时原样用于请求；它不用于推断模型查询地址。两个字段只接受绝对 HTTP(S) 地址，当前不接受 URL 内凭据、查询参数或片段；已带 `/chat/completions`、`/responses` 或 `/messages` 的 baseUrl 会提示改填 endpoint。
 - **模型：** `models` 是目录键到 `{ connection, id, name?, contextWindow, maxOutputTokens?, capabilities? }` 的字典。`id` 是发送给上游的 ID，目录键用于选择，`name` 只作显示。窗口／输出上限为正安全整数，输出上限不超过窗口；能力可填 `images/tools/thinking` 三个可选布尔值，未知项保留未指定，当前不据此自动改变请求。多个模型可引用同一个连接。
 - **选择与偏好：** `currentModel` 必填并引用有效目录键；程序化 `model` 参数可覆盖本次选择，但不能掩盖无效的保存选择。`thinking` 可省略，默认 `{ effort: "medium" }`，`enabled?` 区分未指定／开／关，关闭仍保存档位。设置传给 Harness；明确开关在当前 Chat 中仍报未实现，不声称已编码。
+- **已知问题（待修）：** 上一项中模型引用失效时直接抛错并退出 CLI，是当前实现的缺陷，不作为后续产品要求。用户要求默认模型或本次选中模型不在列表中时只提示，保持 CLI 可操作并允许重新选择；默认项失效也不应阻断本次明确指定的有效模型。详见 [review-records.md No.5](./review-records.md#no5--默认模型或选中模型不在列表时-cli-直接退出)。本次只记录，尚未修复。
 - **返回与凭据：** 返回模型目录、当前模型副本、偏好和 `getApiKey(modelKey?)`。key 不进入 `Model` 或 session；仅请求所选模型的凭据，其他模型尚未设置环境变量不会阻止启动。`runCli()` 目前启动时读取一次 key 传给已有 Harness；动态凭据及运行中切换在第 10／11 批继续。
 - **运行边界：** 目录可保存三种协议，启动目前只接受 `openai-completions`；另两种协议在 HTTP 前明确报错。模型、地址、窗口和输出上限只从 JSON 读取，旧模型环境变量不参与启动。`.env` 和 `.env.example` 已删除，原本机设置已迁入被 Git 忽略的项目 `byok.json`；仓库 `byok.example.json` 只放占位 key。
 
