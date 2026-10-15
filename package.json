@@ -6,18 +6,6 @@
 	"type": "module",
 	"scripts": {
 		"start": "tsx src/cli/main.ts",
-		"probe": "tsx test/probe-llm.ts",
-		"probe:bash": "tsx test/probe-bash.ts",
-		"probe:read": "tsx test/probe-read.ts",
-		"probe:write": "tsx test/probe-write.ts",
-		"probe:edit": "tsx test/probe-edit.ts",
-		"probe:loop": "tsx test/probe-loop.ts",
-		"probe:agent": "tsx test/probe-agent.ts",
-		"probe:harness": "tsx test/probe-harness.ts",
-		"probe:session": "tsx test/probe-session.ts",
-		"probe:image-order": "tsx test/probe-tool-image-order.ts",
-		"test:images": "tsx test/tool-result-images.test.ts",
-		"test:input": "tsx --test test/text-input-state.test.ts test/text-input-controller.test.ts test/base-text-input.test.tsx test/paste-handler.test.ts test/image-paste.test.ts",
 		"typecheck": "tsc --noEmit",
 		"build": "tsc"
 	},

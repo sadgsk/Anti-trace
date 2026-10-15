@@ -1,6 +1,6 @@
 # BYOK build：按小批次接入模型与思考控制
 
-状态：**第 01 批请求数据边界已实现并经用户 review 确认；配置加载、规则编码与三协议完整能力尚未接通**。更新：2026-10-12。
+状态：**第 01 批已通过用户 review；第 02 批配置加载与启动选择已实现，用户已授权提交推送，`byok.ts` 主体留待 Mac 继续 review。规则编码与三协议完整能力尚未接通**。更新：2026-10-15。
 
 这份文档用于后续模型带着用户逐步开发。先读 [progress.md](./progress.md) 的当前状态和协作约定，再按本文件选择当前小批次。不要把整份文档当成一次性实施指令。
 
@@ -84,8 +84,8 @@ CC Switch 的多家预设不是“所有模型参数都已知”的证明。其�
 
 | 现状 | 施工时需要补什么 |
 |---|---|
-| `src/cli/main.ts` 的 `runCli()` 固定读取 `getOpenAIConfig()` | 增加 BYOK 配置入口和运行模型选择，保留已有 `.env` 用户的启动路径 |
-| 第 01 批已定义三协议 `ModelApi`，`Model` 增加可选能力和默认输出上限 | 补配置加载、模型规则及协议实现；类型声明不表示三协议均可运行 |
+| `runCli()` 已通过唯一入口 `loadByokConfig()` 加载 JSON 目录和启动模型，缺文件时报错 | 后续增加运行中模型选择；当前仍直接使用 Chat，另两种协议启动时明确未实现 |
+| 第 01 批定义三协议和模型能力；第 02 批已加载上下文／输出设置与 `endpoint?` | 补模型规则及协议实现；能配置协议不表示该协议已经可运行 |
 | `StreamOptions.thinking` 已接收统一偏好 | 补实际映射、字段编码与请求校验，不把厂商 JSON 字段传入 Agent |
 | `ThinkingContent.replay` 已预留来源与完整 JSON payload | 补协议流式组装、合法签名／opaque 数据回传和跨来源处理；目前只验证已有 JSONL 能保留这些数据 |
 | `Agent.createLoopConfig()` 已复制模型和偏好，loop 已传递并应用显式 hook 更新 | 后续补设置入口、busy 门槛和动态凭据；普通 state 变更不污染本轮工具续接，内部 hook 可明确覆盖下一次请求 |
@@ -105,7 +105,7 @@ CC Switch 的多家预设不是“所有模型参数都已知”的证明。其�
 
 连接至少包含 URL、凭据、协议；模型至少包含上游 model ID、显示名、上下文窗口、最大输出设置及必要能力。可复用同一个连接配置保存多个模型。
 
-配置文件位置、字段名和编辑形式在相关批次确定。可从用户目录 JSON 配置起步；暂不增加复杂的多目录继承。凭据可引用环境变量，必要时接受本地 API key。日志与 session 不写 key 或鉴权头。
+第 02 批已采用项目 cwd 下的 `byok.json`，字段与查找顺序见 §6.1；不增加多目录继承。凭据默认直接填写在本机 JSON，也可明确引用进程环境变量；不读取 `.env` 文件。读取函数与模型目录分开，日志与 session 不写 key 或鉴权头，本机配置被 Git 忽略。
 
 URL 的输入约定也在配置批次讲清：base URL 与完整推理 endpoint 必须能区分，避免重复拼接 `/v1` 或请求路径。推理地址不自动当作模型信息查询地址，不依靠 ping 推断思考档位。
 
@@ -159,6 +159,18 @@ Agent 保存用户意图，Harness 管理模型切换、凭据和会话。开始
 规则绑定到“模型 + 当前接口 + 协议”。不能仅看到模型 ID 就自动给任意网关套原厂规则。明确选择原厂预设后，可在该预设内按已核对的模型系列匹配；自定义域名可通过用户明确指定规则复用。
 
 未知接口不必立刻新增代码：用户可以指定已支持的 effort／预算／开关编码模板和等级表。缺少规则时可以沿用服务端默认；当用户明确要求控制而没有可用编码时，应给出配置错误，不声称已经生效。不把所有未知模型强行当成支持 effort。
+
+### 6.1 第 02 批已实现的配置约定（待 review）
+
+入口为 `src/config/byok.ts::loadByokConfig()`，示例见仓库根目录 `byok.example.json`。配置格式为 JSON，不含注释，`version` 固定为 `1`。
+
+- **查找：** 程序化 `configPath` > 进程环境变量 `CLI_AGENT_CONFIG` > cwd 下的 `byok.json`；相对路径按 cwd 解析，不读取 `.env`，不搜索用户目录。BYOK JSON 是唯一启动模型配置来源；任何路径的文件缺失、权限错误、JSON 损坏或字段无效均报错。文件缺失时提示复制示例或指定路径。旧环境启动函数、回退分支、程序化 `config: OpenAIConfig` 入口与 dotenv 读取代码均已删除。
+- **连接：** `connections` 是连接 ID 到 `{ api, baseUrl, endpoint?, apiKey?, apiKeyEnv? }` 的字典；必须且只能指定一种凭据来源。示例默认使用本地 `apiKey`；可选 `apiKeyEnv` 只从进程环境取值。连接 ID 用作 `Model.provider`，只是用户的连接身份，不凭 ID 猜厂商规则。自定义 headers、预设和思考编码模板尚未实现，当前填入会报未知字段，待适配器批次接通后再开放。
+- **地址：** `baseUrl` 必填，包含所需版本前缀，适配器只追加协议路径，不自动加 `/v1`。可选 `endpoint` 为完整推理 URL，存在时原样用于请求；它不用于推断模型查询地址。两个字段只接受绝对 HTTP(S) 地址，当前不接受 URL 内凭据、查询参数或片段；已带 `/chat/completions`、`/responses` 或 `/messages` 的 baseUrl 会提示改填 endpoint。
+- **模型：** `models` 是目录键到 `{ connection, id, name?, contextWindow, maxOutputTokens?, capabilities? }` 的字典。`id` 是发送给上游的 ID，目录键用于选择，`name` 只作显示。窗口／输出上限为正安全整数，输出上限不超过窗口；能力可填 `images/tools/thinking` 三个可选布尔值，未知项保留未指定，当前不据此自动改变请求。多个模型可引用同一个连接。
+- **选择与偏好：** `currentModel` 必填并引用有效目录键；程序化 `model` 参数可覆盖本次选择，但不能掩盖无效的保存选择。`thinking` 可省略，默认 `{ effort: "medium" }`，`enabled?` 区分未指定／开／关，关闭仍保存档位。设置传给 Harness；明确开关在当前 Chat 中仍报未实现，不声称已编码。
+- **返回与凭据：** 返回模型目录、当前模型副本、偏好和 `getApiKey(modelKey?)`。key 不进入 `Model` 或 session；仅请求所选模型的凭据，其他模型尚未设置环境变量不会阻止启动。`runCli()` 目前启动时读取一次 key 传给已有 Harness；动态凭据及运行中切换在第 10／11 批继续。
+- **运行边界：** 目录可保存三种协议，启动目前只接受 `openai-completions`；另两种协议在 HTTP 前明确报错。模型、地址、窗口和输出上限只从 JSON 读取，旧模型环境变量不参与启动。`.env` 和 `.env.example` 已删除，原本机设置已迁入被 Git 忽略的项目 `byok.json`；仓库 `byok.example.json` 只放占位 key。
 
 ## 7. 思考映射与编码
 
@@ -252,9 +264,9 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 
 - 主流程：配置加载与选择入口，例如 `loadByokConfig()`。
 - 输入／处理／输出：配置路径／环境变量 → 读取、校验连接与模型、应用明确覆盖 → 当前选择与模型目录。
-- 改动范围：新增简单配置模块，复用 `env.ts`，接入 `runCli()`；配置文件缺失可使用旧 `.env`，文件损坏不静默改用另一家模型。
+- 改动范围：新增简单配置模块并接入 `runCli()`；JSON 是唯一模型配置入口，文件缺失或损坏时报错，不依赖 dotenv。
 - 阅读：Kimi `ProvidersSectionSchema`、`ModelRecordSchema`；CC Switch 预设与模型元数据组织。
-- 验证：临时目录中的有效／无效配置、凭据环境变量、已有 `.env` 启动兼容；不读取或打印真实 key。
+- 验证：临时目录中的有效／无效配置、凭据环境变量、旧模型环境变量不能启动或补齐配置；不读取或打印真实 key。
 - review 点：配置怎么找到模型、怎么得到凭据、哪些覆盖已生效。
 
 #### 03｜统一适配器入口与规则选择
@@ -379,12 +391,13 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 
 ## 12. 当前交付与后续记录
 
-第 01 批已完成公共数据边界及必要接线，用户已 review 确认并授权提交推送；完整 BYOK 仍不可用。第 02 批配置加载尚未开始，下一步按用户安排推进。
+第 01 批已通过用户 review 并提交。第 02 批配置加载及启动选择已实现，验证通过，用户已授权提交推送；已讲解类型、配置示例及 main／Chat／index 接线，`byok.ts` 主体留待用户在 Mac 上继续 review。完整 BYOK 尚未完成，review 确认后再按用户安排进入第 03 批。
 
 | 批次 | 状态 | 完成／review／验证记录 |
 |---|---|---|
 | 01 | 已实现，review 已确认 | `createLoopConfig()` 模型／偏好快照、loop 传递与 hook 更新；9 项本地行为验证和相关既有回归通过；用户授权提交推送 |
-| 02–03 | 未开始 | 配置加载、统一适配器入口与规则选择 |
+| 02 | 已实现，获准提交，主体待 review | JSON 唯一配置入口、凭据读取、启动选择、完整 endpoint；11 项本地配置验证与既有相关回归通过；Mac 继续看 `byok.ts` |
+| 03 | 未开始 | 统一适配器入口与规则选择 |
 | 04–08 | 未开始 | 三协议基础能力 |
 | 09-a… | 未开始 | 一次一家的规则补充 |
 | 10–12 | 未开始 | 请求、压缩与会话状态 |
@@ -402,3 +415,12 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 - **参考取舍：** 阅读固定 TS Kimi Code 的 `LlmRequestConfig`、`ThinkingConfigSchema`、`ThinkPart` 和 provider 定义，借鉴统一请求边界与偏好分离。保留本项目 `StreamFn`、事件与工具循环；完整 JSON replay payload 及固定五档是本项目的数据设计，未复制 Kimi 的 DI、动态档位或 CC Switch 代理代码。
 - **验证：** 本地 `node --import tsx --test test/byok-request-settings.test.ts` 9 项通过，覆盖五档传递、三种开关状态、保留档位、工具续接快照、显式 hook 更新、输出上限、Harness 初始偏好、旧／新消息 JSONL 和旧 CLI 配置请求，以及未实现能力不发 HTTP。既有 Agent 3 项、loop 4 项、图片序列化 13 项均通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。只使用假流、mock fetch 与临时会话目录，不读取真实 key、不调用真实模型。新增验证文件按现有约定只留本地，未改 package scripts。
 - **Review 与提交范围：** 用户已逐项阅读类型、Agent 状态与快照、loop 更新和适配器边界，确认本批并要求提交推送。提交范围为本批 5 个源码文件及 README／3 份设计进度文档；不纳入本地测试、凭据和构建产物。
+
+### 02｜实际交付记录（2026-10-15，获准提交，主体待 review）
+
+- **主流程：** `loadByokConfig()` 接收 cwd、可选路径／模型选择及环境；查找并读取配置，使用已有 TypeBox 做结构校验，再检查连接凭据来源、URL、模型引用和输出限制，构造无凭据的模型目录，返回当前选择、偏好与独立 `getApiKey()`。用户 review 中明确不需要兼容旧启动方式，已删除全部旧配置入口；JSON 缺失或损坏均报错。
+- **配套接线：** `runCli()` 使用目录选择、显示名和思考偏好装配 Harness，未实现协议在启动时报错；`Model.endpoint?` 与 Chat 请求接通，适配器直接使用完整地址。`src/index.ts` 导出加载入口，根目录增加配置示例。用户进一步要求迁移实际配置：原 `.env` 四项设置已写入项目 `byok.json`，读取并逐项校验后删除 `.env`、`.env.example` 和 `src/env.ts`；默认查找改为 cwd，`.gitignore` 排除本机 JSON，示例改为直接填写假 key。
+- **参考取舍：** 阅读固定 Kimi TS 的 `ProvidersSectionSchema`、`ModelRecordSchema`、`ThinkingConfigSchema`，借鉴连接／模型／偏好分开保存；Pi `ModelRegistry.getApiKeyAndHeaders()` 用于对照凭据与模型分离。JSON 位置、严格校验、单文件目录和 endpoint 约定由本项目确定；复用现有 TypeBox，不增加 Zod、DI、发现服务或多层继承。本批没有导入 CC Switch 模型规则，待实际编码批次再核对。
+- **验证：** `node --import tsx --test test/byok-config.test.ts test/byok-request-settings.test.ts test/tool-result-images.test.ts` 通过，其中配置 11 项、请求设置 9 项、图片序列化 13 项。覆盖共享连接、模型选择、偏好与输出设置、环境凭据、缺 key、损坏／缺失配置、严格校验、旧环境变量不能启动或补齐 JSON、cwd 默认文件、忽略本地 `.env`、地址约定和不支持的协议；CLI 请求回归使用 BYOK JSON。本机 HTTP SSE 验证 base／endpoint 两种地址、请求 key／模型／输出上限和 session 不含凭据。`npm run typecheck`、`npm run build`、`git diff --check` 通过。行为测试只用临时目录与假 key；另按用户指令读取本机 `.env` 迁移真实配置并离线校验，未输出 key、未调用真实模型。本地旧模型探针同步改为读取 BYOK；整个 test/ 现仅保留本地，对应 npm 测试／探针入口已移除。
+- **交付与 review：** Chat 可从 JSON 配置启动；三协议完整运行、厂商思考规则／headers、动态凭据、运行中选择与会话设置恢复仍待后续批次。用户已授权提交推送当前改动，`byok.ts` 主体留待 Mac 继续 review，第 03 批未开始。本次同时按要求将整个 `test/` 从 Git 取消跟踪并保留本地文件，移除对应 npm 测试／探针入口；后续在近期两个功能点完成后另建测试框架。本机真实配置不提交，跨机器 review 可先使用 `byok.example.json`。
+- **提交前检查：** 本地输入 68 项、配置 11 项、请求设置 9 项和图片序列化 13 项验证通过；使用直接执行本地测试文件的方式，不依赖已移除的 npm 测试入口。类型检查、构建与差异检查通过，取消跟踪的 10 个测试文件本地副本完整。

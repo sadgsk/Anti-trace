@@ -195,7 +195,7 @@ async function fetchChatCompletions(
 		throw new Error("No API key");
 	}
 
-	const url = `${model.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+	const url = model.endpoint ?? `${model.baseUrl.replace(/\/+$/, "")}/chat/completions`;
 	const body: Record<string, unknown> = {
 		model: model.id,
 		messages,

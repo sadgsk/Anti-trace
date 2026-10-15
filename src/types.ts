@@ -103,7 +103,9 @@ export interface Model {
 	provider: string;
 	baseUrl: string;
 	api: ModelApi;
-	/** Context window in tokens. Required at runtime; supplied by env / model config. */
+	/** Optional exact inference URL; otherwise the adapter appends its protocol path to baseUrl. */
+	endpoint?: string;
+	/** Context window in tokens. Required at runtime; supplied by BYOK model config. */
 	contextWindow: number;
 	/** Default output limit; a request can supply its own maxTokens. */
 	maxOutputTokens?: number;

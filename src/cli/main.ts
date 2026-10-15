@@ -1,10 +1,9 @@
 import type { Readable, Writable } from "node:stream";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getOpenAIConfig, type OpenAIConfig } from "../env.ts";
+import { loadByokConfig } from "../config/byok.ts";
 import { Harness } from "../harness/harness.ts";
 import { streamOpenAIChat } from "../llm/openai-chat.ts";
-import type { Model } from "../types.ts";
 import type { TerminalStreams } from "./ink/terminal-host.ts";
 import { createPromptDraft } from "./input/prompt-draft.ts";
 import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
@@ -20,7 +19,8 @@ export interface RunCliOptions {
 	streams?: CliStreams;
 	cwd?: string;
 	sessionsRoot?: string;
-	config?: OpenAIConfig;
+	configPath?: string;
+	model?: string;
 }
 
 /** TTY runs the editor; a pipe is one complete message, including all of its newlines. */
@@ -30,13 +30,15 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	let harness = options.harness;
 	let modelName = "CLI Agent";
 	if (!harness) {
-		const config = options.config ?? getOpenAIConfig();
-		const model: Model = {
-			id: config.modelId, name: config.modelId, provider: "openai", baseUrl: config.baseUrl,
-			api: "openai-completions", contextWindow: config.contextWindow,
-		};
-		harness = new Harness({ cwd, apiKey: config.apiKey, model, streamFn: streamOpenAIChat, sessionsRoot: options.sessionsRoot });
-		modelName = config.modelId;
+		const config = loadByokConfig({ cwd, configPath: options.configPath, model: options.model });
+		if (config.model.api !== "openai-completions") {
+			throw new Error(`当前模型 ${config.currentModel} 使用 ${config.model.api}，该协议尚未实现。`);
+		}
+		harness = new Harness({
+			cwd, apiKey: config.getApiKey(), model: config.model, thinking: config.thinking,
+			streamFn: streamOpenAIChat, sessionsRoot: options.sessionsRoot,
+		});
+		modelName = config.model.name;
 	}
 	if (streams.stdin.isTTY && streams.stdout.isTTY) {
 		const terminal = startTerminalRepl({ harness, streams: streams as unknown as TerminalStreams, banner: `${modelName} · ${cwd}` });

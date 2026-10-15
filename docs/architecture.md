@@ -4,7 +4,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-10-12）：**输入迁移功能已完成并提交，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除，已完成的施工计划按用户要求退役。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。此前本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE；扩展测试及辅助脚本按当时要求未提交，`test:input` 只引用仓库现有基础测试。其他平台原生终端、真实剪贴板和具体终端应用仍需手测，见 §7 和进度文档。上下键仅移动当前输入光标，不提供历史召回。
+**输入迁移状态（2026-10-15）：**输入迁移功能已完成并提交，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除，已完成的施工计划按用户要求退役。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。此前本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE。现按用户要求，整个 `test/` 均仅保留在本地，取消历史文件跟踪和 npm 测试／探针入口，后续另建测试框架。其他平台原生终端、真实剪贴板和具体终端应用仍需手测，见 §7 和进度文档。上下键仅移动当前输入光标，不提供历史召回。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -74,8 +74,8 @@ startLine(index + segment.length);
 | 终端输入 | 输入迁移已完成；唯一 stdin 宿主、协议解析、焦点分发、多行字素编辑、粘贴合并、完整附件草稿、撤销/重做和提交展开已接通；非 TTY 在 EOF 提交一次原文 |
 | 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
 | 协议适配 | 当前只实现 OpenAI Chat Completions，用于运行和测试；消息转换在 `openai-chat.ts`，内部保留内容块结构；含图工具结果在整批 tool 回复后按来源分组、保留图文顺序发送，已通过本地请求体验收 |
-| 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。默认窗口 `256000`，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
-| 思考等级与 BYOK | 第 01 批数据边界、固定五档／独立开关及请求快照已实现并经用户 review 确认；配置加载、思考编码、三协议完整能力和 CLI 控制仍待接通，见 [BYOK build](./byok-build.md) |
+| 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
+| 思考等级与 BYOK | 第 01 批已通过用户 review；第 02 批 JSON 配置、模型目录与启动选择已实现并获准提交，`byok.ts` 主体待 Mac 继续 review。当前可配置 Chat 启动；思考编码、三协议完整能力和运行中 CLI 控制仍待接通，见 [BYOK build](./byok-build.md) |
 
 **这一版（v1.2）的既定目标：**
 
@@ -149,7 +149,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 **上下文容量**先有窗口和用量。压缩在用量过线，或这轮回复表明上下文装不下时自动发生。
 
-1. **窗口：** 数字在 `Model.contextWindow`。当前用 `.env` 的 `OPENAI_CONTEXT_WINDOW` 填进去，缺省 `256000`，无效值回退缺省。BYOK 接通后窗口跟模型配置走。`/context <正整数>` 只改本进程这份 `Model.contextWindow`。
+1. **窗口：** 数字在 `Model.contextWindow`，由 BYOK JSON 中当前模型的 `contextWindow` 提供正整数，缺失或无效时报配置错误。`/context <正整数>` 只改本进程这份 `Model.contextWindow`。
 2. **记录：** 优先用 `AssistantMessage.usage` 中接口返回的用量；没有则用现有 `estimateTokens` 估算，文字按字符/4、图片按固定开销估。Harness 记住当前 `usedTokens`。屏幕不拆 input / output / cache。正常对话只在末尾追加，压缩时整段换成摘要 + 原样留下的尾部。当前适配器不回传思考块；文字、图片和工具调用按消息角色转换，后续思考内容回传随 BYOK 一起设计。
 3. **显示：** 接口是 `contextUsage(): { used: number; window: number }`。TUI 还没有，这两个字段先留着，以后底栏读同一处。REPL 每轮结束后打一行 `ctx <used>/<window>`。`/context` 无参数打印同一对数字。
 4. **压缩：** 自动路径已调用同一套切点和摘要，阈值公式参考 Pi。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。一轮里最多自动压一次。手动 `/compact` 仅在 `used > window / 4` 时尝试同一套压缩；没有可压旧历史或刚压完没有新消息时明确提示。
@@ -180,13 +180,14 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/cli/input/prompt-draft.ts` | 文字、光标、可信引用范围与附件同属不可变草稿；`preparePromptSubmission()` 展开原文并收集图片 |
 | `src/cli/input/prompt-input-controller.ts`、`prompt-input.tsx` | 长文本/图片占位、原子移动与删除、完整草稿撤销/重做、提交门槛与输入显示 |
 | `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx` | 命令/会话选择、同步 busy 门槛、Harness 事件投影、唯一终端宿主装配、Ink 显示与退出清理 |
-| `src/cli/main.ts` | `runCli()` 装配 Harness，TTY 交互和非 TTY EOF 提交共用 REPL 逻辑；导入不启动进程 |
+| `src/config/byok.ts` | 加载 cwd 下的 `byok.json` 或显式路径 JSON，校验连接与模型目录、选择启动模型并独立读取凭据；JSON 是唯一模型配置来源，缺失或损坏均报错；dotenv 代码和两个 env 文件已删除，本机 JSON 被 Git 忽略 |
+| `src/cli/main.ts` | `runCli()` 读取 BYOK 当前选择并装配 Harness，TTY 交互和非 TTY EOF 提交共用 REPL 逻辑；导入不启动进程；目前只运行 Chat |
 | `docs/byok-build.md` | 思考等级与 BYOK 的功能分工、Kimi Code／CC Switch 参考入口及可调整的小批次路线 |
 | `src/types.ts`、`src/agent/agent.ts`、`src/agent/loop.ts` | BYOK 第 01 批公共数据边界、模型／偏好快照、统一请求选项传递及内部 hook 的显式设置覆盖；实际协议思考编码待接 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
 | `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
 | `test/probe-context.ts` | 历史本地假流探针曾覆盖压缩与重试；当前工作区无该文件，不能作为可运行命令 |
-| 仓库已有的基础输入测试 | `test:input` 覆盖编辑、布局、组件、粘贴和图片读取；本轮完整草稿/REPL/本地 HTTP/PTY 扩展用例只保留在本机，不提交 |
+| 本地 `test/` | 所有零散测试与探针均不跟踪、不提交；历史跟踪文件仅从 Git 移除，本地保留。对应 npm 入口已删除，后续另建测试框架 |
 
 **v1.2 后续：** 新输入及 `/new`、`/resume`、`/context`、`/compact`、每轮 `ctx` 已接回。思考等级与 BYOK 按 build 文档分批实施；保留 Agent / Harness 的消息和事件边界。
 
@@ -288,7 +289,7 @@ export class Harness {
 
 **窗口**
 
-- `Model.contextWindow: number`（必填于运行时）。当前由 `env.ts` 读 `OPENAI_CONTEXT_WINDOW`（正整数，缺省 `256000`）写入；BYOK 接通后由用户配置的模型提供。
+- `Model.contextWindow: number`（必填于运行时）。由 BYOK JSON 的当前模型配置提供，配置缺失或无效时报错。
 - `/context <n>` 改 `harness.setContextWindow`，写的仍是当前这份 `Model.contextWindow`。模型能力信息来源随思考等级与 BYOK 一起确定。
 
 **记录**
@@ -329,9 +330,11 @@ export class Harness {
 
 ---
 
-### 5.4 思考等级与 BYOK（第 01 批数据边界已实现并通过 review）
+### 5.4 思考等级与 BYOK（第 02 批获准提交，主体待继续 review）
 
 完整产品行为、源码参考、功能分工和小批次路线见 [BYOK build](./byok-build.md)。第 01 批已定义 `ModelApi`、固定五档 `ThinkingLevel`、独立开关的 `ThinkingPreferences`、可选模型能力／默认输出上限和 `ThinkingContent.replay`。Agent 状态使用 `thinking: { enabled?, effort }`；初始开关未指定、保存档位 `medium`，未指定开关时不发送档位控制。`setThinkingLevel`、CLI 控制、模型规则和思考流式解析仍未接通，完整功能尚不可用。
+
+第 02 批新增 `loadByokConfig()`：默认读取 cwd 下的 `byok.json`，支持进程环境变量 `CLI_AGENT_CONFIG` 或程序化路径，不读取 `.env`。连接与模型分别保存，`currentModel` 引用目录键；模型能力／窗口／输出设置和思考偏好从文件读取，凭据由独立函数取得，不放入 Model 或 session。BYOK JSON 是唯一启动模型配置入口，文件缺失或损坏均报错；旧环境启动函数及程序化旧配置已删除。按用户要求，原 `.env` 的 key、地址、模型和窗口已迁入项目本机 `byok.json`，离线逐项校验后删除 `.env`、`.env.example` 和 `src/env.ts`；本机配置被 Git 忽略，示例使用假 key。`runCli()` 使用当前模型装配 Harness；目前另两种协议在启动时报未实现。可选 `Model.endpoint` 保存完整推理地址，Chat 优先原样使用，否则在 `baseUrl` 后追加 `/chat/completions`。字段、地址与未实现边界见 BYOK build §6.1；本批待 review。
 
 第 01 批主流程为 `Agent.createLoopConfig()`：复制当前模型（包含嵌套元数据）与偏好，再交给现有 loop。`streamAssistantResponse()` 只传 `apiKey / signal / maxTokens / thinking` 给适配器，显式 `maxTokens` 优先于模型默认输出设置。普通 state 变更在下一次运行读取；保留内部 `prepareNextTurn` 主动覆盖下一次请求的模型／完整思考偏好，复制返回对象，不自动改写用户状态。静态 key 随运行配置保存，动态 key 仍逐请求获取，后续统一凭据和 busy 设置入口。
 
@@ -349,7 +352,7 @@ Agent / Harness 使用统一适配器入口。内部集中处理模型规则、�
 
 ### 5.5 `main.ts` 装配
 
-启动：`runCli()` 读取 `getOpenAIConfig` 并装配 `new Harness({ cwd, apiKey, model, streamFn: streamOpenAIChat })`。TTY 进入 `startTerminalRepl()`；非 TTY 收集原始 UTF-8 输入到 EOF，再交给同一个 `ReplController`。
+启动：`runCli()` 调用 `loadByokConfig()` 取得当前模型、思考偏好与凭据，装配 Harness；目前使用 `streamOpenAIChat`，另两种协议启动时明确报未实现。TTY 进入 `startTerminalRepl()`；非 TTY 收集原始 UTF-8 输入到 EOF，再交给同一个 `ReplController`。
 
 `npm start` 已恢复交互：输入完整草稿展开后调用 Harness，命令包括 `/new`、`/resume`、`/context`、`/compact`、`/help` 和 `/exit`。接受提交后清理整份草稿；生成时允许编辑下一条但不提前提交。Agent 事件由 REPL 投影到 Ink，不同时订阅直接写 stdout 的 `renderEvent`。退出、EOF、信号、回调异常统一清理订阅和终端模式；非 TTY 只打印模型/命令输出，退出码反映错误或信号。
 
@@ -357,7 +360,7 @@ Agent / Harness 使用统一适配器入口。内部集中处理模型规则、�
 
 ## 6. 接下来如何推进
 
-第 3 步上下文容量与第 5 步手动入口的代码和假 `StreamFn` 探针已完成，真实模型的压缩验收暂缓。原第 4 步思考等级与第 6 步 BYOK 按 [BYOK build](./byok-build.md) 分批推进；第 01 批数据边界已实现并经用户 review 确认，下一步按用户安排做第 02 批配置加载。v1.3 才做完整 TUI。历史记录仍沿用原步骤编号。
+第 3 步上下文容量与第 5 步手动入口的代码和假 `StreamFn` 探针已完成，真实模型的压缩验收暂缓。原第 4 步思考等级与第 6 步 BYOK 按 [BYOK build](./byok-build.md) 分批推进；第 01 批已通过 review，第 02 批配置加载与启动选择已实现，等待用户 review 后再安排第 03 批。v1.3 才做完整 TUI。历史记录仍沿用原步骤编号。
 
 每行是一个功能里程碑，可以拆成多个小点。每次选几个相关函数和必要接线，说明本次边界，完成对应验证后交给用户 review，再继续。已经存在的基础函数直接接着使用，不因换对话重复搭建。每个代码小点保持 `tsc --noEmit` 通过，功能接通后再做相应行为验收。
 
@@ -374,7 +377,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 ## 7. 这一版验收
 
-新 REPL 已接通，本机 115 项扩展输入测试通过，包括 macOS 真实 POSIX PTY、实际 Harness 与本地 HTTP SSE；扩展文件按用户要求不提交，仓库脚本只运行已有基础测试。下列清单仍包含真实模型、特定终端应用及尚未实现的思考/BYOK 验收，不能以本地测试替代。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。默认窗口 `256000` 的手动门槛是 `64000`。
+新 REPL 已接通，本机 115 项扩展输入测试通过，包括 macOS 真实 POSIX PTY、实际 Harness 与本地 HTTP SSE；所有测试文件现按用户要求只留本地，仓库不再提供对应测试脚本入口。下列清单仍包含真实模型、特定终端应用及尚未实现的思考/BYOK 验收，不能以本地测试替代。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
 2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
@@ -388,7 +391,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 测完删掉临时 jsonl 和手测写的文件。
 
-**公开试用评估：** v1.2 功能清单做完后，可以作为早期 CLI 试用版公开，不必等 v1.3 TUI；但发布前至少要让三种协议的端到端验收可复现，把关键探针纳入仓库，并处理已知会影响正常使用的中断后工具配对、Windows bash 卡住和可恢复溢出错误提前显示问题。README 需要写清安装、配置示例、各协议能力与限制，以及工具会读写文件和执行命令；仓库还需明确许可证。以上是发布门槛，不表示这些问题当前已经解决。
+**公开试用评估：** v1.2 功能清单做完后，可以作为早期 CLI 试用版公开，不必等 v1.3 TUI；但发布前至少要建立可复现的测试框架并覆盖三种协议端到端验收，处理已知会影响正常使用的中断后工具配对、Windows bash 卡住和可恢复溢出错误提前显示问题。当前零散测试按用户要求不进入 Git。README 需要写清安装、配置示例、各协议能力与限制，以及工具会读写文件和执行命令；仓库还需明确许可证。以上是发布门槛，不表示这些问题当前已经解决。
 
 ---
 

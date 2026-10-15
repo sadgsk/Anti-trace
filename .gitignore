@@ -1,18 +1,10 @@
 node_modules/
 dist/
-.env
+# 本机 BYOK 配置包含凭据，不进仓库
+/byok.json
 .DS_Store
-test/*
-!test/terminal-input.test.ts
-!test/draft-editor.test.ts
-!test/cli-renderer.test.ts
-!test/paste-burst.test.ts
-!test/cli-prompt.test.ts
-!test/text-input-state.test.ts
-!test/text-input-controller.test.ts
-!test/base-text-input.test.tsx
-!test/paste-handler.test.ts
-!test/image-paste.test.ts
+# 零散测试只保留在本地，后续另建测试框架
+/test/
 
 # 本轮扩展测试及终端验收辅助只保留在本地
 scripts/pty-runner.py

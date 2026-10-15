@@ -1,0 +1,23 @@
+{
+	"version": 1,
+	"connections": {
+		"my-api": {
+			"api": "openai-completions",
+			"baseUrl": "https://your-provider.example/v1",
+			"apiKey": "your-api-key"
+		}
+	},
+	"models": {
+		"main": {
+			"connection": "my-api",
+			"id": "your-model-id",
+			"name": "我的模型",
+			"contextWindow": 128000,
+			"maxOutputTokens": 4096
+		}
+	},
+	"currentModel": "main",
+	"thinking": {
+		"effort": "medium"
+	}
+}

@@ -6,12 +6,12 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **输入迁移已完成并提交，`npm start` 可交互，仓库 test:input 保留原 68 项基础回归；实际跨平台终端／剪贴板仍待手测。BYOK 第 01 批请求数据边界已实现，固定五档／独立开关、模型快照、loop 传递和回传元数据类型已接入，9 项本地行为验证及相关回归、类型检查、构建通过，用户 review 已确认并授权提交推送。配置加载、规则编码、Responses／Anthropic 及 CLI 控制尚未接通，完整 BYOK 不可用。** |
+| 阶段 | **输入迁移已完成，实际跨平台终端／剪贴板仍待手测；整个 test/ 按用户要求取消 Git 跟踪，仅保留本地，对应 npm 测试／探针入口移除，后续另建测试框架。BYOK 第 01 批已通过用户 review。第 02 批配置加载、模型目录、启动选择与 endpoint 接线已实现；JSON 是唯一启动模型配置入口，原 `.env` 设置已迁入被 Git 忽略的项目 `byok.json`，两个 env 文件及 dotenv 代码已删除。配置 11 项、请求设置 9 项及图片 13 项本地回归、类型检查与构建通过。用户已授权提交推送当前改动，byok.ts 主体留待 Mac 继续 review。当前可配置 Chat 模型启动，规则编码、Responses／Anthropic 和运行中 CLI 控制尚未接通，完整 BYOK 未完成。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | BYOK build | [byok-build.md](./byok-build.md) |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
 | 对照代码 | `e:\pi-harness\pi`、新版 TS `e:\pi-harness\kimi-code`；CC Switch 固定源码入口见 BYOK build |
-| 最后更新 | 2026-10-12 |
+| 最后更新 | 2026-10-15 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -41,11 +41,11 @@
 
 当前主线：搬家 → 管家框架 → session 记忆 → 上下文容量（窗口/计量/显示/压缩） → 手动压缩 → 思考等级与 BYOK 合并设计和实现。原步骤编号留作历史索引，第 5 步先于合并里程碑施工。v1.3 接 TUI。按小点交付并 review。
 
-**终端输入迁移：**功能已完成并提交，已完成的施工计划按用户要求删除，过程和旧文档可从 Git 历史查看。长粘贴原文、图片内容、可见占位符及可信引用范围同属 `PromptDraft`；移动/删除按完整引用处理，撤销/重做恢复整份草稿。提交只展开仍被引用的长文本和图片，手打同名标签保留为正文。REPL 接回命令、会话选择、busy 门槛、中断退出、Agent 流式和工具显示；交互由 Ink 输出，非 TTY 在 EOF 提交一次原文，上下键只移动当前输入光标。此前本机扩展 115 项测试已通过；按当时要求未提交新增测试或 PTY 脚本，仓库 `test:input` 保留现有 68 项基础回归。macOS 真实 PTY 和本地 HTTP 已验证长文本/PNG 请求、会话、压缩与续聊，未调用真实模型/读取真实剪贴板；其他平台及具体终端应用仍需手测。旧 stash 和同步 CLI image.ts 已删除；当前模块职责与验收边界见架构书 §3、§7。
+**终端输入迁移：**功能已完成并提交，已完成的施工计划按用户要求删除，过程和旧文档可从 Git 历史查看。长粘贴原文、图片内容、可见占位符及可信引用范围同属 `PromptDraft`；移动/删除按完整引用处理，撤销/重做恢复整份草稿。提交只展开仍被引用的长文本和图片，手打同名标签保留为正文。REPL 接回命令、会话选择、busy 门槛、中断退出、Agent 流式和工具显示；交互由 Ink 输出，非 TTY 在 EOF 提交一次原文，上下键只移动当前输入光标。此前本机扩展 115 项测试已通过；所有测试现统一仅保留本地，原 10 个跟踪文件取消跟踪，npm 测试／探针入口删除。macOS 真实 PTY 和本地 HTTP 已验证长文本/PNG 请求、会话、压缩与续聊，未调用真实模型/读取真实剪贴板；其他平台及具体终端应用仍需手测。旧 stash 和同步 CLI image.ts 已删除；当前模块职责与验收边界见架构书 §3、§7。
 
 **图片插入项已收尾：** OpenAI 图文关联修复通过本地请求体验收：本批全部 tool 回复连续，含图结果的完整内容按工具来源分组发送，图文顺序保留；普通 user 图文输入也保持原序。纯文字、空结果、批次边界和重复转换均已验证。未调用真实模型，本次验收范围是消息序列化；中断后的工具配对问题不在本次修复范围。
 
-**主线下一步：** [BYOK build 第 01 批](./byok-build.md#12-当前交付与后续记录) 已由用户 review 确认，下一步按用户安排开始第 02 批配置加载。第 01 批主流程是 `Agent.createLoopConfig()`：复制模型和 `thinking: { enabled?, effort }`，loop 传递统一偏好并保留显式内部 hook 覆盖；尚无厂商字段编码。默认开关未指定、保存档位 `medium`，当前 Chat 对明确开关返回未实现。实际终端/剪贴板手测仍待补；`/compact` 仍走旧请求设置链，BYOK 凭据／思考统一在后续批次实现，真实模型摘要待验收，默认 `256000` 窗口下手动门槛仍为 `used > 64000`。
+**主线下一步：** 用户已授权提交推送当前改动，以便在 Mac 继续 review [BYOK 第 02 批](./byok-build.md#12-当前交付与后续记录) 的 `byok.ts` 主体；已讲解类型、配置示例和 main／Chat／index 接线。review 确认后再按安排开始第 03 批统一适配器入口与规则选择。第 02 批主流程是 `loadByokConfig()`：校验连接／模型字典，选出当前模型并独立读取凭据，`runCli()` 装配 Harness；默认读取 cwd 下的 `byok.json`，支持显式路径，缺文件时报错，不读取 `.env`；原本机配置已迁入 JSON，完整 endpoint 原样发送。本机真实 JSON 与整个 `test/` 均不随 Git 同步，Mac 可先对照示例 review。默认思考开关未指定、保存档位 `medium`，当前 Chat 对明确开关仍返回未实现。实际终端/剪贴板手测仍待补；`/compact` 的凭据／思考请求设置统一在后续批次实现，真实模型摘要待验收；配置窗口为 `256000` 时，手动门槛为 `used > 64000`。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
@@ -54,12 +54,12 @@
 | 2 | `src/harness/session.ts` + probe；Harness 写入 / 会话名（前 10 字）/ `/new` / `/resume`（名字+上次打开时间） | [x] |
 | 3 | 上下文容量：`context.ts` + `compaction.ts`；usage；REPL `ctx`；`/context`；阈值压缩；报错或空 `length` 重试；`stop` 超窗只压。代码和假流探针完成，真实模型验收待做 | [x] |
 | 5 | `Harness.manualCompact()` 及新 REPL `/compact` 接线完成，假流与本地 HTTP 摘要/写盘/续聊验证通过；真实模型验收待做 | [x] |
-| 4+6 | 思考等级与 BYOK：第 01 批数据边界及快照／传递已实现，review 已确认；配置、协议、规则、运行入口与整体验收未完成 | [ ] |
+| 4+6 | 思考等级与 BYOK：第 01 批 review 已确认；第 02 批配置与启动选择已实现，待 review；协议、规则、运行中控制与整体验收未完成 | [ ] |
 | 7 | 新输入和 REPL 实现及本地端到端验收完成；实际跨平台终端/剪贴板、真实模型和公开试用准备仍待做 | [ ] |
 
 第 3 步的内部状态：
 
-- 已接通：`Model.contextWindow` 与环境配置（`env.ts` 读 `OPENAI_CONTEXT_WINDOW`，当前缺省 `256000`，无效值回退）、`estimateMessagesTokens` 整段估算、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 与每轮后的 `ctx used/window`。`usedTokens` 在 `prompt` 结束后更新，`newSession` 归零，`resumeAt` 按加载的 messages 重算。
+- 已接通：`Model.contextWindow`（现在统一由 BYOK JSON 的模型配置提供，缺失或无效时报错）、`estimateMessagesTokens` 整段估算、`Harness.setContextWindow` / `contextUsage`、REPL `/context` 与每轮后的 `ctx used/window`。`usedTokens` 在 `prompt` 结束后更新，`newSession` 归零，`resumeAt` 按加载的 messages 重算。
 - 已接通：接口 `usage`。`AssistantMessage.usage?`；`openai-chat.ts` 请求带 `stream_options: { include_usage: true }`，在 `choice` 判断之前解析流末尾 usage 块并写入 assistant；`harness.ts` 的 `prompt` 优先取最后一条 assistant 的 `input + output`，取不到回退 `estimateMessagesTokens`。假 stream 已覆盖两条支路（`probe-harness` 用例 7）；deepseek 已实测返回 usage 且端到端解析正确。
 - 已接通：切点、原上下文和 tools 发送给摘要模型、工具调用则重试、摘要写回与持久化、阈值触发和溢出后一次重试。默认保留最近 `20000` token，`Harness.compact()` 已可调用；假流探针覆盖主要路径。
 - 已接通：CLI 手动 `/compact` 通过 `Harness.manualCompact()` 判断 1/4 用量门槛后复用 `compact()`；重复调用和无切点不会发起摘要请求。摘要包装文字改为适用于主动压缩。真实模型的摘要与续聊验收待做；可恢复溢出错误提前显示的问题已记在 `review-records.md`。
@@ -70,6 +70,10 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-15 | 用户要求提交推送当前改动，以便 Mac 继续 review；已讲解配置示例、类型及 main／Chat／index，`byok.ts` 主体仍待 review，不能据此记为整批 review 完成。按要求将整个 `test/` 加入忽略规则，取消原 10 个测试文件的 Git 跟踪但保留本地文件，移除 package.json 中指向零散测试的入口；近期两个功能点完成后另建测试框架。提交范围包含 BYOK 第 02 批源码／示例／文档与测试跟踪清理，本机真实 `byok.json`、测试和构建产物不提交。 |
+| 2026-10-15 | 用户要求删除不用的 env 文件并迁移原设置。已将本机 `.env` 的 key、地址、模型和窗口写入项目根目录 `byok.json`，通过正式加载器读取并逐项比较一致后删除原文件；同步删除 `.env.example` 与 `src/env.ts`，默认路径改为 cwd 的 `byok.json`，不再搜索用户目录或自动读 dotenv。实际 JSON 加入 Git 忽略规则，示例使用占位 `apiKey`；可选 `apiKeyEnv` 仅引用进程环境。11 项配置、9 项请求设置、13 项图片回归及类型检查、构建通过；迁移读取了用户授权的本机凭据，未输出 key、未调用真实模型。文档已同步，继续待 review，未提交。 |
+| 2026-10-15 | 用户 review 配置示例时明确不保留旧 `.env` 启动方式。删除 `getOpenAIConfig`、旧模型环境变量解析、默认缺文件回退、`legacyConfig` 和 `runCli({ config })`；`loadByokConfig()` 仅加载 BYOK JSON，缺文件提示复制示例或指定路径。`.env.example` 只保留通用 `BYOK_API_KEY` 和可选 `CLI_AGENT_CONFIG`，JSON 示例同步引用；18 个本地旧模型探针改用同一加载入口。更新配置与 CLI 回归，验证旧环境变量不能启动或补齐 JSON、现有环境变量优先于 dotenv；配置 11 项、请求设置 9 项、图片 13 项、类型检查与构建通过，文档同步为唯一入口，继续待 review，未提交。 |
+| 2026-10-15 | 继续 BYOK 第 02 批，新增 `loadByokConfig()`，以用户目录 JSON 或显式路径加载连接／模型目录、当前选择和五档偏好；结构与引用严格校验，默认缺文件沿用旧 `.env`，损坏或显式缺失不回退。凭据通过独立函数按目录键读取，环境变量优先于 cwd `.env`；接入 `runCli()`，保留已有程序化 `config`。新增模型 `endpoint?` 并接入 Chat 请求，完整地址不重复追加协议路径；未实现协议启动时明确报错。11 项本地配置行为验证、第一批 9 项及图片序列化 13 项通过，类型检查、构建与差异检查通过；只用临时目录、假 key 与本机 HTTP，无真实模型调用。更新示例及设计文档，新增测试继续只留本地；待 review，未提交／推送。 |
 | 2026-10-12 | 用户逐项 review BYOK 第 01 批后确认完成，要求提交并推送。同步 README、架构书和 build／进度文档的 review 状态与下一步；提交范围为第一批源码和文档，本地新增验证文件继续排除，第 02 批尚未开始。 |
 | 2026-10-12 | 按用户授权实现 BYOK 第 01 批，主流程为 `Agent.createLoopConfig()`。定义三协议、固定五档／独立开关、可选模型能力／输出设置和思考 replay 来源／JSON payload；Agent 初始偏好与模型快照接入 loop，显式 `prepareNextTurn` 保留模型覆盖并补思考覆盖，适配器仅收到请求选项。Harness 可传初始偏好，CLI 与 setter 仍未实现；当前 Chat 对未实现协议／明确思考控制在 HTTP 前报错，旧配置请求行为保持。9 项本地行为验证、既有 Agent 3 项／loop 4 项／图片序列化 13 项、类型检查和构建通过；新增测试只留本地，未读取真实 key／调用真实模型。同步 build、架构与 README，当前待 review，未 commit／推送。 |
 | 2026-10-12 | 用户确认输入迁移功能已完成，要求删除 `claude-code-input-architecture.md` 并提交推送剩余文档更新。退役施工计划，清理 README、架构书、进度页的失效链接和过时施工状态，保留历史与未覆盖的平台手测范围；纳入 BYOK build 和“按最终结构交付、依赖紧密时合并步骤”的协作约定。本轮仅文档变更，未实现 BYOK。 |
