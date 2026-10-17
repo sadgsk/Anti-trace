@@ -3,6 +3,8 @@ import type { SessionListItem } from "../../harness/session.ts";
 import type { AgentEvent, AgentMessage } from "../../types.ts";
 import { preparePromptSubmission, type PromptDraft } from "../input/prompt-draft.ts";
 import { previewToolResult } from "../render.ts";
+import type { ByokRuntime } from "../byok-runtime.ts";
+import { ByokConfigError } from "../../config/errors.ts";
 
 export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
 	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">;
@@ -19,6 +21,7 @@ export interface ReplSnapshot {
 
 export interface ReplOptions {
 	harness: ReplHarness;
+	byok?: ByokRuntime;
 	/** Runs synchronously once a draft is accepted; the editor clears that draft here. */
 	onAccept?: () => void;
 	onExit?: () => void;
@@ -29,12 +32,14 @@ export class ReplController {
 	private snapshot: ReplSnapshot = { entries: [], liveText: "", busy: false, closed: false, resumeChoices: null };
 	private readonly listeners = new Set<() => void>();
 	private readonly unsubscribe: () => void;
+	private readonly harness: ReplHarness;
 	private nextId = 1;
 	private streamedMessage = false;
 	private disposed = false;
 
 	constructor(private readonly options: ReplOptions) {
-		this.unsubscribe = options.harness.subscribe(event => this.handleEvent(event));
+		this.harness = options.harness;
+		this.unsubscribe = this.harness.subscribe(event => this.handleEvent(event));
 	}
 
 	getSnapshot = (): ReplSnapshot => this.snapshot;
@@ -63,12 +68,12 @@ export class ReplController {
 				return true;
 			}
 			const line = text.trim();
-			const command = !/[\r\n]/u.test(text) ? /^\/(exit|new|resume|context|compact|help)(?:\s+(.*))?$/u.exec(line) : null;
+			const command = !/[\r\n]/u.test(text) ? /^\/(exit|new|resume|context|compact|help|reload|config|model)(?:\s+(.*))?$/u.exec(line) : null;
 			if (command && !(command[1] === "resume" && command[2] !== undefined)) {
 				await this.runCommand(command[1]!, command[2] ?? "");
 			} else {
 				this.write(`> ${draft.text}`, "user");
-				await this.options.harness.prompt(text, images.length > 0 ? images : undefined);
+				await this.harness.prompt(text, images.length > 0 ? images : undefined);
 				if (!this.snapshot.closed) this.writeContext();
 			}
 		} catch (error) {
@@ -85,7 +90,7 @@ export class ReplController {
 	}
 
 	interrupt(): void {
-		if (!this.snapshot.closed && this.snapshot.busy) this.options.harness.abort();
+		if (!this.snapshot.closed && this.snapshot.busy) this.harness.abort();
 	}
 
 	exit(): void {
@@ -102,7 +107,7 @@ export class ReplController {
 		this.unsubscribe();
 		this.listeners.clear();
 		this.snapshot = { ...this.snapshot, closed: true, busy: false, resumeChoices: null };
-		this.options.harness.abort();
+		this.harness.abort();
 	}
 
 	write(text: string, kind?: "user"): void {
@@ -110,18 +115,28 @@ export class ReplController {
 	}
 
 	writeContext(): void {
-		const { used, window } = this.options.harness.contextUsage();
-		this.write(`ctx ${used}/${window}`);
+		const { used, window } = this.harness.contextUsage();
+		this.write(`ctx ${used}/${window ?? "未配置"}`);
 	}
 
 	private async runCommand(command: string, argument: string): Promise<void> {
-		const harness = this.options.harness;
-		if (command !== "context" && argument.length > 0) {
+		if (!["context", "config", "model"].includes(command) && argument.length > 0) {
 			this.write(`用法：/${command}`);
 			return;
 		}
+		if (command === "exit") { this.exit(); return; }
+		if (command === "help") {
+			this.write("/exit 退出 · /new 新会话 · /resume 恢复会话 · /context [窗口] · /compact 压缩上下文");
+			this.write("/config [路径] 查看或更换 BYOK 配置 · /reload 重载配置 · /model <模型键> 选择模型（仅本次运行）");
+			this.write("Enter 提交 · Shift/Alt+Enter 换行 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做 · Ctrl+C 中断/清空 · Ctrl+D 退出");
+			return;
+		}
+		if (["reload", "config", "model"].includes(command)) {
+			this.configureByok(command, argument);
+			return;
+		}
+		const harness = this.harness;
 		switch (command) {
-			case "exit": this.exit(); break;
 			case "new":
 				harness.newSession();
 				this.write("已开始新会话。");
@@ -154,11 +169,30 @@ export class ReplController {
 				this.writeContext();
 				break;
 			}
-			case "help":
-				this.write("/exit 退出 · /new 新会话 · /resume 恢复会话 · /context [窗口] · /compact 压缩上下文");
-				this.write("Enter 提交 · Shift/Alt+Enter 换行 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做 · Ctrl+C 中断/清空 · Ctrl+D 退出");
-				break;
 		}
+	}
+
+	private configureByok(command: string, argument: string): void {
+		const byok = this.options.byok;
+		if (!byok) { this.write("当前会话未使用 BYOK 配置入口。"); return; }
+		if (command === "config" && !argument) { this.write(byok.describe()); return; }
+		if (command === "model" && !argument) {
+			this.write("用法：/model <模型键>（对应配置文件 models 中的键）");
+			const modelKeys = byok.modelKeys;
+			this.write(modelKeys.length > 0 ? `已加载模型键：${modelKeys.join("、")}`
+				: "暂无已加载的模型，请先加载有效配置；/config 查看详情。");
+			return;
+		}
+		const result = byok.reload(command === "config" ? { configPath: argument, model: undefined }
+			: command === "model" ? { model: argument } : {});
+		if (!result.ok) throw new ByokConfigError(command === "model" ? `${result.reason}\n/config 查看详情。` : result.message);
+		if (command === "model") {
+			this.write(`已切换到 ${argument}。`);
+			for (const warning of result.warnings) this.write(warning);
+			return;
+		}
+		this.write(result.message);
+		this.writeContext();
 	}
 
 	private resumeSelection(text: string): void {
@@ -171,8 +205,9 @@ export class ReplController {
 		const selected = /^\d+$/u.test(text.trim()) ? choices[Number(text.trim()) - 1] : undefined;
 		if (!selected) { this.write("请输入列表中的会话序号，或空行取消。"); return; }
 		// Find the selected file again: mtime sorting can change while the chooser is open.
-		const currentIndex = this.options.harness.listSessions().findIndex(item => item.filePath === selected.filePath);
-		if (currentIndex < 0 || !this.options.harness.resumeAt(currentIndex + 1)) {
+		const harness = this.harness;
+		const currentIndex = harness.listSessions().findIndex(item => item.filePath === selected.filePath);
+		if (currentIndex < 0 || !harness.resumeAt(currentIndex + 1)) {
 			this.write("该会话已不可用，请重新选择。");
 			return;
 		}

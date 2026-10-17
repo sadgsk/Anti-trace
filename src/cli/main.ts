@@ -1,9 +1,9 @@
 import type { Readable, Writable } from "node:stream";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadByokConfig } from "../config/byok.ts";
 import { Harness } from "../harness/harness.ts";
 import { streamModel } from "../llm/adapter.ts";
+import { ByokRuntime } from "./byok-runtime.ts";
 import type { TerminalStreams } from "./ink/terminal-host.ts";
 import { createPromptDraft } from "./input/prompt-draft.ts";
 import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
@@ -29,19 +29,22 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	const cwd = options.cwd ?? process.cwd();
 	let harness = options.harness;
 	let modelName = "CLI Agent";
+	let byok: ByokRuntime | undefined;
+	let startupMessage: string | undefined;
+	let warnings: string[] = [];
 	if (!harness) {
-		const config = loadByokConfig({ cwd, configPath: options.configPath, model: options.model });
-		if (config.model.api !== "openai-completions") {
-			throw new Error(`当前模型 ${config.currentModel} 使用 ${config.model.api}，该协议尚未实现。`);
-		}
-		harness = new Harness({
-			cwd, apiKey: config.getApiKey(), model: config.model, thinking: config.thinking,
-			streamFn: streamModel, sessionsRoot: options.sessionsRoot,
+		const sessionHarness = new Harness({ cwd, sessionsRoot: options.sessionsRoot, streamFn: streamModel });
+		harness = sessionHarness;
+		byok = new ByokRuntime({ cwd, configPath: options.configPath, model: options.model }, config => {
+			sessionHarness.configureModel({ model: config.model, thinking: config.thinking, getApiKey: config.getApiKey });
 		});
-		modelName = config.model.name;
+		const result = byok.reload();
+		startupMessage = result.message;
+		if (result.ok) warnings = result.warnings;
+		modelName = byok.modelName;
 	}
 	if (streams.stdin.isTTY && streams.stdout.isTTY) {
-		const terminal = startTerminalRepl({ harness, streams: streams as unknown as TerminalStreams, banner: `${modelName} · ${cwd}` });
+		const terminal = startTerminalRepl({ harness, byok, startupMessage, streams: streams as unknown as TerminalStreams, banner: `${modelName} · ${cwd}` });
 		await terminal.done;
 		return 0;
 	}
@@ -49,11 +52,14 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 		streams.stderr.write("交互输入需要 TTY 输出；请在终端运行，或通过管道提供完整输入。\n");
 		return 1;
 	}
-	return runPipe(harness, streams);
+	// A pipe may contain a session command; config diagnostics must not prevent its execution.
+	if (byok && !byok.hasConfig) streams.stderr.write(`${startupMessage}\n`);
+	for (const warning of warnings) streams.stderr.write(`${warning}\n`);
+	return runPipe(harness, streams, byok);
 }
 
-async function runPipe(harness: ReplHarness, streams: CliStreams): Promise<number> {
-	const repl = new ReplController({ harness });
+async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRuntime): Promise<number> {
+	const repl = new ReplController({ harness, byok });
 	let printedEntries = 0;
 	let printedLive = 0;
 	let livePrefix = "";

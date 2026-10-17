@@ -37,6 +37,10 @@ Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、�
 - 每完成一个小点，同步当前状态和进度；版本完成后，由用户确定下一阶段目标，再更新架构书。旧版本的过程留在进度文档和 Git 历史中。
 - 本文的“本版不做”只限定当前交付范围，不是永久禁止。用户已确定的实现和版本目标保持有效；调整目标时同步更新当前设计，避免新旧规则并存。
 
+**配置错误处理约定（必须遵守）：** Harness 的创建和会话生命周期必须独立于模型配置。没有配置、配置损坏或请求失败，都不能阻止 Harness 启动或让交互 CLI 退出；`/new`、`/resume`、查看上下文等不依赖模型的功能必须照常可用。模型缺失以 `undefined` 表达，不使用假模型或空 key 凑出启动条件。只有聊天、压缩等依赖模型的操作在内部检查模型／凭据，缺失时中止该操作，提示原因及修正入口；应在写入消息、保存图片等副作用前拦截。
+
+配置加载／应用边界校验 JSON、schema、引用、地址和参数约束；以后增加保存入口时，须先校验候选，失败不写盘。校验失败保留上一次生效配置和会话，没有可用配置时仍保持 Harness 可用。凭据解析、协议支持与请求编码在需要模型时处理，不能扩大成启动门禁；HTTP／流内错误沿请求错误事件显示并回到输入状态。底层可用 `ByokConfigError` 中止无效操作，由配置边界或 REPL 转为诊断，不交给顶层退出分支。不得自动探测远端接口，不回显凭据或原始配置，不擅自回退模型。管道同样先识别操作：会话命令不因模型配置错误失败，依赖模型的操作失败才返回非零。必须验证“无配置仍能恢复会话、修正后在原会话继续、坏候选保留旧配置、请求失败后仍可操作”，不能只测是否抛错。参见 [No.5 修复记录](./review-records.md#no5--模型配置问题会导致-cli-直接退出)。
+
 ### 0.4 源码讲解方式
 
 **适用前提：只有用户明确要求逐行解释某个函数时，才启用本节标准，并仅用于当次指定的函数。其他情况下忽略本节格式，按当前问题直接说明概念、逻辑或作用。**
@@ -114,7 +118,7 @@ Agent / loop（已有，不改职责）
         └── 协议适配器（Chat Completions / Anthropic Messages / OpenAI Responses）
 ```
 
-新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 装配 Harness 并选择 TTY 交互或非 TTY EOF 提交。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
+新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 先装配 Harness，再尝试加载配置，最后选择 TTY 交互或非 TTY EOF 提交。`ByokRuntime.reload()` 只负责候选配置的加载、校验与应用；通过 main 注入的回调调用现有 `Harness.configureModel()`，不持有或创建 Harness。无配置时 Agent 的 model 为 `undefined`，工具、消息和会话管理照常工作；具体模型操作内部检查配置。`/reload` 重试最近的路径与选择，`/config [路径]` 查看状态或更换文件，`/model <模型键>` 选择本次运行的模型；失败候选与当前生效配置分别保存，设置成功应用后才提交配置状态。重载不重建 Harness、Agent、会话或订阅。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
 
 磁盘采用按项目分桶的线性会话，格式由本项目定义：
 
@@ -152,7 +156,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 1. **窗口：** 数字在 `Model.contextWindow`，由 BYOK JSON 中当前模型的 `contextWindow` 提供正整数，缺失或无效时报配置错误。`/context <正整数>` 只改本进程这份 `Model.contextWindow`。
 2. **记录：** 优先用 AssistantMessage.usage；没有则用现有估算。Harness 记住 usedTokens，屏幕只显示 used/window。正常对话追加消息，压缩换成摘要＋原样尾部。Chat 的字符串思考已按 adapter 策略回传，默认 omit；文字、图片和工具调用继续按角色转换。
-3. **显示：** 接口是 `contextUsage(): { used: number; window: number }`。TUI 还没有，这两个字段先留着，以后底栏读同一处。REPL 每轮结束后打一行 `ctx <used>/<window>`。`/context` 无参数打印同一对数字。
+3. **显示：** 接口是 `contextUsage(): { used: number; window: number | undefined }`。没有模型时仍可查看用量，窗口显示“未配置”。REPL 每轮结束后显示 `ctx <used>/<window>`，`/context` 无参数读取同一份状态；修改窗口需要已有模型。
 4. **压缩：** 自动路径已调用同一套切点和摘要，阈值公式参考 Pi。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。一轮里最多自动压一次。手动 `/compact` 仅在 `used > window / 4` 时尝试同一套压缩；没有可压旧历史或刚压完没有新消息时明确提示。
    - 一句 `prompt` 正常结束，且 `used > window - reserveTokens`：压缩，不重试。
    - `stopReason === "error"`，且 `errorMessage` 是上下文满了（“exceeds the context window” / “maximum context length” 这类句子）：丢掉这条报错的 assistant，压缩，再用当前 messages 重跑一轮。只试一次。再满就停，把错误留在屏幕上。
@@ -182,13 +186,14 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/cli/input/prompt-input-controller.ts`、`prompt-input.tsx` | 长文本/图片占位、原子移动与删除、完整草稿撤销/重做、提交门槛与输入显示 |
 | `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx` | 命令/会话选择、同步 busy 门槛、Harness 事件投影、唯一终端宿主装配、Ink 显示与退出清理 |
 | `src/config/byok.ts` | 加载 cwd 下的 `byok.json` 或显式路径 JSON，校验连接与模型目录、选择启动模型并独立读取凭据；JSON 是唯一模型配置来源，缺失或损坏均报错；dotenv 代码和两个 env 文件已删除，本机 JSON 被 Git 忽略 |
-| `src/cli/main.ts` | `runCli()` 读取 BYOK 当前选择并装配 Harness，TTY 交互和非 TTY EOF 提交共用 REPL 逻辑；导入不启动进程；目前只运行 Chat |
+| `src/cli/main.ts` | `runCli()` 先创建 Harness，再尝试应用 BYOK 配置；TTY 交互和非 TTY EOF 提交共用 REPL 逻辑，配置错误不阻止会话命令；导入不启动进程 |
+| `src/cli/byok-runtime.ts` | 保存待尝试选择、有效配置及诊断，加载校验后通过回调应用设置；提供模型键和可恢复结果，不管理 Harness 生命周期 |
 | `docs/byok-build.md` | 思考等级与 BYOK 的功能分工、Kimi Code／CC Switch 参考入口及可调整的小批次路线 |
 | `src/llm/adapter.ts`、`rules.ts`、`sse.ts` | 统一入口、adapter schema／配置校验／规则与编码模板、可复用 SSE 分帧；当前接入 Chat |
 | `src/types.ts`、`src/agent/agent.ts`、`src/agent/loop.ts` | BYOK 公共数据、模型／偏好（含 adapter）快照、请求选项与 hook 的显式覆盖；线上字段留在协议适配器 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
 | `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
-| `test/probe-context.ts` | 历史本地假流探针曾覆盖压缩与重试；当前工作区无该文件，不能作为可运行命令 |
+| 本地 `test/probe-context.ts` | 假流探针覆盖自动压缩、上下文溢出重试与摘要失败；仅留本地，不随 Git 分发 |
 | 本地 `test/` | 所有零散测试与探针均不跟踪、不提交；历史跟踪文件仅从 Git 移除，本地保留。对应 npm 入口已删除，后续另建测试框架 |
 
 **v1.2 后续：** 新输入及 `/new`、`/resume`、`/context`、`/compact`、每轮 `ctx` 已接回。思考等级与 BYOK 按 build 文档分批实施；保留 Agent / Harness 的消息和事件边界。
@@ -234,12 +239,16 @@ BYOK JSON 由 config/byok.ts 加载；原 env.ts 和 dotenv 启动链已删除�
 **做什么：** `Harness` 类。开局装配；之后 `main` 只跟它说话。
 
 ```ts
-export interface HarnessOptions {
-  cwd: string;
-  apiKey: string;
+export interface HarnessModelSettings {
   model: Model;
-  streamFn: StreamFn;
   thinking?: ThinkingPreferences; // 初始偏好，Chat 已按 adapter 规则编码
+  apiKey?: string;
+  getApiKey?: () => string;
+}
+
+export interface HarnessOptions extends Partial<HarnessModelSettings> {
+  cwd: string;
+  streamFn: StreamFn;
   sessionsRoot?: string; // 默认 ~/.cli-agent/sessions；探针用 tmp
 }
 
@@ -252,15 +261,16 @@ export class Harness {
   newSession(): void;
   listSessions(): { filePath: string; name: string; lastOpenedAt: number }[]; // 按 lastOpenedAt 新到旧
   resumeAt(index: number): boolean; // 1-based，对应 listSessions 的序号；越界或没有则 false
+  configureModel(settings: HarnessModelSettings): void;
   setThinkingLevel(level: ThinkingLevel): void;
   setContextWindow(tokens: number): void;
-  contextUsage(): { used: number; window: number };
+  contextUsage(): { used: number; window: number | undefined };
   manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact">;
   compact(customInstructions?: string): Promise<boolean>; // 已实现；false 表示没有可压的旧历史
 }
 ```
 
-**现有框架：** 构造时创建四个工具、系统提示和 Agent；工具、模型、提示与可选初始思考偏好放入 Agent 的 `initialState`。`prompt` / `abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通，`resumeAt` 按加载的 messages 重算。`manualCompact()` 只检查手动用量门槛和压后是否有新消息，再调用同一个 `compact()`。`setThinkingLevel` 仍是占位。
+**现有框架：** 构造时创建四个工具、系统提示和 Agent，允许模型未配置。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；压缩也在内部检查。`abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通。`manualCompact()` 检查模型、手动用量门槛和压后是否有新消息，再调用同一个 `compact()`。`setThinkingLevel` 仍是占位。
 
 **对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
 
@@ -344,7 +354,7 @@ runCli 使用统一 streamModel，当前只接 Chat；Responses／Anthropic 仍�
 
 Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正文交错的顺序。验证整条流完整结束后才给思考片段附 replay；source 含协议、连接、模型和规范化实际推理 URL。历史按 omit／same-source／required 策略处理，只发送完整同源数据；旧显示文字不当成原生数据，原 session 不变。截断／错误／取消不附 replay，未完成工具调用不作为合法调用落盘。Responses opaque items、Anthropic 签名及 Chat 的额外签名容器尚未实现。
 
-运行中模型选择、思考控制命令、动态凭据、压缩设置统一、会话设置恢复和思考显示仍在后续批次。本批未改真实本机配置、未调用真实模型；验证结果见 build／progress。用户已将 05＋06 规划为完整 Responses 协议批次，07＋08 规划为完整 Anthropic 协议批次，包含各自请求、解析、工具往返与验收，尚未开始。
+No.5 修复已接通配置恢复、运行中 `/model` 选择与 `Harness.configureModel()` 设置入口，失败操作保留当前会话。完整思考控制命令、逐请求动态凭据、压缩设置统一、会话设置恢复和思考显示仍在第 10–13 批。本批未改真实本机配置、未调用真实模型；验证结果见 build／progress。用户已将 05＋06 规划为完整 Responses 协议批次，07＋08 规划为完整 Anthropic 协议批次，包含各自请求、解析、工具往返与验收，尚未开始。
 
 ---
 

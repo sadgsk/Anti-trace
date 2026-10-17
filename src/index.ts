@@ -1,6 +1,7 @@
 export { Agent, type AgentOptions } from "./agent/agent.ts";
+export { ByokConfigError } from "./config/errors.ts";
 export { runAgentLoop } from "./agent/loop.ts";
-export { Harness, type HarnessOptions } from "./harness/harness.ts";
+export { Harness, type HarnessOptions, type HarnessModelSettings } from "./harness/harness.ts";
 export { streamOpenAIChat } from "./llm/openai-chat.ts";
 export { streamModel } from "./llm/adapter.ts";
 export type { AdapterConfig, ThinkingRule } from "./llm/rules.ts";

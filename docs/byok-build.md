@@ -86,7 +86,7 @@ CC Switch 的多家预设不是“所有模型参数都已知”的证明。其�
 
 | 现状 | 施工时需要补什么 |
 |---|---|
-| `runCli()` 通过 `loadByokConfig()` 加载 JSON，再使用统一 `streamModel()` | 运行中模型选择和配置错误恢复仍待实现；当前只运行 Chat，另两种协议启动时明确未实现 |
+| `runCli()` 通过 `ByokRuntime.reload()` 加载 JSON，再使用统一 `streamModel()`；配置错误留在 REPL，支持 /reload、/config、/model 恢复 | 当前只运行 Chat，另两种协议明确未实现；完整设置命令与持久化仍待后续批次 |
 | 第 01 批定义三协议和模型能力；第 02 批已加载上下文／输出设置与 `endpoint?` | 补模型规则及协议实现；能配置协议不表示该协议已经可运行 |
 | `StreamOptions.thinking` 已接收统一偏好，Chat 已按 adapter 规则映射与校验 | 后续扩展 Responses／Anthropic 编码与厂商规则，Agent 不处理线上字段 |
 | Chat 已保存字符串思考片段及来源，支持同来源回传并兼容旧 JSONL | 后续补 Responses opaque items、Anthropic 签名／redacted-thinking |
@@ -170,10 +170,12 @@ Agent 保存用户意图，Harness 管理模型切换、凭据和会话。开始
 - **连接：** `connections` 是连接 ID 到 `{ api, baseUrl, endpoint?, apiKey?, apiKeyEnv?, adapter? }` 的字典；必须且只能指定一种凭据来源。示例默认使用本地 `apiKey`；可选 `apiKeyEnv` 只从进程环境取值。连接 ID 用作 `Model.provider`，只是用户的连接身份，不凭 ID 猜厂商规则。第 03＋04 批开放的 `adapter` 见 §6.2；自定义 headers 仍未实现，填入会报未知字段。
 - **地址：** `baseUrl` 必填，包含所需版本前缀，适配器只追加协议路径，不自动加 `/v1`。可选 `endpoint` 为完整推理 URL，存在时原样用于请求；它不用于推断模型查询地址。两个字段只接受绝对 HTTP(S) 地址，当前不接受 URL 内凭据、查询参数或片段；已带 `/chat/completions`、`/responses` 或 `/messages` 的 baseUrl 会提示改填 endpoint。
 - **模型：** `models` 是目录键到 `{ connection, id, name?, contextWindow, maxOutputTokens?, capabilities?, adapter? }` 的字典。`id` 是发送给上游的 ID，目录键用于选择，`name` 只作显示。窗口／输出上限为正安全整数，输出上限不超过窗口；能力可填 `images/tools/thinking` 三个可选布尔值，未知项保留未指定。`thinking: false` 表示已知不支持思考，不能与开启规则冲突；images/tools 暂未按能力调整请求。多个模型可引用同一个连接。
-- **选择与偏好：** `currentModel` 必填并引用有效目录键；程序化 `model` 参数可覆盖本次选择，但不能掩盖无效的保存选择。`thinking` 可省略，默认 `{ effort: "medium" }`，`enabled?` 区分未指定／开／关，关闭仍保存档位。设置传给 Harness，Chat 已按 adapter 规则编码；单独的思考控制命令仍待实现。
-- **已知问题（待修）：** 当前配置处理错误会沿启动调用链导致 CLI 退出，范围包括文件读取／JSON／schema、连接与 URL／参数校验、默认或选中模型缺失、协议检查，以及 `getApiKey()` 中的模型不存在／凭据缺失／环境变量未设置等。用户要求**所有模型配置相关问题都只提示并进入可恢复流程，保持 CLI 可操作，允许修正配置、补齐凭据或重新选择，不能因此退出或崩溃**；该原则覆盖启动及后续 CLI 内配置操作，默认项失效也不应阻断本次明确指定的有效模型。无有效模型／凭据时暂停相关请求。上述抛错后直接退出的行为不作为后续产品要求。详见 [review-records.md No.5](./review-records.md#no5--模型配置问题会导致-cli-直接退出)。本次只扩充记录，尚未修复。
-- **返回与凭据：** 返回模型目录、当前模型副本、偏好和 `getApiKey(modelKey?)`。key 不进入 `Model` 或 session；仅请求所选模型的凭据，其他模型尚未设置环境变量不会阻止启动。`runCli()` 目前启动时读取一次 key 传给已有 Harness；动态凭据及运行中切换在第 10／11 批继续。
-- **运行边界：** 目录可保存三种协议，启动目前只接受 `openai-completions`；另两种协议在 HTTP 前明确报错。模型、地址、窗口和输出上限只从 JSON 读取，旧模型环境变量不参与启动。`.env` 和 `.env.example` 已删除，原本机设置已迁入被 Git 忽略的项目 `byok.json`；仓库 `byok.example.json` 只放占位 key。
+- **选择与偏好：** `currentModel` 必填；程序化 `model` 或 `/model <模型键>` 可覆盖本次选择。默认引用失效而本次选择有效时，返回警告并使用明确选择；没有有效选择时进入待配置状态。`thinking` 可省略，默认 `{ effort: "medium" }`，`enabled?` 区分未指定／开／关，关闭仍保存档位。重载成功后设置传给 Harness；单独的思考控制命令仍待实现。
+- **生命周期与恢复（No.5，2026-10-16）：** `main` 先创建 Harness，随后加载配置。配置缺失或无效时，Harness、工具和会话管理仍可使用；`/new`、`/resume`、查看上下文不检查模型。`ByokRuntime.reload()` 只负责候选文件／JSON／schema、引用与参数约束校验，通过注入的回调应用设置，成功后才提交配置状态；失败保留旧配置和会话。无可用模型时，聊天、压缩和修改模型窗口在 Harness 内部拦截，Agent 的请求入口也不接受缺模型状态。窗口显示“未配置”，不制造假模型。
+- **修复入口：** 修改 JSON 后 `/reload` 重试，`/config [路径]` 查看状态或换文件，`/model <模型键>` 重新选择。`/model` 无参数仅显示用法及已加载模型键；切换成功简短确认并保留必要警告，失败显示 `reload()` 返回的 `reason` 并提示 `/config` 查看完整状态，不重复整段 `describe()`。命令仅改变本次运行状态，不写回配置或 JSONL 设置行；更换文件重置本次模型选择并读取新文件默认项。管道先读取 EOF、识别操作，启动配置诊断写入 stderr，会话命令仍能成功；模型操作失败才返回 1。
+- **后续开发硬约定：** 模型配置不能成为 Harness 生命周期门禁。新增配置、模型选择、凭据入口都须保持可恢复；以后新增保存入口时先校验候选，失败不得写盘。错误提示指出字段／模型及修正方法，不回显 key，不自动探测远端。请求期的配置／认证失败回到输入状态。必须验证无配置恢复会话、修复后原会话继续、坏候选保留旧配置、请求失败仍可操作；内部受控异常不等于进程退出。详见 [architecture.md §0.3](./architecture.md#03-文档只保留有效状态) 与 [review-records.md No.5](./review-records.md#no5--模型配置问题会导致-cli-直接退出)。
+- **返回与凭据：** 返回模型目录、当前模型副本、偏好、警告和 `getApiKey(modelKey?)`。key 不进入 `Model` 或 session。加载时只检查凭据来源的配置形状；Harness 在 prompt／摘要操作需要时调用同一解析函数。缺 key 阻断本次操作，不阻止加载、选模型或会话管理；普通请求的工具续接沿用该轮快照。逐底层请求动态凭据仍在第 10／11 批继续；外部进程环境变化不会自动传入已运行 CLI。
+- **运行边界：** 目录可保存三种协议；只有 `openai-completions` 已接通，另两种协议由 `streamModel()` 在实际调用时返回“尚未实现”，不阻止启动或加载。请求思考编码错误同样由 adapter 报告。模型、地址、窗口和输出上限只从 JSON 读取，旧模型环境变量不参与启动。`.env` 和 `.env.example` 已删除，原本机设置已迁入被 Git 忽略的项目 `byok.json`；仓库 `byok.example.json` 只放占位 key。
 
 ### 6.2 第 03＋04 批的 Chat adapter 配置
 
@@ -211,7 +213,7 @@ Agent 保存用户意图，Harness 管理模型切换、凭据和会话。开始
 
 **回传边界：** 字符串思考与正文按流中顺序保留；每个思考块保存自己的原生字符串片段，整条响应验证完整后才附上 replay。source 的 baseUrl 在 Chat 中存放规范化后的实际推理 URL，连同 api／provider／model 比较，避免同一 baseUrl 的不同 endpoint 串数据。发送时要求所有思考片段均完整、同源、字段匹配，再按顺序拼成原生字段；旧显示文字不冒充可回传数据。来源不同就省略或按 required 报错，仅处理请求副本，不改 session。显式空字符串与缺字段有区别。length／error／aborted 的思考仅保留显示文字，未完成工具调用不作为合法调用落盘。
 
-当前仅处理上述字符串字段，不宣称已支持 reasoning_details、Chat 的额外签名容器、Responses opaque items 或 Anthropic 签名。运行中重载／模型选择、任意自定义 headers、思考控制命令、思考显示及压缩设置统一仍在后续批次。普通请求已走 streamModel；压缩虽然复用传入的 streamFn，仍未传入当前思考偏好、也未统一逐请求动态凭据，不能据此记为第 11 批完成。
+当前仅处理上述字符串字段，不宣称已支持 reasoning_details、Chat 的额外签名容器、Responses opaque items 或 Anthropic 签名。No.5 修复已支持运行中重载／模型选择；任意自定义 headers、思考控制命令、思考显示及压缩设置统一仍在后续批次。普通请求已走 streamModel；压缩虽然复用传入的 streamFn，仍未传入当前思考偏好、也未统一逐请求动态凭据，不能据此记为第 11 批完成。
 
 OpenAI 初始绑定及字段依据：[GPT-5.1 模型页](https://developers.openai.com/api/docs/models/gpt-5.1)、[Chat 请求参数](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create)，核对于 2026-10-16；不表示已覆盖全部或最新 OpenAI 模型。其他格式是明确选择的兼容模板，各家预设与真实接口验收仍属于第 09 批。
 
@@ -430,8 +432,8 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 | 05＋06 | 未开始，合并规划 | Responses 请求、流解析、reasoning／工具往返一次完成 |
 | 07＋08 | 未开始，合并规划 | Anthropic 请求、预算、自适应、流解析、签名／工具往返一次完成 |
 | 09-a… | 未开始 | 一次一家的规则补充 |
-| 10–12 | 未开始 | 运行中模型／思考设置、动态凭据、压缩设置与会话设置恢复 |
-| 13–14 | 未开始 | CLI 控制、思考显示、配置错误恢复和完整三协议验收 |
+| 10–12 | 部分接通，未整批完成 | No.5 已接通保持会话的模型设置更新；逐请求动态凭据、压缩设置与会话设置恢复仍待实现 |
+| 13–14 | 部分接通，未整批完成 | No.5 已接通 /reload、/config、/model 及错误恢复验证；思考控制、显示和完整三协议验收仍待实现 |
 
 进入开发后把当前批次单独展开记录，不只勾选整个功能。已确认的产品行为继续保持；实现组织随源码和 review 调整，修改后同步本文与 [progress.md](./progress.md)。
 
@@ -463,13 +465,25 @@ SSE 需要处理任意 chunk 分割、多个事件、usage-only 数据、工具�
 - **流边界：** 新增 sse.ts 分帧，可处理任意 HTTP chunk／UTF-8 拆分、LF／CRLF／CR、注释、多 data 行与 EOF。Chat 要求合法 finish_reason，读取尾部 usage 并处理流内错误；length／error／aborted 不生成 replay，未完成工具调用不作为合法调用保留。既有工具图片附件和普通图文转换保持通过回归。这里未解决工具已经执行后中断所导致的配对等独立问题。
 - **参考取舍：** 阅读固定 TS Kimi 的 ProtocolBinding、applyThinking、prepareOpenAIRequest、lowerMessage 和 reasoning-key，借鉴统一协议入口与兼容字段处理；阅读固定 CC Switch v4.0.9 的 piThinkingBindings／profile 组织，采用本项目固定五档的顺序映射，未复制其稀疏 UI 映射或来源代码。OpenAI 字段与初始绑定按 §6.2 的官方页面核对；不导入 DI、动态模型发现或整套代理。
 - **验证：** `node --import tsx --test test/byok-chat.test.ts test/byok-config.test.ts test/byok-request-settings.test.ts test/tool-result-images.test.ts` 通过：新增场景 15 项、配置 11 项、请求设置 9 项、图片文件内 13 项，共 48 项行为用例；runner 将图片文件计为 1 项，因此报告 36 tests。另直接执行 Agent 3 项、loop 4 项探针通过；类型检查、构建与差异检查通过。覆盖完整 HTTP 工具往返、五档与真实关闭、两种开关／预算格式、配置合并、adapter 快照、来源隔离、空数据／部分来源、CLI 请求与 JSONL、尾部 usage、失败／截断／取消。测试仅留被忽略的本地 test/，未增加 npm 测试入口；未读取或修改真实 byok.json、未调用真实模型。
-- **后续与 review：** 本批待用户 review；按用户要求先提交为错误修复前的 review 基线，02 的主体 review 尾项仍保留。用户已确定 05＋06 和 07＋08 各按完整协议交付，本次仅更新规划。自定义 headers、Chat 额外签名容器、三协议完整能力、动态凭据／busy 设置入口、压缩设置统一、会话设置恢复和 CLI 控制／思考显示仍待后续批次。
+- **后续与 review：** 本批待用户 review；2026-10-17 按用户要求，已作为 No.5 修复前基线提交并推送至 `3398a75`。No.5 修复及其 /model 反馈调整已另行完成用户 review，本次获准提交推送。02 的主体 review 尾项仍保留。用户已确定 05＋06 和 07＋08 各按完整协议交付，本次仅更新规划。自定义 headers、Chat 额外签名容器、三协议完整能力、动态凭据／busy 设置入口、压缩设置统一、会话设置恢复和 CLI 控制／思考显示仍待后续批次。
 
 #### 当前明确保留的阶段性代码（2026-10-16 补标）
 
 | 位置 | 当前限制与替换条件 |
 |---|---|
 | src/config/byok.ts，loadByokConfig 合并 adapter 后的协议判断 | 本批新增的 Chat 配置白名单。05＋06／07＋08 接通各自 schema 后，替换为对应协议校验；现有 Chat 配置语义保留 |
+| src/harness/harness.ts，resolveApiKey | 当前按 prompt／摘要操作解析，工具续接沿用本轮快照；10／11 扩展逐请求动态凭据时仍共用解析入口和错误边界 |
 | src/llm/adapter.ts，Responses／Anthropic 分支 | 明确未实现的协议入口，按 05＋06／07＋08 接为真实 StreamFn。这属于新增协议能力，统一入口与 Chat 分支保留 |
 
-以上阶段性位置已就地注释。rules.ts 的 Chat 编码及预算计算没有已知必须替换的逻辑，不为“后续可能复用”先改成另一套结构；是否抽取共用函数应以届时实际依赖为依据。
+以上位置已就地注释，并随 No.5 修复更新位置和行为。rules.ts 的 Chat 编码及预算计算没有已知必须替换的逻辑，不为“后续可能复用”先改成另一套结构；是否抽取共用函数应以届时实际依赖为依据。
+
+### No.5｜配置错误恢复交付（2026-10-16）
+
+2026-10-17 用户完成本轮修复的 review，确认提交推送；本次包含 /model 简短反馈，03＋04 和第 02 批主体的其他 review 待办继续保留。用于拆分提交和展示 diff 的一次性脚本、定位文件与 baseline 快照已清理。
+
+- 主流程 `runCli()` 先创建 Harness，再调用 `ByokRuntime.reload(change)` 读取候选路径／模型。reload 只做静态校验，通过 main 注入的 `applyConfig` 回调调用 `Harness.configureModel()`，成功后提交配置状态；不再持有或创建 Harness，不提前取 key 或校验请求编码。可修正加载错误返回诊断；其他程序错误不伪装成配置失败。
+- Harness 无配置也有 Agent、工具、上下文和会话；Agent.model 为 `undefined`，底层 loop 的请求配置仍要求具体 Model。`prompt()` 在写消息／图片前检查模型和凭据，`compact()` 也在内部检查；`newSession()`、`listSessions()`、`resumeAt()`、查看上下文无需模型。REPL 固定订阅同一个 Harness，配置重载不更换实例。`/reload`、`/config [路径]`、`/model <模型键>` 提供修复入口，无效候选保留旧配置／会话；协议、编码、HTTP 失败在请求时显示并恢复输入。
+- **先核对 Kimi 再实现：** 使用 §3.1 的固定 TS 快照 `be7d5f5fea7800778e4660cd5f36780ba783bddd`。`apps/kimi-code/src/cli/run-shell.ts:87` 先 `createKimiHarness()`；`packages/agent-core-v2/src/app/config/configService.ts:650` 将加载失败转为诊断、重载失败保留旧状态，`:483` 的 replace 在持久化前校验；`apps/kimi-code/src/tui/kimi-tui.ts:2652` 的 resumeSession 无模型检查，`:1384` 在发送普通消息时检查模型；`packages/agent-core-v2/src/agent/profile/profileService.ts:645` 在需要模型上下文时抛 MODEL_NOT_CONFIGURED。借鉴生命周期和操作边界，本项目保留整份候选校验，未复制 Kimi 的按 section 忽略无效配置、DI 或自动模型发现。
+- 选择与路径只在本次运行生效，不新增配置保存 UI、不写 JSONL 设置行。环境 key 在 prompt／摘要操作时解析，工具续接仍沿用本轮快照；第 10–14 批其余工作保持未完成。
+- 验证命令：`node --import tsx --test test/byok-recovery.test.ts test/byok-config.test.ts test/byok-chat.test.ts test/byok-request-settings.test.ts test/tool-result-images.test.ts test/base-text-input.test.tsx test/terminal-host.test.ts`。报告 **83 项通过**。23 类加载／请求错误覆盖模拟 TTY 保持运行和管道诊断；另验证无配置恢复旧会话、配置修复后保留历史、管道会话命令不受阻、缺模型／key 不写消息或图片、摘要重新解析 key、忙碌时应用失败不提交候选、本地 HTTP 401 后续聊。测试只留本地、使用假凭据；真实配置未读取或修改，真实模型／原生终端未手测。
+- 既有 Harness 7 项、上下文／压缩 6 项探针分别通过（`node --import tsx test/probe-harness.ts`、`node --import tsx test/probe-context.ts`）；覆盖装配、会话、用量、自动压缩／溢出重试和摘要失败。`npm run typecheck`、`npm run build`、`git diff --check` 通过。

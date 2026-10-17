@@ -7,9 +7,12 @@ import { PromptInput } from "../input/prompt-input.tsx";
 import { PromptInputController } from "../input/prompt-input-controller.ts";
 import type { TextInputOptions } from "../input/text-input-controller.ts";
 import { ReplController, type ReplHarness } from "./repl-controller.ts";
+import type { ByokRuntime } from "../byok-runtime.ts";
 
 export interface TerminalReplOptions {
 	harness: ReplHarness;
+	byok?: ByokRuntime;
+	startupMessage?: string;
 	streams?: TerminalStreams;
 	pasteOptions?: TextInputOptions["pasteOptions"];
 	bindings?: readonly Keybinding[];
@@ -44,7 +47,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	let resolveDone!: () => void;
 	const done = new Promise<void>(resolve => { resolveDone = resolve; });
 	let prompt!: PromptInputController;
-	const repl = new ReplController({ harness: options.harness, onAccept: () => prompt.reset(), onExit: () => stop() });
+	const repl = new ReplController({ harness: options.harness, byok: options.byok, onAccept: () => prompt.reset(), onExit: () => stop() });
 	prompt = new PromptInputController({
 		availableColumns: columns(),
 		pasteOptions: options.pasteOptions,
@@ -83,6 +86,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	}
 	try {
 		if (options.banner) repl.write(options.banner);
+		if (options.startupMessage) repl.write(options.startupMessage);
 		repl.write("/help 查看命令和快捷键。");
 		repl.writeContext();
 		host = startTerminalHost(event => dispatcher.dispatch(event), streams, cleanup);

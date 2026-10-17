@@ -34,16 +34,6 @@ function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
 	);
 }
 
-const DEFAULT_MODEL: Model = {
-	id: "unknown",
-	name: "unknown",
-	provider: "unknown",
-	baseUrl: "",
-	api: "openai-completions",
-	// Placeholder only. Harness always supplies a real model with a context window.
-	contextWindow: 0,
-};
-
 type AgentStateInit = Partial<
 	Omit<AgentState, "pendingToolCalls" | "isStreaming" | "streamingMessage" | "errorMessage">
 >;
@@ -61,7 +51,7 @@ function createMutableAgentState(initialState?: AgentStateInit): MutableAgentSta
 
 	return {
 		systemPrompt: initialState?.systemPrompt ?? "",
-		model: initialState?.model ?? DEFAULT_MODEL,
+		model: initialState?.model,
 		thinking: initialState?.thinking ? { ...initialState.thinking } : { effort: "medium" },
 		get tools() {
 			return tools;
@@ -178,12 +168,13 @@ export class Agent {
 	}
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
+		const config = this.createLoopConfig();
 		const messages = this.normalizePromptInput(text, images);
-		await this.runWithLifecycle(async (signal) => {
+		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
 				messages,
 				this.createContextSnapshot(),
-				this.createLoopConfig(),
+				config,
 				(event) => this.processEvents(event),
 				signal,
 				this.streamFunction,
@@ -193,11 +184,12 @@ export class Agent {
 
 	/** Run another model turn using the messages already in state, without adding a user message. */
 	async continueFromContext(): Promise<void> {
-		await this.runWithLifecycle(async (signal) => {
+		const config = this.createLoopConfig();
+		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
 				[],
 				this.createContextSnapshot(),
-				this.createLoopConfig(),
+				config,
 				(event) => this.processEvents(event),
 				signal,
 				this.streamFunction,
@@ -234,6 +226,7 @@ export class Agent {
 	}
 
 	private createLoopConfig(): AgentLoopConfig {
+		if (!this._state.model) throw new Error("尚未配置模型，无法发起模型请求。");
 		return {
 			// Detach request settings from state so tools and subscribers cannot change this run.
 			model: structuredClone(this._state.model),
@@ -299,11 +292,11 @@ export class Agent {
 		}
 	}
 
-	private async handleRunFailure(error: unknown, aborted: boolean): Promise<void> {
+	private async handleRunFailure(error: unknown, aborted: boolean, model: Model): Promise<void> {
 		const failureMessage: AgentMessage = {
 			role: "assistant",
 			content: [{ type: "text", text: "" }],
-			model: this._state.model.id,
+			model: model.id,
 			stopReason: aborted ? "aborted" : "error",
 			errorMessage: error instanceof Error ? error.message : String(error),
 			timestamp: Date.now(),
@@ -322,7 +315,7 @@ export class Agent {
 		this.activeRun = undefined;
 	}
 
-	private async runWithLifecycle(executor: (signal: AbortSignal) => Promise<void>): Promise<void> {
+	private async runWithLifecycle(model: Model, executor: (signal: AbortSignal) => Promise<void>): Promise<void> {
 		if (this.activeRun) {
 			throw new Error("Agent is already processing.");
 		}
@@ -341,7 +334,7 @@ export class Agent {
 		try {
 			await executor(abortController.signal);
 		} catch (error) {
-			await this.handleRunFailure(error, abortController.signal.aborted);
+			await this.handleRunFailure(error, abortController.signal.aborted, model);
 		} finally {
 			this.finishRun();
 		}

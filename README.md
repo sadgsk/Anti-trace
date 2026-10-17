@@ -4,7 +4,7 @@
 
 换对话先看 **[docs/progress.md](docs/progress.md)**，再按 **[docs/architecture.md](docs/architecture.md)** 对照。
 
-思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按批实现并 review。第 01 批已确认；第 02 批已提交，`byok.ts` 主体的 review 尾项保留。第 03＋04 批统一适配器与 Chat 思考链已实现，待 review。Responses（05＋06）和 Anthropic（07＋08）各按一个完整协议批次规划，尚未开始；思考控制命令、逐请求动态凭据、压缩设置统一和会话选择恢复仍待实现。
+思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按批实现并 review。第 01 批已确认；第 02 批已提交，`byok.ts` 主体的 review 尾项保留。第 03＋04 批统一适配器与 Chat 思考链已实现，待 review。配置错误恢复、重载和本次运行的模型选择已接通。Responses（05＋06）和 Anthropic（07＋08）各按一个完整协议批次规划，尚未开始；思考控制命令、逐请求动态凭据、压缩设置统一和会话选择恢复仍待实现。
 
 使用 Node.js 22 或更新版本，运行 `npm install`。BYOK JSON 是唯一的启动模型配置入口，模型、地址、窗口和输出上限统一在 JSON 中填写。
 
@@ -17,5 +17,11 @@
 Enter 提交；Shift/Alt+Enter 或反斜杠后 Enter 换行。Ctrl+Z 撤销，Ctrl+Y 或可识别的 Ctrl+Shift+Z 重做；Ctrl+C 中断生成或清空草稿，空闲空草稿时退出；Ctrl+D 退出。上下键只在当前输入中移动。可粘贴图片路径，Windows 用 Alt+V、macOS/Linux 用 Ctrl+V 读取图片剪贴板。修饰键识别取决于终端提供的编码。
 
 `/help` 查看命令，`/new` 开始新会话，`/resume` 列出会话后输入序号，`/context [正整数]` 查看或调整窗口，`/compact` 尝试手动压缩，`/exit` 退出。非 TTY 输入到 EOF 后作为一条完整消息提交，例如 `printf '解释这段代码\n第二行' | npm start`。
+
+Harness 始终启动，不依赖是否配置模型。缺文件或配置有误时会显示具体原因，`/new`、`/resume`、`/context` 查看用量和帮助仍可使用；没有可用模型时，只在聊天、压缩或修改模型窗口时提示先配置模型。未配置的窗口显示为“未配置”，不会填充假模型。
+
+编辑 JSON 修正配置后输入 `/reload`，无需重启；`/config` 查看当前状态，`/config <路径>` 更换文件，`/model <模型键>` 选择本次运行使用的模型。`/model` 不带参数时显示用法及已加载模型键；切换成功简短确认，失败显示原因并提示 `/config` 查看完整诊断。加载时校验结构、引用、地址和参数约束，候选无效则保留原来生效的配置、消息和会话；成功后在同一个 Harness 上应用模型、窗口、输出限制、思考偏好和凭据解析函数。选择和路径不自动写回 JSON；更换文件时使用该文件的默认模型。默认模型失效但明确指定了有效模型时，仍单独提示修正默认项并继续使用所选模型。
+
+启动和重载不验证远端可用性，也不提前解析环境 key。聊天／摘要操作在需要凭据时读取 `apiKeyEnv`；缺 key、未实现协议、请求参数无法编码以及 HTTP 401 等请求错误会显示在 CLI 中，结束本次操作后可继续输入。外部终端新设的环境变量不会自动进入已运行进程，可改用文件内的凭据来源后重载。管道也先读取完整输入：配置诊断写入 stderr，会话命令仍可成功；需要模型的操作失败才返回退出码 1。
 
 运行 `npm run typecheck` 和 `npm run build` 验证。按用户要求，整个 `test/` 目录均只保留在本地，已从 Git 取消跟踪并删除对应的 npm 测试／探针入口；后续在近期两个功能点完成后另建测试框架。此前完整链路通过本机 HTTP SSE 与 macOS POSIX PTY 验收，真实剪贴板、Windows/Linux 原生终端和具体终端应用仍需手测。旧输入 `stash` 和旧同步 `utils/image.ts` 已删除。

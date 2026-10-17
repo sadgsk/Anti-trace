@@ -266,7 +266,8 @@ export type AgentEventSink = (event: AgentEvent) => Promise<void> | void;
 // Agent：对外状态，以及 loop 打给 CLI 的事件
 export interface AgentState {
 	systemPrompt: string;
-	model: Model;
+	/** Sessions and tools exist before model configuration; requests require a concrete Model. */
+	model: Model | undefined;
 	thinking: ThinkingPreferences;
 	set tools(tools: AgentTool[]);
 	get tools(): AgentTool[];
