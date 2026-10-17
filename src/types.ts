@@ -1,4 +1,5 @@
 import type { Static,TSchema } from "typebox";
+import type { AdapterConfig } from "./llm/rules.ts";
 
 // Public request data. Provider field names and thinking mappings stay inside adapters.
 export type ModelApi = "openai-completions" | "openai-responses" | "anthropic-messages";
@@ -18,7 +19,7 @@ export interface ReasoningSource {
 	api: ModelApi;
 	provider: string;
 	model: string;
-	/** Interface identity only: adapters must omit URL credentials and secret query parameters. */
+	/** Credential-free interface identity. Chat stores the canonical effective inference URL here. */
 	baseUrl: string;
 }
 
@@ -110,6 +111,8 @@ export interface Model {
 	/** Default output limit; a request can supply its own maxTokens. */
 	maxOutputTokens?: number;
 	capabilities?: ModelCapabilities;
+	/** Adapter-owned interface rules; copied with the model for each run. No credentials. */
+	adapter?: AdapterConfig;
 }
 
 export interface Tool<TParameters extends TSchema = TSchema> {

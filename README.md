@@ -4,13 +4,15 @@
 
 换对话先看 **[docs/progress.md](docs/progress.md)**，再按 **[docs/architecture.md](docs/architecture.md)** 对照。
 
-思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按小批次实现并逐批 review。第 01 批请求数据与运行快照已由用户 review 确认；第 02 批配置加载、模型目录和启动选择已实现并获准提交，`byok.ts` 主体待用户在 Mac 上继续 review。当前可用 JSON 配置启动 Chat 模型；另外两种协议、思考编码和运行中选择命令仍待实现，完整 BYOK 尚未完成。
+思考等级与 BYOK 的后续开发见 [BYOK build 文档](docs/byok-build.md)：参考新版 TypeScript Kimi Code 与 CC Switch，按批实现并 review。第 01 批已确认；第 02 批已提交，`byok.ts` 主体的 review 尾项保留。第 03＋04 批统一适配器与 Chat 思考链已实现，待 review。Responses（05＋06）和 Anthropic（07＋08）各按一个完整协议批次规划，尚未开始；思考控制命令、逐请求动态凭据、压缩设置统一和会话选择恢复仍待实现。
 
 使用 Node.js 22 或更新版本，运行 `npm install`。BYOK JSON 是唯一的启动模型配置入口，模型、地址、窗口和输出上限统一在 JSON 中填写。
 
 将 [byok.example.json](byok.example.json) 复制为项目根目录的 `byok.json`，填写实际 API key、地址、上游模型 ID 和窗口／输出上限，然后运行 `npm start`。`currentModel` 选择 `models` 中的目录键，模型通过 `connection` 引用连接。CLI 默认读取启动 cwd 下的 `byok.json`，也可通过进程环境变量 `CLI_AGENT_CONFIG` 指定其他 JSON 文件；相对路径按 cwd 解析。文件缺失或损坏均报错。`.env`、`.env.example` 和 dotenv 读取代码已删除；本机 `byok.json` 包含凭据，已加入 Git 忽略规则，仓库只保留无真实凭据的示例。
 
-连接的 `baseUrl` 包含接口所需版本前缀，例如 `/v1`，Chat 适配器只追加 `/chat/completions`。若使用完整推理地址，另填 `endpoint`，该地址原样用于请求，`baseUrl` 仍必填。当前 `thinking.effort` 保存五档选择；省略 `enabled` 使用服务端默认，明确开关尚未编码。完整字段与当前边界见 [第 02 批配置约定](docs/byok-build.md#61-第-02-批已实现的配置约定待-review)。
+连接的 `baseUrl` 包含接口所需版本前缀，例如 `/v1`，Chat 适配器只追加 `/chat/completions`。若使用完整推理地址，另填 `endpoint`，`baseUrl` 仍必填。`thinking.effort` 保存固定五档，省略 `enabled` 使用服务端默认；明确开启或关闭时按 `adapter.thinking` 编码，缺规则或无法关闭则在 HTTP 前报错。连接可设 adapter 默认，模型可覆盖；支持 effort、开关和五档预算模板，以及输出字段、usage 和同来源思考回传选择。详细配置与示例见 [Chat adapter 配置](docs/byok-build.md#62-第-0304-批的-chat-adapter-配置)。不要仅因上游模型同名就给网关套原厂参数。
+
+统一入口为 `streamModel()`；Chat 已解析字符串 `reasoning_content`（可配置为 `reasoning`）并保存完整结束后的 replay。历史回传默认省略，明确配置后仅发送同模型／连接／实际 endpoint 的合法数据。截断、错误和取消不会生成可回传数据；流缺少结束原因时明确失败。思考事件已进入 Agent，CLI 的思考显示仍在后续批次，隐藏显示与关闭计算互相独立。
 
 Enter 提交；Shift/Alt+Enter 或反斜杠后 Enter 换行。Ctrl+Z 撤销，Ctrl+Y 或可识别的 Ctrl+Shift+Z 重做；Ctrl+C 中断生成或清空草稿，空闲空草稿时退出；Ctrl+D 退出。上下键只在当前输入中移动。可粘贴图片路径，Windows 用 Alt+V、macOS/Linux 用 Ctrl+V 读取图片剪贴板。修饰键识别取决于终端提供的编码。
 

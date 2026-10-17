@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { Type, type Static } from "typebox";
 import { Check, Errors } from "typebox/value";
 import type { Model, ThinkingPreferences } from "../types.ts";
+import { AdapterConfigSchema, validateAdapterConfig } from "../llm/rules.ts";
 
 const NonemptyString = Type.String({ pattern: "\\S" });
 const PositiveInteger = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
@@ -14,6 +15,7 @@ const ConnectionSchema = Type.Object({
 	endpoint: Type.Optional(NonemptyString),
 	apiKey: Type.Optional(NonemptyString),
 	apiKeyEnv: Type.Optional(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]*$" })),
+	adapter: Type.Optional(AdapterConfigSchema),
 }, { additionalProperties: false });
 const ModelSchema = Type.Object({
 	connection: NonemptyString,
@@ -21,6 +23,7 @@ const ModelSchema = Type.Object({
 	name: Type.Optional(NonemptyString),
 	contextWindow: PositiveInteger,
 	maxOutputTokens: Type.Optional(PositiveInteger),
+	adapter: Type.Optional(AdapterConfigSchema),
 	capabilities: Type.Optional(Type.Object({
 		images: Type.Optional(Type.Boolean()),
 		tools: Type.Optional(Type.Boolean()),
@@ -92,6 +95,7 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 		if ((connection.apiKey === undefined) === (connection.apiKeyEnv === undefined)) {
 			throw new Error(`连接 ${key} 必须且只能设置 apiKey 或 apiKeyEnv 之一。`);
 		}
+		if (connection.adapter) validateAdapterConfig(connection.adapter);
 		connection.baseUrl = validateUrl(connection.baseUrl, `connections/${key}/baseUrl`, false);
 		if (connection.endpoint !== undefined) {
 			connection.endpoint = validateUrl(connection.endpoint, `connections/${key}/endpoint`, true);
@@ -106,6 +110,16 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 			throw new Error(`模型 ${key} 的 maxOutputTokens 不能超过 contextWindow。`);
 		}
 		const connection = config.connections[entry.connection];
+		const adapter = connection.adapter || entry.adapter ? { ...connection.adapter, ...entry.adapter } : undefined;
+		if (adapter) {
+			validateAdapterConfig(adapter);
+			// 阶段性限制，05＋06／07＋08 批替换：当前 schema 只有 Chat 配置语义。
+			// 接通其他协议的配置 schema 后，改为按 connection.api 校验，移除此 Chat 白名单。
+			if (connection.api !== "openai-completions") throw new Error(`模型 ${key} 的 adapter 规则目前仅支持 Chat Completions。`);
+			if (entry.capabilities?.thinking === false && adapter.thinking && adapter.thinking.mode !== "unsupported") {
+				throw new Error(`模型 ${key} 的 thinking 能力与 adapter 规则冲突。`);
+			}
+		}
 		models[key] = {
 			id: entry.id.trim(), name: entry.name?.trim() ?? entry.id.trim(),
 			provider: entry.connection, api: connection.api, baseUrl: connection.baseUrl,
@@ -113,6 +127,7 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 			...(connection.endpoint !== undefined ? { endpoint: connection.endpoint } : {}),
 			...(entry.maxOutputTokens !== undefined ? { maxOutputTokens: entry.maxOutputTokens } : {}),
 			...(entry.capabilities !== undefined ? { capabilities: { ...entry.capabilities } } : {}),
+			...(adapter !== undefined ? { adapter: structuredClone(adapter) } : {}),
 		};
 	}
 	// A runtime selection cannot conceal a broken saved selection.

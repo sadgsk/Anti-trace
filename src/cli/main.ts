@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadByokConfig } from "../config/byok.ts";
 import { Harness } from "../harness/harness.ts";
-import { streamOpenAIChat } from "../llm/openai-chat.ts";
+import { streamModel } from "../llm/adapter.ts";
 import type { TerminalStreams } from "./ink/terminal-host.ts";
 import { createPromptDraft } from "./input/prompt-draft.ts";
 import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
@@ -36,7 +36,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 		}
 		harness = new Harness({
 			cwd, apiKey: config.getApiKey(), model: config.model, thinking: config.thinking,
-			streamFn: streamOpenAIChat, sessionsRoot: options.sessionsRoot,
+			streamFn: streamModel, sessionsRoot: options.sessionsRoot,
 		});
 		modelName = config.model.name;
 	}

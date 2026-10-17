@@ -1,4 +1,6 @@
 import { AssistantMessageEventStream } from "./event-stream.ts";
+import { encodeChatThinking, resolveChatRules, type ChatRules } from "./rules.ts";
+import { readSse } from "./sse.ts";
 import type {
 	AssistantMessage,
 	Context,
@@ -10,6 +12,9 @@ import type {
 	TextContent,
 	Tool,
 	ToolCall,
+	ThinkingContent,
+	ReasoningSource,
+	ThinkingPreferences,
 } from "../types.ts";
 
 function textFrom(content: Array<{ type: string; text?: string }>): string {
@@ -39,11 +44,13 @@ function toContentParts(content: (TextContent | ImageContent)[]): OpenAIContentP
 }
 
 type OpenAIChatMessage =
-	| { role: "system"; content: string }
+	| { role: "system" | "developer"; content: string }
 	| { role: "user"; content: string | OpenAIContentPart[] }
 	| {
 			role: "assistant";
 			content: string | null;
+			reasoning_content?: string;
+			reasoning?: string;
 			tool_calls?: Array<{
 				id: string;
 				type: "function";
@@ -52,7 +59,7 @@ type OpenAIChatMessage =
 	  }
 	| { role: "tool"; tool_call_id: string; content: string };
 
-function toOpenAIMessages(context: Context): OpenAIChatMessage[] {
+function toOpenAIMessages(context: Context, source: ReasoningSource, rules: ChatRules, thinking?: ThinkingPreferences): OpenAIChatMessage[] {
 	const messages: OpenAIChatMessage[] = [];
 
 	// 一批连续的 toolResult 属于同一次 assistant 调用的应答。图片塞不进 tool 消息（OpenAI 的
@@ -84,7 +91,7 @@ function toOpenAIMessages(context: Context): OpenAIChatMessage[] {
 	};
 
 	if (context.systemPrompt) {
-		messages.push({ role: "system", content: context.systemPrompt });
+		messages.push({ role: rules.systemRole, content: context.systemPrompt });
 	}
 
 	for (const msg of context.messages) {
@@ -107,12 +114,17 @@ function toOpenAIMessages(context: Context): OpenAIChatMessage[] {
 		if (msg.role === "assistant") {
 			const text = textFrom(msg.content);
 			const toolCalls = msg.content.filter((block): block is ToolCall => block.type === "toolCall");
-			if (text.length === 0 && toolCalls.length === 0) continue;
+			const reasoning = reasoningForReplay(msg, source, rules);
+			if (rules.reasoningReplay === "required" && thinking?.enabled !== false && toolCalls.length && reasoning === undefined) {
+				throw new Error("工具续接缺少当前模型／接口的完整思考回传数据；不能使用外来或不完整的思考数据。");
+			}
+			if (text.length === 0 && toolCalls.length === 0 && reasoning === undefined) continue;
 
 			const assistant: OpenAIChatMessage = {
 				role: "assistant",
 				content: text.length > 0 ? text : null,
 			};
+			if (reasoning !== undefined) assistant[rules.reasoningField] = reasoning;
 			if (toolCalls.length > 0) {
 				assistant.tool_calls = toolCalls.map((tc) => ({
 					id: tc.id,
@@ -157,6 +169,29 @@ function toOpenAIMessages(context: Context): OpenAIChatMessage[] {
 	return messages;
 }
 
+function reasoningForReplay(message: AssistantMessage, source: ReasoningSource, rules: ChatRules): string | undefined {
+	if (rules.reasoningReplay === "omit" || message.stopReason === "error" || message.stopReason === "aborted" || message.stopReason === "length") return;
+	const parts: string[] = [];
+	for (const block of message.content) {
+		if (block.type !== "thinking") continue;
+		const replay = block.replay;
+		// Never reconstruct a native field from only some of its reasoning segments.
+		if (!replay?.source || !replay.payload || replay.source.api !== source.api || replay.source.provider !== source.provider || replay.source.model !== source.model || replay.source.baseUrl !== source.baseUrl) return;
+		const value = replay.payload[rules.reasoningField];
+		if (typeof value !== "string") return;
+		parts.push(value);
+	}
+	return parts.length ? parts.join("") : undefined;
+}
+
+function chatEndpoint(model: Model): string {
+	const url = new URL(model.endpoint ?? `${model.baseUrl.replace(/\/+$/, "")}/chat/completions`);
+	if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+		throw new Error("Chat 推理地址必须是无凭据、查询参数和片段的 HTTP(S) URL。");
+	}
+	return url.toString();
+}
+
 type OpenAITool = {
 	type: "function";
 	function: {
@@ -178,46 +213,42 @@ function toOpenAITools(tools: Tool[] | undefined): OpenAITool[] | undefined {
 	}));
 }
 
-async function fetchChatCompletions(
-	model: Model,
-	messages: OpenAIChatMessage[],
-	tools: OpenAITool[] | undefined,
-	options?: StreamOptions,
-): Promise<Response> {
-	if (model.api !== "openai-completions") {
-		throw new Error(`OpenAI Chat adapter does not implement '${model.api}'.`);
+function prepareChatRequest(model: Model, context: Context, options?: StreamOptions) {
+	const rules = resolveChatRules(model);
+	const url = chatEndpoint(model);
+	// Store the effective inference URL as the credential-free interface identity. Different
+	// endpoints under one base URL must never share replay data accidentally.
+	const source: ReasoningSource = { api: model.api, provider: model.provider, model: model.id, baseUrl: url };
+	const maxTokens = options?.maxTokens ?? model.maxOutputTokens;
+	if (maxTokens !== undefined && (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > model.contextWindow)) {
+		throw new Error("maxTokens 必须是正安全整数，且不能超过 contextWindow。");
 	}
-	if (options?.thinking?.enabled !== undefined) {
-		throw new Error("OpenAI Chat thinking controls are not implemented yet.");
-	}
-	const apiKey = options?.apiKey;
-	if (!apiKey) {
-		throw new Error("No API key");
-	}
-
-	const url = model.endpoint ?? `${model.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+	const thinking = encodeChatThinking(rules, options?.thinking, maxTokens);
 	const body: Record<string, unknown> = {
 		model: model.id,
-		messages,
+		messages: toOpenAIMessages(context, source, rules, options?.thinking),
 		stream: true,
-		// Ask for the final usage chunk; streaming omits it by default.
-		stream_options: { include_usage: true },
+		...thinking,
 	};
-	if (tools) {
-		body.tools = tools;
-	}
-	if (options?.maxTokens !== undefined) {
-		body.max_tokens = options.maxTokens;
-	}
+	if (rules.includeUsage) body.stream_options = { include_usage: true };
+	const tools = toOpenAITools(context.tools);
+	if (tools) body.tools = tools;
+	if (maxTokens !== undefined) body[rules.maxTokensField] = maxTokens;
+	return { url, body, rules, source };
+}
 
-	const response = await fetch(url, {
+async function fetchChatCompletions(request: ReturnType<typeof prepareChatRequest>, options?: StreamOptions): Promise<Response> {
+	const apiKey = options?.apiKey;
+	if (!apiKey) throw new Error("No API key");
+
+	const response = await fetch(request.url, {
 		method: "POST",
 		headers: {
 			Authorization: `Bearer ${apiKey}`,
 			"Content-Type": "application/json",
 			Accept: "text/event-stream",
 		},
-		body: JSON.stringify(body),
+		body: JSON.stringify(request.body),
 		signal: options?.signal,
 	});
 
@@ -256,191 +287,145 @@ async function readSSE(
 	body: ReadableStream<Uint8Array>,
 	output: AssistantMessage,
 	stream: AssistantMessageEventStream,
+	request: ReturnType<typeof prepareChatRequest>,
+	signal?: AbortSignal,
 ): Promise<void> {
 	const blocks = output.content;
-	const getContentIndex = (block: (typeof blocks)[number]) => blocks.indexOf(block);
-	const toolCallBlocksByIndex = new Map<number, StreamingToolCall>();
-	let textBlock: TextContent | null = null;
-	let hasFinishReason = false;
+	const toolCalls = new Map<number, StreamingToolCall>();
+	let active: TextContent | ThinkingContent | undefined;
+	let finishReason: DoneReason | undefined;
 
-	const finishBlock = (block: (typeof blocks)[number]) => {
-		const contentIndex = getContentIndex(block);
-		if (contentIndex === -1) return;
-
-		if (block.type === "text") {
-			stream.push({
-				type: "text_end",
-				contentIndex,
-				content: block.text,
-				partial: output,
-			});
-			return;
+	const finishActive = () => {
+		if (!active) return;
+		const contentIndex = blocks.indexOf(active);
+		if (active.type === "text") {
+			stream.push({ type: "text_end", contentIndex, content: active.text, partial: output });
+		} else {
+			stream.push({ type: "thinking_end", contentIndex, content: active.thinking, partial: output });
 		}
-
-		if (block.type !== "toolCall") return;
-
-		const toolBlock = block as StreamingToolCall;
-		try {
-			toolBlock.arguments = JSON.parse(toolBlock.partialArgs || "{}") as Record<string, unknown>;
-		} catch {
-			throw new Error(`Invalid tool call arguments JSON: ${toolBlock.partialArgs}`);
+		active = undefined;
+	};
+	const appendText = (type: "text" | "thinking", delta: string) => {
+		// An explicitly empty reasoning field is valid replay data, unlike a missing field.
+		if (!delta && type === "text") return;
+		if (active?.type !== type) {
+			finishActive();
+			active = type === "text" ? { type: "text", text: "" } : { type: "thinking", thinking: "" };
+			blocks.push(active);
+			stream.push({ type: type === "text" ? "text_start" : "thinking_start", contentIndex: blocks.length - 1, partial: output });
 		}
-		delete toolBlock.partialArgs;
-		stream.push({
-			type: "toolcall_end",
-			contentIndex,
-			toolCall: toolBlock,
-			partial: output,
-		});
+		if (active.type === "text") active.text += delta;
+		else active.thinking += delta;
+		stream.push({ type: type === "text" ? "text_delta" : "thinking_delta", contentIndex: blocks.indexOf(active), delta, partial: output });
 	};
 
-	const handleChunk = (raw: string) => {
-		const chunk = JSON.parse(raw) as {
-			usage?: {
-				prompt_tokens?: number | null;
-				completion_tokens?: number | null;
-				total_tokens?: number | null;
-			} | null;
-			choices?: Array<{
-				finish_reason?: string | null;
-				delta?: {
-					content?: string | null;
-					tool_calls?: Array<{
-						index?: number;
-						id?: string;
-						function?: { name?: string; arguments?: string };
-					}>;
-				};
-			}>;
-		};
-
-		// Usage arrives on its own trailing chunk with an empty choices array, so it has to be
-		// read before the choice check below — that early return would otherwise drop it.
-		if (chunk.usage) {
-			output.usage = {
-				input: chunk.usage.prompt_tokens ?? 0,
-				output: chunk.usage.completion_tokens ?? 0,
-				totalTokens: chunk.usage.total_tokens ?? undefined,
-			};
+	for await (const event of readSse(body, signal)) {
+		if (event.data.trim() === "[DONE]") break;
+		let chunk: ChatChunk;
+		try { chunk = JSON.parse(event.data) as ChatChunk; }
+		catch { throw new Error("Chat SSE 返回无效 JSON。"); }
+		if (!chunk || typeof chunk !== "object" || Array.isArray(chunk)) throw new Error("Chat SSE 返回无效事件。");
+		if (chunk.error || event.event === "error") {
+			throw new Error(`Chat stream error: ${chunk.error?.message ?? "接口返回错误事件"}`);
 		}
-
+		// A usage-only event can follow finish_reason, and may have no choices.
+		if (chunk.usage) {
+			const input = chunk.usage.prompt_tokens ?? 0;
+			const count = chunk.usage.completion_tokens ?? 0;
+			const total = chunk.usage.total_tokens ?? undefined;
+			if ([input, count, ...(total === undefined ? [] : [total])].some(value => !Number.isSafeInteger(value) || value < 0)) {
+				throw new Error("Chat SSE 返回无效 usage。");
+			}
+			output.usage = { input, output: count, totalTokens: total };
+		}
 		const choice = chunk.choices?.[0];
-		if (!choice) return;
-
+		if (!choice) continue;
+		const delta = choice.delta;
+		const reasoning = delta?.[request.rules.reasoningField];
+		if ((reasoning !== undefined && reasoning !== null && typeof reasoning !== "string") ||
+			(delta?.content !== undefined && delta.content !== null && typeof delta.content !== "string")) {
+			throw new Error("Chat SSE 的正文或思考增量不是字符串。");
+		}
+		if (finishReason && (reasoning || delta?.content || delta?.tool_calls?.length || choice.finish_reason)) {
+			throw new Error("Chat SSE 在结束原因之后继续返回消息内容。");
+		}
+		if (finishReason) continue;
+		if (typeof reasoning === "string") appendText("thinking", reasoning);
+		if (typeof delta?.content === "string") appendText("text", delta.content);
+		if (delta?.tool_calls?.length) {
+			finishActive();
+			for (const deltaTool of delta.tool_calls) {
+				if (!Number.isSafeInteger(deltaTool.index) || deltaTool.index < 0) throw new Error("Chat 工具增量缺少有效 index。");
+				let block = toolCalls.get(deltaTool.index);
+				if (!block) {
+					block = { type: "toolCall", id: "", name: "", arguments: {}, partialArgs: "" };
+					toolCalls.set(deltaTool.index, block);
+					blocks.push(block);
+					stream.push({ type: "toolcall_start", contentIndex: blocks.length - 1, partial: output });
+				}
+				if (deltaTool.id) {
+					if (block.id && block.id !== deltaTool.id) throw new Error("Chat 工具调用 ID 在流中发生变化。");
+					block.id = deltaTool.id;
+				}
+				if (deltaTool.function?.name) block.name += deltaTool.function.name;
+				const argsDelta = deltaTool.function?.arguments ?? "";
+				if (typeof argsDelta !== "string") throw new Error("Chat 工具参数增量不是字符串。");
+				block.partialArgs = (block.partialArgs ?? "") + argsDelta;
+				stream.push({ type: "toolcall_delta", contentIndex: blocks.indexOf(block), delta: argsDelta, partial: output });
+			}
+		}
 		if (choice.finish_reason) {
 			const mapped = mapStopReason(choice.finish_reason);
-			if (mapped === "error") {
-				throw new Error(`Provider finish_reason: ${choice.finish_reason}`);
-			}
+			if (mapped === "error") throw new Error(`Provider finish_reason: ${choice.finish_reason}`);
+			finishReason = mapped;
 			output.stopReason = mapped;
-			hasFinishReason = true;
+			finishActive();
 		}
-
-		const delta = choice.delta;
-		if (!delta) return;
-
-		if (delta.content) {
-			if (!textBlock) {
-				textBlock = { type: "text", text: "" };
-				blocks.push(textBlock);
-				stream.push({
-					type: "text_start",
-					contentIndex: getContentIndex(textBlock),
-					partial: output,
-				});
-			}
-			textBlock.text += delta.content;
-			stream.push({
-				type: "text_delta",
-				contentIndex: getContentIndex(textBlock),
-				delta: delta.content,
-				partial: output,
-			});
+	}
+	signal?.throwIfAborted();
+	if (!finishReason) throw new Error("Chat SSE 在 finish_reason 之前结束，响应不完整。");
+	if (finishReason === "toolUse" && !toolCalls.size) throw new Error("Chat 返回 tool_calls 结束原因，但没有工具调用。");
+	if (finishReason === "stop" && toolCalls.size) throw new Error("Chat 返回工具调用，但结束原因不是 tool_calls。");
+	if (finishReason !== "length") {
+		const ids = new Set<string>();
+		for (const tool of toolCalls.values()) {
+			if (!tool.id || !tool.name || ids.has(tool.id)) throw new Error("Chat 工具调用缺少 ID／名称，或 ID 重复。");
+			ids.add(tool.id);
+			let args: unknown;
+			try { args = JSON.parse(tool.partialArgs || "{}"); }
+			catch { throw new Error("Chat 工具参数不是完整 JSON。"); }
+			if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Chat 工具参数必须是 JSON 对象。");
+			tool.arguments = args as Record<string, unknown>;
+			delete tool.partialArgs;
+			stream.push({ type: "toolcall_end", contentIndex: blocks.indexOf(tool), toolCall: tool, partial: output });
 		}
-
-		if (delta.tool_calls) {
-			for (const toolCall of delta.tool_calls) {
-				const streamIndex = toolCall.index ?? 0;
-				let block = toolCallBlocksByIndex.get(streamIndex);
-				if (!block) {
-					block = {
-						type: "toolCall",
-						id: toolCall.id ?? "",
-						name: toolCall.function?.name ?? "",
-						arguments: {},
-						partialArgs: "",
-					};
-					toolCallBlocksByIndex.set(streamIndex, block);
-					blocks.push(block);
-					stream.push({
-						type: "toolcall_start",
-						contentIndex: getContentIndex(block),
-						partial: output,
-					});
-				}
-				if (toolCall.id) block.id = toolCall.id;
-				if (toolCall.function?.name) block.name = toolCall.function.name;
-				const argsDelta = toolCall.function?.arguments ?? "";
-				block.partialArgs = (block.partialArgs ?? "") + argsDelta;
-				stream.push({
-					type: "toolcall_delta",
-					contentIndex: getContentIndex(block),
-					delta: argsDelta,
-					partial: output,
-				});
+		// Attach replay only after the whole stream (including trailing errors/usage) is valid.
+		for (const block of blocks) {
+			if (block.type === "thinking") {
+				block.replay = { source: { ...request.source }, payload: { [request.rules.reasoningField]: block.thinking } };
 			}
 		}
-	};
-
-	const reader = body.getReader();
-	const decoder = new TextDecoder();
-	let buffer = "";
-	let streamFinished = false;
-
-	try {
-		while (!streamFinished) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-
-			let newline = buffer.indexOf("\n");
-			while (newline !== -1) {
-				let line = buffer.slice(0, newline);
-				buffer = buffer.slice(newline + 1);
-				if (line.endsWith("\r")) line = line.slice(0, -1);
-
-				if (line.startsWith("data:")) {
-					const data = line.slice(5).trim();
-					if (data === "[DONE]") {
-						streamFinished = true;
-						buffer = "";
-						break;
-					}
-					if (data.length > 0) handleChunk(data);
-				}
-
-				newline = buffer.indexOf("\n");
-			}
+	} else {
+		// The agent executes any ToolCall in a completed message: incomplete calls must not escape.
+		for (let i = blocks.length - 1; i >= 0; i--) {
+			if (blocks[i]!.type === "toolCall") blocks.splice(i, 1);
 		}
-
-		buffer += decoder.decode();
-		if (buffer.startsWith("data:")) {
-			const data = buffer.slice(5).trim();
-			if (data.length > 0 && data !== "[DONE]") handleChunk(data);
-		}
-	} finally {
-		reader.releaseLock();
 	}
+	stream.push({ type: "done", reason: finishReason, message: output });
+}
 
-	for (const block of blocks) {
-		finishBlock(block);
-	}
-
-	if (!hasFinishReason) {
-		output.stopReason = blocks.some((block) => block.type === "toolCall") ? "toolUse" : "stop";
-	}
-
-	stream.push({ type: "done", reason: output.stopReason as DoneReason, message: output });
+interface ChatChunk {
+	error?: { message?: string };
+	usage?: { prompt_tokens?: number | null; completion_tokens?: number | null; total_tokens?: number | null } | null;
+	choices?: Array<{
+		finish_reason?: string | null;
+		delta?: {
+			content?: string | null;
+			reasoning_content?: string | null;
+			reasoning?: string | null;
+			tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }>;
+		};
+	}>;
 }
 
 export const streamOpenAIChat: StreamFn = (model, context, options) => {
@@ -456,16 +441,16 @@ export const streamOpenAIChat: StreamFn = (model, context, options) => {
 
 	(async () => {
 		try {
-			const response = await fetchChatCompletions(
-				model,
-				toOpenAIMessages(context),
-				toOpenAITools(context.tools),
-				options,
-			);
+			options?.signal?.throwIfAborted();
+			const request = prepareChatRequest(model, context, options);
+			const response = await fetchChatCompletions(request, options);
 			stream.push({ type: "start", partial: output });
-			await readSSE(response.body as ReadableStream<Uint8Array>, output, stream);
+			await readSSE(response.body as ReadableStream<Uint8Array>, output, stream, request, options?.signal);
 			stream.end();
 		} catch (error) {
+			// Calls in a failed response were never executed. Do not persist them as valid
+			// assistant tool calls that would require tool results on the next user turn.
+			output.content = output.content.filter(block => block.type !== "toolCall");
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
 			output.errorMessage = error instanceof Error ? error.message : String(error);
 			stream.push({ type: "error", reason: output.stopReason, error: output });

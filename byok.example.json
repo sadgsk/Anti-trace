@@ -13,7 +13,12 @@
 			"id": "your-model-id",
 			"name": "我的模型",
 			"contextWindow": 128000,
-			"maxOutputTokens": 4096
+			"maxOutputTokens": 4096,
+			"adapter": {
+				"maxTokensField": "max_tokens",
+				"reasoningField": "reasoning_content",
+				"reasoningReplay": "omit"
+			}
 		}
 	},
 	"currentModel": "main",

@@ -2,6 +2,8 @@ export { Agent, type AgentOptions } from "./agent/agent.ts";
 export { runAgentLoop } from "./agent/loop.ts";
 export { Harness, type HarnessOptions } from "./harness/harness.ts";
 export { streamOpenAIChat } from "./llm/openai-chat.ts";
+export { streamModel } from "./llm/adapter.ts";
+export type { AdapterConfig, ThinkingRule } from "./llm/rules.ts";
 export { loadByokConfig, type LoadByokConfigOptions, type LoadedByokConfig } from "./config/byok.ts";
 export { AssistantMessageEventStream, EventStream } from "./llm/event-stream.ts";
 export { createBashTool } from "./harness/tools/bash.ts";
