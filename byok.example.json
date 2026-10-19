@@ -5,6 +5,18 @@
 			"api": "openai-completions",
 			"baseUrl": "https://your-provider.example/v1",
 			"apiKey": "your-api-key"
+		},
+		"openai-responses": {
+			"api": "openai-responses",
+			"baseUrl": "https://api.openai.com/v1",
+			"apiKey": "your-openai-api-key",
+			"adapter": { "preset": "openai", "reasoningSummary": "auto" }
+		},
+		"anthropic": {
+			"api": "anthropic-messages",
+			"baseUrl": "https://api.anthropic.com/v1",
+			"apiKey": "your-anthropic-api-key",
+			"adapter": { "preset": "anthropic" }
 		}
 	},
 	"models": {
@@ -19,6 +31,27 @@
 				"reasoningField": "reasoning_content",
 				"reasoningReplay": "omit"
 			}
+		},
+		"responses": {
+			"connection": "openai-responses",
+			"id": "gpt-5.1",
+			"name": "GPT-5.1 Responses",
+			"contextWindow": 400000,
+			"maxOutputTokens": 32000
+		},
+		"claude-budget": {
+			"connection": "anthropic",
+			"id": "claude-opus-4-5",
+			"name": "Claude Opus 4.5 预算思考",
+			"contextWindow": 200000,
+			"maxOutputTokens": 32000
+		},
+		"claude-adaptive": {
+			"connection": "anthropic",
+			"id": "claude-opus-4-6",
+			"name": "Claude Opus 4.6 自适应思考",
+			"contextWindow": 200000,
+			"maxOutputTokens": 32000
 		}
 	},
 	"currentModel": "main",

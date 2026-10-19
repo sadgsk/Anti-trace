@@ -1,0 +1,32 @@
+flowchart LR
+    subgraph INPUT["① 启动接线与终端输入"]
+        direction TB
+        START["01 启动时完成接线<br/>创建 Harness / Agent / 控制器<br/>注册订阅、提交回调与按键处理函数"]
+        ENTER["02 用户输入文字，按 Enter"]
+        HOST["03 TerminalHost.handleData(chunk)<br/>parser.feed(chunk) → emitEvents → onEvent"]
+        DISPATCH["04 dispatcher.dispatch(event)<br/>Enter → Input / input:submit<br/>查找已注册的 handler"]
+        ACTION["05 TextInputController<br/>handleAction → applyAction<br/>提交判断通过，调用 onSubmit"]
+        START --> ENTER --> HOST --> DISPATCH --> ACTION
+    end
+
+    subgraph SUBMIT["② 提交草稿并构造运行上下文"]
+        direction TB
+        DRAFT["06 PromptInputController<br/>getDraft() 取完整草稿<br/>onSubmit → repl.submit(draft)"]
+        REPL["07 ReplController.submit<br/>草稿展开为 text + images<br/>设置 busy，清空输入框，识别命令"]
+        HARNESS["08 Harness.prompt → runPrompt<br/>检查模型、凭据，处理附件<br/>调用 Agent.prompt"]
+        AGENT["09 Agent.prompt<br/>输入转成 user 消息<br/>取得历史上下文与运行配置"]
+        RUN["10 runAgentLoop<br/>currentContext = 系统提示 + 工具<br/>+ 历史消息 + 本次 user 消息"]
+        LOOP["11 发送开始事件<br/>进入 runLoop 的 while 循环"]
+        DRAFT --> REPL --> HARNESS --> AGENT --> RUN --> LOOP
+    end
+
+    INPUT --> SUBMIT
+
+    classDef setup fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef input fill:#eff6ff,stroke:#3b82f6,color:#172554
+    classDef context fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    class START setup
+    class ENTER,HOST,DISPATCH,ACTION,DRAFT,REPL input
+    class HARNESS,AGENT,RUN,LOOP context
+    style INPUT fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style SUBMIT fill:#f8fafc,stroke:#cbd5e1,color:#334155

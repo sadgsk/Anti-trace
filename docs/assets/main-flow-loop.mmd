@@ -1,0 +1,35 @@
+flowchart TB
+    BEGIN(["进入 runLoop"])
+    TURN["本轮开始<br/>后续轮次发送 turn_start"]
+    LLM["streamAssistantResponse(currentContext, ...)<br/>整理上下文 → streamFn → HTTP 请求<br/>读取事件流，返回本轮 message"]
+    ERROR{"模型回复出错<br/>或被取消？"}
+    HAS{"本轮有<br/>工具调用？"}
+    EMPTY["本轮没有工具调用<br/>hasMoreToolCalls = false"]
+    EXEC["处理工具调用<br/>正常：执行工具并生成工具结果<br/>截断：生成失败结果"]
+    APPEND["结果加入 currentContext.messages<br/>并加入 newMessages<br/>hasMoreToolCalls = !batch.terminate"]
+    HOOK["emit(turn_end)<br/>prepareNextTurn 可调整上下文与配置"]
+    STOP{"停止钩子<br/>要求结束？"}
+    CONT{"允许继续<br/>下一轮？"}
+    RETRY["回到 while 顶部<br/>下一轮请求带上工具结果"]
+    ERR_END["emit(turn_end)"]
+    ENDNODE(["emit(agent_end)<br/>return，退出本次 runLoop"])
+
+    BEGIN --> TURN --> LLM --> ERROR
+    ERROR -- "是" --> ERR_END --> ENDNODE
+    ERROR -- "否" --> HAS
+    HAS -- "否" --> EMPTY --> HOOK
+    HAS -- "是" --> EXEC --> APPEND --> HOOK
+    HOOK --> STOP
+    STOP -- "是" --> ENDNODE
+    STOP -- "否" --> CONT
+    CONT -- "否" --> ENDNODE
+    CONT -- "是" --> RETRY --> TURN
+
+    classDef request fill:#eff6ff,stroke:#3b82f6,color:#172554
+    classDef tool fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    classDef decision fill:#fffbeb,stroke:#d97706,color:#78350f
+    classDef finish fill:#f5f3ff,stroke:#8b5cf6,color:#4c1d95
+    class TURN,LLM,RETRY request
+    class EXEC,APPEND,HOOK tool
+    class ERROR,HAS,STOP,CONT decision
+    class BEGIN,EMPTY,ERR_END,ENDNODE finish

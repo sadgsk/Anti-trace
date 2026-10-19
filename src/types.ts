@@ -19,7 +19,7 @@ export interface ReasoningSource {
 	api: ModelApi;
 	provider: string;
 	model: string;
-	/** Credential-free interface identity. Chat stores the canonical effective inference URL here. */
+	/** Credential-free interface identity: the canonical effective inference URL. */
 	baseUrl: string;
 }
 
@@ -69,6 +69,8 @@ export interface AssistantMessage {
 	content: (TextContent | ThinkingContent | ToolCall)[];
 	model: string;
 	stopReason: StopReason;
+	/** Native terminal reason/status, when supplied by the protocol. */
+	rawStopReason?: string;
 	errorMessage?: string;
 	timestamp: number; // Unix timestamp in milliseconds
 	/** Token usage reported by the provider. Absent when the gateway does not send it. */

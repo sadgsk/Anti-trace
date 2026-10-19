@@ -78,9 +78,9 @@ startLine(index + segment.length);
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；新 REPL 已接回 `/new`、`/resume` 列表与序号选择 |
 | 终端输入 | 输入迁移已完成；唯一 stdin 宿主、协议解析、焦点分发、多行字素编辑、粘贴合并、完整附件草稿、撤销/重做和提交展开已接通；非 TTY 在 EOF 提交一次原文 |
 | 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
-| 协议适配 | 上层使用 streamModel；当前已实现 Chat 的请求、字符串思考、工具与图文转换，Responses／Anthropic 尚未实现。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
+| 协议适配 | 上层使用 streamModel；已实现 Chat、Responses、Anthropic 的请求、思考、工具与图文转换。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
-| 思考等级与 BYOK | 第 01 批已确认，第 02 批已提交且主体 review 尾项保留；第 03＋04 批统一入口、规则模板与 Chat 思考链已实现，待 review。05＋06、07＋08 分别规划为完整 Responses／Anthropic 协议批次；运行中控制等后续能力未完成 |
+| 思考等级与 BYOK | 第 01 批已确认，第 02 批已提交且主体 review 尾项保留；第 03＋04 批统一入口、规则模板与 Chat 思考链已实现，待 review。05＋06、07＋08 完整 Responses／Anthropic 协议已一起实现并通过本地验收，待 review；运行中控制等后续能力未完成；下一批合并 10～13，随后补 09 厂商规则，最后做 14 验收 |
 
 **这一版（v1.2）的既定目标：**
 
@@ -150,7 +150,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 {"type":"compaction","summary":"...","keptMessages":[...]}
 ```
 
-**思考等级现状：** `agent.state.thinking` 保存 `{ enabled?, effort }`，档位固定为 `low / medium / high / xhigh / max`。初始档位 medium，开关未指定表示服务端默认；关闭仍保存档位。`createLoopConfig()` 复制模型（含 adapter 规则）与偏好，loop 传到统一 StreamFn；Chat 已按规则完成真实编码与思考解析。`setThinkingLevel` 和 CLI 控制尚未实现；JSONL 已保存思考回传信息，仍无设置变更行，恢复选择在后续批次完成。
+**思考等级现状：** `agent.state.thinking` 保存 `{ enabled?, effort }`，档位固定为 `low / medium / high / xhigh / max`。初始档位 medium，开关未指定表示服务端默认；关闭仍保存档位。`createLoopConfig()` 复制模型（含 adapter 规则）与偏好，loop 传到统一 StreamFn；三协议已按规则完成真实编码与思考解析。`setThinkingLevel` 和 CLI 控制尚未实现；JSONL 已保存思考回传信息，仍无设置变更行，恢复选择在后续批次完成。
 
 **上下文容量**先有窗口和用量。压缩在用量过线，或这轮回复表明上下文装不下时自动发生。
 
@@ -278,7 +278,7 @@ export class Harness {
 
 ### 5.2 `src/harness/session.ts`
 
-**做什么：** cwd 目录编码、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 已随 JSONL 保存，模型选择与思考偏好的设置条目和恢复仍待第 12 批。
+**做什么：** cwd 目录编码、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 已随 JSONL 保存，模型选择与思考偏好的设置条目和恢复随 10～13 合并批中的 12 职责一起完成。
 
 - `sessionDirForCwd(cwd, sessionsRoot?): string` → `~/.cli-agent/sessions/--encoded--/`（`sessionsRoot` 默认家目录那份，探针指到 tmp）
 - `sessionTitleFromUserText(text): string` → 前 10 个字符，见 §2
@@ -336,31 +336,31 @@ export class Harness {
 - 摘要调用失败则不改 `agent.state.messages`。成功才写回摘要 + kept，jsonl 追加 `compaction`，并用摘要加尾部重新估计 `usedTokens`。
 - 上面几处走同一套切点和摘要。自动路径直接调用 `Harness.compact()`；REPL `/compact` 通过 `manualCompact()` 判断 `used > window / 4` 后复用它。没有 `usage` 时，`stop` 超窗和空 `length` 两条不触发。
 
-手动 `/compact` 只在用量过 1/4 时运行现有摘要；无旧历史或刚压完没有新消息时提示。成功追加 compaction，内存换成摘要＋保留尾部；失败不换历史。分支摘要、文件列表元数据和宽 length 恢复不在本版。Chat 思考链已接通，但摘要尚未传入当前思考偏好，动态凭据与预算重新校验等统一接线仍在第 11 批；摘要只收普通正文。
+手动 `/compact` 只在用量过 1/4 时运行现有摘要；无旧历史或刚压完没有新消息时提示。成功追加 compaction，内存换成摘要＋保留尾部；失败不换历史。分支摘要、文件列表元数据和宽 length 恢复不在本版。Chat 思考链已接通，但摘要尚未传入当前思考偏好，动态凭据与预算重新校验等统一接线随 10～13 合并批中的 11 职责一起完成；摘要只收普通正文。
 
 **对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`；`pi/packages/ai/src/utils/overflow.ts` 的 `isContextOverflow`：错误文本、`stop` 且 input 超窗、`length` 且输出为 0。当前不接 `isRecoverableLength`；显示和窗口配置采用本项目设计。
 
 ---
 
-### 5.4 思考等级与 BYOK（第 03＋04 批已实现，待 review）
+### 5.4 思考等级与 BYOK（第 03–08 批已实现，待 review）
 
-完整产品行为、参考与配置见 [BYOK build](./byok-build.md)，其中 §6.2 记录当前 Chat adapter 契约。第 01 批已确认；第 02 批已提交，byok.ts 主体的 review 尾项保留。本次用户授权合并实现 03＋04；尚未 commit／推送，也未记为 review 完成。
+完整产品行为、参考与配置见 [BYOK build](./byok-build.md)，其中 §6.2 记录当前 Chat adapter 契约。第 01 批已确认；第 02 批已提交，byok.ts 主体的 review 尾项保留。03＋04 已作为基线提交推送，review 待办保留；本次用户授权一起完成 05＋06 与 07＋08，源码和本地验收已完成，尚未提交／推送，待 review。
 
 配置使用 cwd 的 byok.json 或明确指定的路径；loadByokConfig 校验连接／模型目录并分离凭据。连接与模型可填 adapter：模型按字段覆盖连接默认，其中 thinking 整条替换。运行时模型不含凭据，adapter 随 createLoopConfig 的 structuredClone 一起快照；现有 loop 与内部 hook 行为继续复用。
 
-runCli 使用统一 streamModel，当前只接 Chat；Responses／Anthropic 仍明确未实现。Chat 的 prepareChatRequest 选择规则，映射思考，序列化历史与工具，校验输出上限；fetch 只负责 HTTP；readSSE 解析正文、思考、工具与 usage，输出已有事件，不新增工具循环。rules.ts 集中保存 schema、规则选择与 effort／toggle／budget 模板，sse.ts 负责与 HTTP chunk 无关的分帧。
+runCli 使用统一 streamModel，三协议均已接通。Chat 的 prepareChatRequest 选择规则，映射思考，序列化历史与工具，校验输出上限；fetch 只负责 HTTP；readSSE 解析正文、思考、工具与 usage，输出已有事件，不新增工具循环。rules.ts 集中保存 schema、规则选择与 effort／toggle／budget 模板，sse.ts 负责与 HTTP chunk 无关的分帧。
 
 用户固定五档和独立开关：未指定开关不发思考控制，开启按原生顺序映射或直接查五档预算；关闭保留档位，必须有真实关闭编码。预算为回答预留空间，装不下最低预算则失败。未知接口不猜 effort；用户明确配置优先于明确启用的预设／模型绑定，再使用协议默认。初始 openai 预设仅有已核对的 GPT-5.1 绑定，完整厂商覆盖仍在第 09 批。
 
-Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正文交错的顺序。验证整条流完整结束后才给思考片段附 replay；source 含协议、连接、模型和规范化实际推理 URL。历史按 omit／same-source／required 策略处理，只发送完整同源数据；旧显示文字不当成原生数据，原 session 不变。截断／错误／取消不附 replay，未完成工具调用不作为合法调用落盘。Responses opaque items、Anthropic 签名及 Chat 的额外签名容器尚未实现。
+Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正文交错的顺序。验证整条流完整结束后才给思考片段附 replay；source 含协议、连接、模型和规范化实际推理 URL。历史按 omit／same-source／required 策略处理，只发送完整同源数据；旧显示文字不当成原生数据，原 session 不变。截断／错误／取消不附 replay，未完成工具调用不作为合法调用落盘。Responses 使用无服务端会话依赖的 store:false／input items，回传完整加密 reasoning item；Anthropic 回传完整 thinking 签名与 redacted-thinking，预算模式工具续接缺必要数据时在 HTTP 前失败。两者默认同来源回传；Chat 的额外签名容器仍未实现。
 
-No.5 修复已接通配置恢复、运行中 `/model` 选择与 `Harness.configureModel()` 设置入口，失败操作保留当前会话。完整思考控制命令、逐请求动态凭据、压缩设置统一、会话设置恢复和思考显示仍在第 10–13 批。本批未改真实本机配置、未调用真实模型；验证结果见 build／progress。用户已将 05＋06 规划为完整 Responses 协议批次，07＋08 规划为完整 Anthropic 协议批次，包含各自请求、解析、工具往返与验收，尚未开始。
+No.5 修复已接通配置恢复、运行中 `/model` 选择与 `Harness.configureModel()` 设置入口，失败操作保留当前会话。完整思考控制命令、逐请求动态凭据、压缩设置统一、会话设置恢复和思考显示已规划为 10＋11＋12＋13 一个完整批次，尚未整批完成。本批未改真实本机配置、未调用真实模型；验证结果见 build／progress。05＋06／07＋08 已一起完成请求、流解析和现有 Agent 工具往返。protocol-utils.ts 共用传输、取消、能力检查与事件小函数，协议各自校验消息结构和结束条件；原生结束原因另存 rawStopReason。Anthropic usage.input 包含普通输入、缓存写入及缓存读取 token。
 
 ---
 
 ### 5.5 `main.ts` 装配
 
-启动：`runCli()` 调用 loadByokConfig 取得模型、思考偏好与凭据，装配 Harness 并使用统一 streamModel；当前只运行 Chat，另两种协议启动时明确报未实现。TTY 进入 startTerminalRepl；非 TTY 收集 UTF-8 输入到 EOF，再交给同一个 ReplController。
+启动：`runCli()` 调用 loadByokConfig 取得模型、思考偏好与凭据，装配 Harness 并使用统一 streamModel；三协议均通过同一请求入口运行，缺参数或 HTTP 错误在操作内部报告。TTY 进入 startTerminalRepl；非 TTY 收集 UTF-8 输入到 EOF，再交给同一个 ReplController。
 
 `npm start` 已恢复交互：输入完整草稿展开后调用 Harness，命令包括 `/new`、`/resume`、`/context`、`/compact`、`/help` 和 `/exit`。接受提交后清理整份草稿；生成时允许编辑下一条但不提前提交。Agent 事件由 REPL 投影到 Ink，不同时订阅直接写 stdout 的 `renderEvent`。退出、EOF、信号、回调异常统一清理订阅和终端模式；非 TTY 只打印模型/命令输出，退出码反映错误或信号。
 
@@ -368,15 +368,15 @@ No.5 修复已接通配置恢复、运行中 `/model` 选择与 `Harness.configu
 
 ## 6. 接下来如何推进
 
-第 3 步上下文容量与第 5 步手动入口代码已完成，真实模型压缩验收暂缓。BYOK 第 01 批已确认，第 02 批已提交且主体 review 尾项保留；本次经授权合并实现 03＋04，待 review。05＋06、07＋08 已各自合并规划为一个完整协议批次，实施等用户安排。v1.3 才做完整 TUI。
+第 3 步上下文容量与第 5 步手动入口代码已完成，真实模型压缩验收暂缓。BYOK 第 01 批已确认，第 02 批已提交且主体 review 尾项保留；03＋04 的 review 待办保留。05＋06、07＋08 已一起实现，待 review；剩余工作按用户确认的顺序推进：先合并 10＋11＋12＋13 的统一设置链路，再按需补 09 厂商规则，最后做 14 整体验收。此次仅调整计划，合并批尚未完整实施。v1.3 才做完整 TUI。
 
-每行是一个功能里程碑，可以拆成多个小点。每次选几个相关函数和必要接线，说明本次边界，完成对应验证后交给用户 review，再继续。已经存在的基础函数直接接着使用，不因换对话重复搭建。每个代码小点保持 `tsc --noEmit` 通过，功能接通后再做相应行为验收。
+每行是一个功能里程碑，按已确定的完整交付边界推进。BYOK 10～13 共用设置、凭据和模型引用，须把 CLI 操作、普通请求／工具续接、压缩及会话恢复一起实现并验收，再按调用链分段 review；原编号仅作职责索引。施工前一次确定 /new、/resume、/reload、/config 的设置关系及 busy 行为。09 随后按选定厂商／接口格式独立扩充，14 最后收尾；每批都完成自己的验证。已经存在的基础函数直接接着使用，不因换对话重复搭建。每个代码小点保持 `tsc --noEmit` 通过，功能接通后再做相应行为验收。
 
 | 步 | 做哪些文件 | 完成标准 | 主要对照 |
 |---|---|---|---|
 | 3 | 上下文容量：窗口、usage、显示、自动压缩和溢出重试 | 代码与假 `StreamFn` 验证已完成；真实模型压缩验收待做 | `shouldCompact`；`isContextOverflow` |
 | 5 | 手动 `/compact` + 1/4 用量门槛 | 入口代码与假流验证完成；未过线不调模型，过线且有旧历史则生成摘要并落 `compaction`；待 review 和真实模型续聊验收 | 当前 `Harness.compact()`；`findCutIndex` |
-| 4+6 | 思考等级与 BYOK：按 build 路线补模型连接、三协议、固定五档／开关、接口兼容与回传 | 配置模型完成多轮工具调用；用户选择按规则生效，关闭不伪装为低档；会话与压缩沿用正确配置 | 新版 TS Kimi Code、CC Switch 对应映射／兼容模块、官方接口文档 |
+| 4+6 | 思考等级与 BYOK：三协议已实现；按 build 路线先合并 10～13 统一设置链路，再补 09 厂商规则，最后做 14 验收 | 配置模型完成多轮工具调用；用户选择按规则生效，关闭不伪装为低档；会话与压缩沿用正确配置 | 新版 TS Kimi Code、CC Switch 对应映射／兼容模块、官方接口文档 |
 | 7 | REPL 按 §7 验收 | 功能验证完成并记录未覆盖的网关差异 | — |
 
 session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。

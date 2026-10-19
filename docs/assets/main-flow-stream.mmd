@@ -1,0 +1,40 @@
+sequenceDiagram
+    autonumber
+    participant L as loop / 响应处理
+    participant P as Anthropic 适配器
+    participant H as LLM HTTP 接口
+    participant S as EventStream
+    participant A as Agent
+    participant R as REPL / Ink
+
+    L->>P: streamFn：传入模型、上下文、选项
+    P->>S: 创建 stream 与 output
+    P->>P: 准备请求体、地址和请求头
+    P->>H: fetch：POST 请求，等待响应头
+    P-->>L: 返回 stream 对象
+    L->>S: for await：等待 iterator.next()
+    Note over S: 队列为空时创建等待 Promise<br/>waiting 保存 resolve
+    H-->>P: 响应头返回，提供 response.body
+    P->>S: push(start)
+    S-->>L: 收到 start
+    L->>A: emit(message_start)
+    A->>R: 通知消息开始
+    L->>S: 请求下一条事件
+    P->>P: readAnthropic 读取响应流
+
+    loop 每个需要向外通知的内容事件
+        H-->>P: 原始字节流
+        P->>P: 解析 SSE，拼装回复内容
+        P->>S: stream.push(event)
+        S-->>L: resolve → yield event → next() 完成
+        L->>A: emit(message_update)
+        A->>R: 更新 Agent 状态，再调用 handleEvent
+        R->>R: 更新显示状态，Ink 刷新终端
+        L->>S: 请求下一条事件
+    end
+
+    P->>S: push(done)；结束事件流
+    S-->>L: 收到 done，取得最终 message
+    L->>A: emit(message_end)
+    A->>R: 通知消息结束
+    L->>L: 返回 message 给 runLoop<br/>检查工具与停止条件

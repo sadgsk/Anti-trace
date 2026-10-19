@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { Type, type Static } from "typebox";
 import { Check, Errors } from "typebox/value";
 import type { Model, ThinkingPreferences } from "../types.ts";
-import { AdapterConfigSchema, validateAdapterConfig } from "../llm/rules.ts";
+import { AdapterConfigSchema, validateAdapterConfig, validateAdapterForApi } from "../llm/rules.ts";
 import { ByokConfigError } from "./errors.ts";
 
 const NonemptyString = Type.String({ pattern: "\\S" });
@@ -115,9 +115,7 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 		const adapter = connection.adapter || entry.adapter ? { ...connection.adapter, ...entry.adapter } : undefined;
 		if (adapter) {
 			validateAdapterAt(adapter, `models/${key}/adapter（合并连接默认值后）`);
-			// 阶段性限制，05＋06／07＋08 批替换：当前 schema 只有 Chat 配置语义。
-			// 接通其他协议的配置 schema 后，改为按 connection.api 校验，移除此 Chat 白名单。
-			if (connection.api !== "openai-completions") throw new ByokConfigError(`模型 ${key} 的 adapter 规则目前仅支持 Chat Completions。`);
+			validateAdapterForApi(adapter, connection.api);
 			if (entry.capabilities?.thinking === false && adapter.thinking && adapter.thinking.mode !== "unsupported") {
 				throw new ByokConfigError(`模型 ${key} 的 thinking 能力与 adapter 规则冲突。`);
 			}
