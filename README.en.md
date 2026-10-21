@@ -2,9 +2,9 @@
 
 [中文](README.md) | **English**
 
-Anti-trace is a personal CLI agent that uses your own model credentials (BYOK). You can chat with a model in the terminal, let it read and edit project files, execute commands, and continue work through saved sessions.
+Anti-trace is a terminal AI assistant with support for multiple model providers, file operations, command execution, session recovery, and context management.
 
-**The goal: let the agent dynamically modify its own capabilities from a one-sentence request, then apply the changes through a hot restart.** The project is in early development. This capability has not been implemented.
+The project is in early development. Future plans include modifying tools and the CLI interface through natural-language requests, with changes applied through a hot restart.
 
 ![Anti-trace proposed architecture: the existing agent foundation, planned feature changes, validation, and hot restart](docs/assets/target-architecture.svg)
 
