@@ -1,0 +1,22 @@
+{
+  "theme": "base",
+  "fontFamily": "Arial, sans-serif",
+  "htmlLabels": false,
+  "markdownAutoWrap": false,
+  "themeCSS": "text, tspan { white-space: pre; }",
+  "themeVariables": {
+    "fontSize": "16px",
+    "primaryColor": "#eff6ff",
+    "primaryTextColor": "#172554",
+    "primaryBorderColor": "#3b82f6",
+    "lineColor": "#64748b"
+  },
+  "flowchart": {
+    "htmlLabels": false,
+    "curve": "basis",
+    "nodeSpacing": 35,
+    "rankSpacing": 28,
+    "diagramPadding": 24,
+    "wrappingWidth": 440
+  }
+}

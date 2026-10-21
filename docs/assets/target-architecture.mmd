@@ -1,0 +1,47 @@
+---
+title: Anti-trace - Proposed Architecture
+config:
+  look: neo
+---
+flowchart LR
+    subgraph FOUNDATION["01 - Existing agent foundation"]
+        direction TB
+        REQUEST(["User request<br/>Describe a feature in one sentence"])
+        CLI["CLI / REPL<br/>Text, images and commands"]
+        CORE["Harness + Agent loop<br/>Run tasks and coordinate tools"]
+        BASE["Existing runtime services<br/>BYOK model adapters and built-in tools<br/>Sessions and context management"]
+        REQUEST --> CLI --> CORE --> BASE
+    end
+
+    subgraph CHANGE["02 - Feature changes - planned"]
+        direction TB
+        PLAN["Change planner<br/>Understand the requested capability<br/>and identify the required changes"]
+        EDIT["Capability editor<br/>Modify tools, the CLI interface<br/>or other agent CLI features"]
+        CHECK{"Checks<br/>passed?"}
+        READY["Validated changes<br/>Ready for hot restart"]
+        PLAN --> EDIT --> CHECK
+        CHECK -- "Revise" --> EDIT
+        CHECK -- "Pass" --> READY
+    end
+
+    subgraph STARTUP["03 - Hot restart - planned"]
+        direction TB
+        APPLY["Hot-restart controller<br/>Apply the validated changes"]
+        LOAD["Updated agent runtime<br/>Load the modified tools,<br/>CLI interface or other features"]
+        CONTINUE(["Continue working<br/>Use the new capabilities"])
+        APPLY --> LOAD --> CONTINUE
+    end
+
+    FOUNDATION --> CHANGE --> STARTUP
+
+    classDef request fill:#eff6ff,stroke:#3b82f6,color:#172554
+    classDef runtime fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    classDef decision fill:#fffbeb,stroke:#d97706,color:#78350f
+    classDef lifecycle fill:#f5f3ff,stroke:#8b5cf6,color:#4c1d95
+    class REQUEST,CLI,PLAN,EDIT request
+    class CORE,BASE,READY runtime
+    class CHECK decision
+    class APPLY,LOAD,CONTINUE lifecycle
+    style FOUNDATION fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style CHANGE fill:#f8fafc,stroke:#cbd5e1,color:#334155
+    style STARTUP fill:#f8fafc,stroke:#cbd5e1,color:#334155
