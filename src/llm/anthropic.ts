@@ -1,5 +1,5 @@
 import type { AssistantMessage, Context, ImageContent, Model, StreamFn, StreamOptions, TextContent, ThinkingContent } from "../types.ts";
-import { encodeNativeThinking, resolveNativeRules } from "./rules.ts";
+import { encodeNativeThinking, resolveNativeRules, type NativeRules } from "./rules.ts";
 import { readSse } from "./sse.ts";
 import type { AssistantMessageEventStream } from "./event-stream.ts";
 import { appendBlock, endBlock, index, object, outputLimit, parseArguments, replayable, requestIdentity, sameSource, startBlock, streamRequest, string, tokenCount, toolIdMap, validateCapabilities, type StreamBlock, type WireObject } from "./protocol-utils.ts";
@@ -7,10 +7,14 @@ import { appendBlock, endBlock, index, object, outputLimit, parseArguments, repl
 function contentBlocks(content: (TextContent | ImageContent)[]): WireObject[] {
 	return content.filter(block => block.type !== "text" || block.text.length > 0).map(block => block.type === "text" ? { type: "text", text: block.text } : { type: "image", source: { type: "base64", media_type: block.mimeType, data: block.data } });
 }
-function thinkingBlock(value: unknown): WireObject | undefined {
+function thinkingBlock(value: unknown, signature: NativeRules["thinkingSignature"]): WireObject | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return;
 	const block = value as WireObject;
-	if (block.type === "thinking" && typeof block.thinking === "string" && typeof block.signature === "string" && block.signature) return { type: "thinking", thinking: block.thinking, signature: block.signature };
+	if (block.type === "thinking" && typeof block.thinking === "string") {
+		if (block.signature !== undefined && typeof block.signature !== "string") return;
+		if (signature === "required" && !block.signature) return;
+		return { type: "thinking", thinking: block.thinking, ...(block.signature !== undefined ? { signature: block.signature } : {}) };
+	}
 	if (block.type === "redacted_thinking" && typeof block.data === "string" && block.data) return { type: "redacted_thinking", data: block.data };
 }
 
@@ -32,20 +36,27 @@ function prepareAnthropicRequest(model: Model, context: Context, options?: Strea
 	};
 	let continuation = context.messages.length - 1;
 	while (continuation >= 0 && context.messages[continuation]!.role === "toolResult") continuation--;
+	let attachments: WireObject[] = [];
 	for (const [position, message] of context.messages.entries()) {
+		if (message.role !== "toolResult" && attachments.length) { add("user", attachments); attachments = []; }
 		if (message.role === "user") add("user", contentBlocks(message.content));
 		else if (message.role === "toolResult") {
 			const content = contentBlocks(message.content);
-			add("user", [{ type: "tool_result", tool_use_id: id(message.toolCallId), is_error: message.isError, content: content.length ? content : [{ type: "text", text: "(no tool output)" }] }]);
+			const text = message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+			add("user", [{ type: "tool_result", tool_use_id: id(message.toolCallId), is_error: message.isError,
+				content: rules.toolResultFormat === "text" ? text || "(no text output)" : content.length ? content : [{ type: "text", text: "(no tool output)" }] }]);
+			if (rules.toolResultFormat === "text" && message.content.some(block => block.type === "image")) {
+				attachments.push({ type: "text", text: `Tool ${message.toolName} (${message.toolCallId}) returned:` }, ...content);
+			}
 		}
 		else {
 			const thoughts = message.content.filter((block): block is ThinkingContent => block.type === "thinking");
-			const native = thoughts.map(block => sameSource(block.replay?.source, source) ? thinkingBlock(block.replay?.payload.block) : undefined);
+			const native = thoughts.map(block => sameSource(block.replay?.source, source) ? thinkingBlock(block.replay?.payload.block, rules.thinkingSignature) : undefined);
 			const complete = replayable(message) && native.length > 0 && native.every(Boolean);
 			const sendThinking = complete && rules.reasoningReplay !== "omit";
 			const hasTools = message.content.some(block => block.type === "toolCall");
 			const continuingTools = position === continuation && position < context.messages.length - 1 && hasTools;
-			const manualThinking = (thinking.thinking as WireObject | undefined)?.type === "enabled";
+			const manualThinking = rules.thinking?.mode === "budget" && rules.thinking.budgetIncludesOutput !== false && (thinking.thinking as WireObject | undefined)?.type === "enabled";
 			if (options?.thinking?.enabled !== false && hasTools && (
 				(rules.reasoningReplay === "required" && !complete) ||
 				(continuingTools && !sendThinking && (manualThinking || thoughts.some(block => sameSource(block.replay?.source, source))))
@@ -64,19 +75,20 @@ function prepareAnthropicRequest(model: Model, context: Context, options?: Strea
 			add("assistant", content);
 		}
 	}
+	if (attachments.length) add("user", attachments);
 	const body: WireObject = { model: model.id, messages, stream: true, max_tokens: maxTokens, ...thinking };
 	if (context.systemPrompt) body.system = context.systemPrompt;
 	if (context.tools?.length) body.tools = context.tools.map(tool => ({ name: tool.name, description: tool.description, input_schema: tool.parameters }));
 	const headers: Record<string, string> = { "anthropic-version": "2023-06-01" };
 	if (rules.interleavedThinking && options?.thinking?.enabled !== false) headers["anthropic-beta"] = "interleaved-thinking-2025-05-14";
-	return { body, source, rules, headers };
+	return { body, source, rules, headers, authHeader: rules.authHeader };
 }
 
 interface BlockState {
 	block: StreamBlock;
 	nativeType: string;
 	closed: boolean;
-	signature: string;
+	signature?: string;
 	data?: string;
 	args: string;
 	initialInput?: WireObject;
@@ -141,7 +153,7 @@ async function readAnthropic(body: ReadableStream<Uint8Array>, output: Assistant
 					break;
 				default: throw new Error(`不支持的 Anthropic 内容块：${native.type}`);
 			}
-			const state: BlockState = { block, nativeType: native.type, closed: false, signature: native.signature === undefined ? "" : string(native.signature, "signature"), args: "" };
+			const state: BlockState = { block, nativeType: native.type, closed: false, signature: native.signature === undefined ? undefined : string(native.signature, "signature"), args: "" };
 			if (native.type === "redacted_thinking") state.data = string(native.data, "redacted thinking data");
 			if (native.type === "tool_use") state.initialInput = object(native.input, "tool_use.input");
 			blocks.set(position, state);
@@ -160,7 +172,7 @@ async function readAnthropic(body: ReadableStream<Uint8Array>, output: Assistant
 		const delta = object(event.delta, "content delta");
 		if (delta.type === "text_delta" && state.nativeType === "text") appendBlock(output, stream, state.block, string(delta.text, "text delta"));
 		else if (delta.type === "thinking_delta" && state.nativeType === "thinking") appendBlock(output, stream, state.block, string(delta.thinking, "thinking delta"));
-		else if (delta.type === "signature_delta" && state.nativeType === "thinking") state.signature += string(delta.signature, "signature delta");
+		else if (delta.type === "signature_delta" && state.nativeType === "thinking") state.signature = (state.signature ?? "") + string(delta.signature, "signature delta");
 		else if (delta.type === "input_json_delta" && state.block.type === "toolCall") {
 			const value = string(delta.partial_json, "工具参数增量");
 			state.args += value;
@@ -184,12 +196,12 @@ async function readAnthropic(body: ReadableStream<Uint8Array>, output: Assistant
 			ids.add(state.block.id);
 			if (state.args && Object.keys(state.initialInput!).length) throw new Error("Anthropic 工具同时返回非空初始参数和 JSON 增量。");
 			state.block.arguments = state.args ? parseArguments(state.args) : state.initialInput!;
-		} else if (state.nativeType === "thinking" && !state.signature) throw new Error("Anthropic 完整 thinking 块缺少签名。");
+		} else if (state.nativeType === "thinking" && request.rules.thinkingSignature === "required" && !state.signature) throw new Error("Anthropic 完整 thinking 块缺少签名。");
 		else if (state.nativeType === "redacted_thinking" && !state.data) throw new Error("Anthropic redacted thinking 缺少数据。");
 	}
 	for (const state of blocks.values()) {
 		if (state.block.type === "toolCall") endBlock(output, stream, state.block);
-		if (state.block.type === "thinking") state.block.replay = { source: { ...request.source }, payload: { block: state.nativeType === "redacted_thinking" ? { type: "redacted_thinking", data: state.data! } : { type: "thinking", thinking: state.block.thinking, signature: state.signature } } };
+		if (state.block.type === "thinking") state.block.replay = { source: { ...request.source }, payload: { block: state.nativeType === "redacted_thinking" ? { type: "redacted_thinking", data: state.data! } : { type: "thinking", thinking: state.block.thinking, ...(state.signature !== undefined ? { signature: state.signature } : {}) } } };
 	}
 }
 

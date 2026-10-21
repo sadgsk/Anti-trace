@@ -157,7 +157,8 @@ async function streamAssistantResponse(
 		tools: context.tools,
 	};
 	const resolvedApiKey =
-		(config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey;
+		config.getApiKey ? await config.getApiKey(config.model.provider, config.model) : config.apiKey;
+	signal?.throwIfAborted();
 	const response = await streamFn(config.model, llmContext, {
 		apiKey: resolvedApiKey,
 		signal,

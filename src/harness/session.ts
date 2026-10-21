@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import type { AgentMessage, ImageContent } from "../types.ts";
+import type { AgentMessage, ImageContent, SessionSettings } from "../types.ts";
+import { THINKING_LEVELS } from "../llm/rules.ts";
 import { extensionForImageMimeType } from "./tools/image.ts";
 
 export const DEFAULT_SESSIONS_ROOT = join(homedir(), ".cli-agent", "sessions");
@@ -36,7 +37,8 @@ export interface CompactionEntry {
 	tokensBefore?: number;
 }
 
-export type SessionEntry = SessionMessageEntry | CompactionEntry;
+export interface SessionSettingsEntry extends SessionSettings { type: "settings" }
+export type SessionEntry = SessionMessageEntry | CompactionEntry | SessionSettingsEntry;
 
 export interface SessionFile {
 	path: string;
@@ -74,6 +76,12 @@ export function sessionTitleFromUserText(text: string): string {
 }
 
 export function appendEntry(session: SessionFile, entry: SessionEntry): void {
+	if (session.flushed) {
+		// Keep in-memory settings unchanged when a persisted append fails.
+		appendFileSync(session.path, `${JSON.stringify(entry)}\n`);
+		session.entries.push(entry);
+		return;
+	}
 	session.entries.push(entry);
 
 	const hasAssistant = session.entries.some(
@@ -112,7 +120,6 @@ export function appendEntry(session: SessionFile, entry: SessionEntry): void {
 		return;
 	}
 
-	appendFileSync(session.path, `${JSON.stringify(entry)}\n`);
 }
 
 export interface LoadedSession {
@@ -120,6 +127,7 @@ export interface LoadedSession {
 	name: string;
 	messages: AgentMessage[];
 	entries: SessionEntry[];
+	settings?: SessionSettings;
 }
 
 export function loadSession(filePath: string): LoadedSession {
@@ -128,6 +136,7 @@ export function loadSession(filePath: string): LoadedSession {
 	const entries: SessionEntry[] = [];
 	const messages: AgentMessage[] = [];
 	let firstUserText = "";
+	let settings: SessionSettings | undefined;
 
 	for (const rawLine of text.split(/\r?\n/)) {
 		const line = rawLine.trim();
@@ -162,6 +171,22 @@ export function loadSession(filePath: string): LoadedSession {
 			continue;
 		}
 
+		if (row.type === "settings") {
+			const value = parsed as SessionSettingsEntry;
+			if (!value.thinking || !THINKING_LEVELS.includes(value.thinking.effort) ||
+				(value.thinking.enabled !== undefined && typeof value.thinking.enabled !== "boolean") ||
+				(value.modelRef !== undefined && (!value.modelRef || typeof value.modelRef.configPath !== "string" ||
+					!value.modelRef.configPath.trim() || typeof value.modelRef.modelKey !== "string" || !value.modelRef.modelKey.trim()))) {
+				throw new Error(`Invalid settings entry in ${filePath}`);
+			}
+			// Whitelist persisted fields: session data must never supply credentials or URLs.
+			settings = {
+				thinking: { effort: value.thinking.effort, ...(value.thinking.enabled === undefined ? {} : { enabled: value.thinking.enabled }) },
+				...(value.modelRef ? { modelRef: { configPath: value.modelRef.configPath, modelKey: value.modelRef.modelKey } } : {}),
+			};
+			entries.push({ type: "settings", ...settings });
+			continue;
+		}
 		if (row.type === "message") {
 			const message = (parsed as SessionMessageEntry).message;
 			if (!message || typeof message.role !== "string") {
@@ -214,6 +239,7 @@ export function loadSession(filePath: string): LoadedSession {
 		header,
 		entries,
 		messages,
+		settings,
 		name: header.name ?? sessionTitleFromUserText(firstUserText),
 	};
 }

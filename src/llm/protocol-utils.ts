@@ -70,6 +70,7 @@ export interface PreparedRequest {
 	source: ReasoningSource;
 	body: WireObject;
 	headers?: Record<string, string>;
+	authHeader?: "api-key" | "bearer";
 }
 
 /** Shared transport/lifecycle only; each protocol owns its wire format and completion checks. */
@@ -84,7 +85,8 @@ export function streamRequest<T extends PreparedRequest>(
 			options?.signal?.throwIfAborted();
 			const request = prepare();
 			if (!options?.apiKey?.trim()) throw new Error("No API key");
-			const auth: Record<string, string> = model.api === "anthropic-messages" ? { "x-api-key": options.apiKey } : { Authorization: `Bearer ${options.apiKey}` };
+			const authHeader = request.authHeader ?? (model.api === "anthropic-messages" ? "api-key" : "bearer");
+			const auth: Record<string, string> = authHeader === "api-key" ? { "x-api-key": options.apiKey } : { Authorization: `Bearer ${options.apiKey}` };
 			const response = await fetch(request.source.baseUrl, {
 				method: "POST", headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...auth, ...request.headers },
 				body: JSON.stringify(request.body), signal: options.signal,

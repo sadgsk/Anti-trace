@@ -33,11 +33,13 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	let startupMessage: string | undefined;
 	let warnings: string[] = [];
 	if (!harness) {
-		const sessionHarness = new Harness({ cwd, sessionsRoot: options.sessionsRoot, streamFn: streamModel });
+		const sessionHarness = new Harness({ cwd, sessionsRoot: options.sessionsRoot, streamFn: streamModel,
+			resolveModel: reference => byok!.resolveModel(reference) });
 		harness = sessionHarness;
 		byok = new ByokRuntime({ cwd, configPath: options.configPath, model: options.model }, config => {
-			sessionHarness.configureModel({ model: config.model, thinking: config.thinking, getApiKey: config.getApiKey });
-		});
+			sessionHarness.configureModel({ model: config.model, modelRef: { configPath: config.configPath, modelKey: config.currentModel },
+				thinking: config.thinking, getApiKey: config.getApiKey });
+		}, () => sessionHarness.settings);
 		const result = byok.reload();
 		startupMessage = result.message;
 		if (result.ok) warnings = result.warnings;

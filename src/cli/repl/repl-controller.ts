@@ -1,15 +1,17 @@
 import type { Harness } from "../../harness/harness.ts";
 import type { SessionListItem } from "../../harness/session.ts";
-import type { AgentEvent, AgentMessage } from "../../types.ts";
+import type { AgentEvent, AgentMessage, ThinkingLevel } from "../../types.ts";
+import { THINKING_LEVELS } from "../../llm/rules.ts";
 import { preparePromptSubmission, type PromptDraft } from "../input/prompt-draft.ts";
 import { previewToolResult } from "../render.ts";
 import type { ByokRuntime } from "../byok-runtime.ts";
 import { ByokConfigError } from "../../config/errors.ts";
 
 export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
-	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">;
+	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">
+	& Partial<Pick<Harness, "setThinkingLevel" | "setThinkingEnabled" | "describeSettings" | "settingsWarning">>;
 
-export interface ReplEntry { readonly id: number; readonly text: string; readonly kind?: "user" }
+export interface ReplEntry { readonly id: number; readonly text: string; readonly kind?: "user" | "thinking" }
 export interface ReplSnapshot {
 	readonly entries: readonly ReplEntry[];
 	readonly liveText: string;
@@ -17,6 +19,8 @@ export interface ReplSnapshot {
 	readonly closed: boolean;
 	readonly resumeChoices: readonly SessionListItem[] | null;
 	readonly error?: string;
+	readonly modelStatus?: string;
+	readonly liveKind?: "thinking";
 }
 
 export interface ReplOptions {
@@ -34,11 +38,13 @@ export class ReplController {
 	private readonly unsubscribe: () => void;
 	private readonly harness: ReplHarness;
 	private nextId = 1;
-	private streamedMessage = false;
+	private showThinking = true;
+	private readonly streamedBlocks = new Set<number>();
 	private disposed = false;
 
 	constructor(private readonly options: ReplOptions) {
 		this.harness = options.harness;
+		this.snapshot = { ...this.snapshot, modelStatus: this.harness.describeSettings?.() };
 		this.unsubscribe = this.harness.subscribe(event => this.handleEvent(event));
 	}
 
@@ -68,7 +74,7 @@ export class ReplController {
 				return true;
 			}
 			const line = text.trim();
-			const command = !/[\r\n]/u.test(text) ? /^\/(exit|new|resume|context|compact|help|reload|config|model)(?:\s+(.*))?$/u.exec(line) : null;
+			const command = !/[\r\n]/u.test(text) ? /^\/(exit|new|resume|context|compact|help|reload|config|model|thinking|effort|thinking-display)(?:\s+(.*))?$/u.exec(line) : null;
 			if (command && !(command[1] === "resume" && command[2] !== undefined)) {
 				await this.runCommand(command[1]!, command[2] ?? "");
 			} else {
@@ -84,7 +90,7 @@ export class ReplController {
 			}
 		} finally {
 			this.flushLive();
-			if (!this.snapshot.closed) this.update({ busy: false });
+			if (!this.snapshot.closed) this.update({ busy: false, modelStatus: this.harness.describeSettings?.() });
 		}
 		return true;
 	}
@@ -110,7 +116,7 @@ export class ReplController {
 		this.harness.abort();
 	}
 
-	write(text: string, kind?: "user"): void {
+	write(text: string, kind?: "user" | "thinking"): void {
 		if (!this.snapshot.closed) this.update({ entries: [...this.snapshot.entries, { id: this.nextId++, text, kind }] });
 	}
 
@@ -120,15 +126,37 @@ export class ReplController {
 	}
 
 	private async runCommand(command: string, argument: string): Promise<void> {
-		if (!["context", "config", "model"].includes(command) && argument.length > 0) {
+		if (!["context", "config", "model", "thinking", "effort", "thinking-display"].includes(command) && argument.length > 0) {
 			this.write(`用法：/${command}`);
 			return;
 		}
 		if (command === "exit") { this.exit(); return; }
 		if (command === "help") {
 			this.write("/exit 退出 · /new 新会话 · /resume 恢复会话 · /context [窗口] · /compact 压缩上下文");
-			this.write("/config [路径] 查看或更换 BYOK 配置 · /reload 重载配置 · /model <模型键> 选择模型（仅本次运行）");
+			this.write("/config [路径] 查看或更换 BYOK 配置 · /reload 重载配置 · /model <模型键> 选择模型（随会话保存）");
+			this.write("/thinking [on|off|default] 思考开关 · /effort [low|medium|high|xhigh|max] 档位 · /thinking-display [on|off] 显示思考文字");
 			this.write("Enter 提交 · Shift/Alt+Enter 换行 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做 · Ctrl+C 中断/清空 · Ctrl+D 退出");
+			return;
+		}
+		if (command === "thinking-display") {
+			if (argument && !["on", "off"].includes(argument)) { this.write("用法：/thinking-display [on|off]"); return; }
+			if (argument) this.showThinking = argument === "on";
+			this.write(`思考文字显示：${this.showThinking ? "开启" : "关闭"}。`);
+			return;
+		}
+		if (command === "thinking" || command === "effort") {
+			if (!this.harness.setThinkingEnabled || !this.harness.setThinkingLevel) throw new ByokConfigError("当前入口未提供思考设置。");
+			if (argument) {
+				if (command === "thinking") {
+					if (!["on", "off", "default"].includes(argument)) { this.write("用法：/thinking [on|off|default]"); return; }
+					this.harness.setThinkingEnabled(argument === "default" ? undefined : argument === "on");
+				} else {
+					if (!THINKING_LEVELS.includes(argument as ThinkingLevel)) { this.write("用法：/effort [low|medium|high|xhigh|max]"); return; }
+					this.harness.setThinkingLevel(argument as ThinkingLevel);
+				}
+			}
+			this.write(this.harness.describeSettings?.() ?? "");
+			if (command === "effort") this.write("档位：low / medium / high / xhigh / max；关闭或使用服务端默认时仍保存所选档位。");
 			return;
 		}
 		if (["reload", "config", "model"].includes(command)) {
@@ -183,8 +211,8 @@ export class ReplController {
 				: "暂无已加载的模型，请先加载有效配置；/config 查看详情。");
 			return;
 		}
-		const result = byok.reload(command === "config" ? { configPath: argument, model: undefined }
-			: command === "model" ? { model: argument } : {});
+		const result = command === "model" ? byok.selectModel(argument)
+			: byok.reload(command === "config" ? { configPath: argument, model: undefined } : {});
 		if (!result.ok) throw new ByokConfigError(command === "model" ? `${result.reason}\n/config 查看详情。` : result.message);
 		if (command === "model") {
 			this.write(`已切换到 ${argument}。`);
@@ -213,6 +241,8 @@ export class ReplController {
 		}
 		this.update({ resumeChoices: null });
 		this.write(`已恢复会话：${selected.name}`);
+		if (harness.settingsWarning) this.write(harness.settingsWarning);
+		if (harness.describeSettings) this.write(harness.describeSettings());
 		this.writeContext();
 	}
 
@@ -220,19 +250,23 @@ export class ReplController {
 		if (this.disposed || this.snapshot.closed) return;
 		switch (event.type) {
 			case "message_start":
-				if (event.message.role === "assistant") this.streamedMessage = false;
+				if (event.message.role === "assistant") {
+					this.streamedBlocks.clear();
+				}
 				break;
 			case "message_update":
-				if (event.assistantMessageEvent.type === "text_delta") {
-					this.streamedMessage = true;
-					this.update({ liveText: this.snapshot.liveText + event.assistantMessageEvent.delta });
+				if (event.assistantMessageEvent.type === "text_delta" || event.assistantMessageEvent.type === "thinking_delta") {
+					const delta = event.assistantMessageEvent;
+					this.streamedBlocks.add(delta.contentIndex);
+					this.appendLive(delta.delta, delta.type === "thinking_delta");
 				}
 				break;
 			case "message_end":
 				if (event.message.role === "assistant") {
-					if (!this.streamedMessage) {
-						const text = event.message.content.filter(block => block.type === "text").map(block => block.text).join("");
-						if (text) this.update({ liveText: this.snapshot.liveText + text });
+					for (const [index, block] of event.message.content.entries()) {
+						if (this.streamedBlocks.has(index)) continue;
+						if (block.type === "text") this.appendLive(block.text, false);
+						else if (block.type === "thinking") this.appendLive(block.thinking, true);
 					}
 					this.flushLive();
 				}
@@ -260,9 +294,16 @@ export class ReplController {
 		}
 	}
 
+	private appendLive(text: string, thinking: boolean): void {
+		if (!text || (thinking && !this.showThinking)) return;
+		const kind = thinking ? "thinking" : undefined;
+		if (this.snapshot.liveText && this.snapshot.liveKind !== kind) this.flushLive();
+		this.update({ liveKind: kind, liveText: this.snapshot.liveText + (thinking && !this.snapshot.liveText ? "[思考] " : "") + text });
+	}
+
 	private flushLive(): void {
 		if (this.snapshot.liveText && !this.snapshot.closed) {
-			this.update({ entries: [...this.snapshot.entries, { id: this.nextId++, text: this.snapshot.liveText }], liveText: "" });
+			this.update({ entries: [...this.snapshot.entries, { id: this.nextId++, text: this.snapshot.liveText, kind: this.snapshot.liveKind }], liveText: "", liveKind: undefined });
 		}
 	}
 

@@ -5,14 +5,16 @@ import { Check, Errors } from "typebox/value";
 import type { Model, ThinkingPreferences } from "../types.ts";
 import { AdapterConfigSchema, validateAdapterConfig, validateAdapterForApi } from "../llm/rules.ts";
 import { ByokConfigError } from "./errors.ts";
+import { CONNECTION_PRESETS } from "./presets.ts";
 
 const NonemptyString = Type.String({ pattern: "\\S" });
 const PositiveInteger = Type.Integer({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER });
 const ConnectionSchema = Type.Object({
-	api: Type.Union([
+	preset: Type.Optional(Type.String()),
+	api: Type.Optional(Type.Union([
 		Type.Literal("openai-completions"), Type.Literal("openai-responses"), Type.Literal("anthropic-messages"),
-	]),
-	baseUrl: NonemptyString,
+	])),
+	baseUrl: Type.Optional(NonemptyString),
 	endpoint: Type.Optional(NonemptyString),
 	apiKey: Type.Optional(NonemptyString),
 	apiKeyEnv: Type.Optional(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_]*$" })),
@@ -60,7 +62,7 @@ export interface LoadedByokConfig {
 	thinking: ThinkingPreferences;
 	warnings: string[];
 	/** Credentials stay out of models, messages and session data. Only resolve the requested model's key. */
-	getApiKey(model?: string): string;
+	getApiKey(model?: string | Model): string;
 }
 
 /** Read the BYOK catalog, validate every entry, then select the current model. */
@@ -93,14 +95,26 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 		throw new ByokConfigError(`BYOK 配置 ${configPath} 字段无效：${error?.instancePath || "/"}（${error?.keyword ?? "schema"}）。`);
 	}
 	const config: Static<typeof ConfigSchema> = raw;
+	const connections: Record<string, { api: Model["api"]; baseUrl: string; endpoint?: string; adapter?: Model["adapter"]; apiKey?: string; apiKeyEnv?: string }> = Object.create(null);
 	for (const [key, connection] of Object.entries(config.connections)) {
+		if (connection.preset !== undefined && !Object.hasOwn(CONNECTION_PRESETS, connection.preset)) {
+			throw new ByokConfigError(`连接 ${key} 的 preset 未知。可选：${Object.keys(CONNECTION_PRESETS).join("、")}`);
+		}
+		const preset = connection.preset ? CONNECTION_PRESETS[connection.preset as keyof typeof CONNECTION_PRESETS] : undefined;
+		const api = connection.api ?? preset?.api;
+		const baseUrl = connection.baseUrl ?? preset?.baseUrl;
+		if (!api || !baseUrl) throw new ByokConfigError(`连接 ${key} 需要 api 和 baseUrl，或明确选择连接 preset。`);
+		const adapter = preset || connection.adapter ? { ...preset?.adapter, ...connection.adapter } : undefined;
 		if ((connection.apiKey === undefined) === (connection.apiKeyEnv === undefined)) {
 			throw new ByokConfigError(`连接 ${key} 必须且只能设置 apiKey 或 apiKeyEnv 之一。`);
 		}
-		if (connection.adapter) validateAdapterAt(connection.adapter, `connections/${key}/adapter`);
-		connection.baseUrl = validateUrl(connection.baseUrl, `connections/${key}/baseUrl`, false);
+		if (adapter) {
+			validateAdapterAt(adapter, `connections/${key}/adapter`);
+			validateAdapterForApi(adapter, api);
+		}
+		connections[key] = { ...connection, api, adapter, baseUrl: validateUrl(baseUrl, `connections/${key}/baseUrl`, false) };
 		if (connection.endpoint !== undefined) {
-			connection.endpoint = validateUrl(connection.endpoint, `connections/${key}/endpoint`, true);
+			connections[key]!.endpoint = validateUrl(connection.endpoint, `connections/${key}/endpoint`, true);
 		}
 	}
 	const models: Record<string, Model> = Object.create(null);
@@ -111,7 +125,7 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 		if (entry.maxOutputTokens !== undefined && entry.maxOutputTokens > entry.contextWindow) {
 			throw new ByokConfigError(`模型 ${key} 的 maxOutputTokens 不能超过 contextWindow。`);
 		}
-		const connection = config.connections[entry.connection];
+		const connection = connections[entry.connection]!;
 		const adapter = connection.adapter || entry.adapter ? { ...connection.adapter, ...entry.adapter } : undefined;
 		if (adapter) {
 			validateAdapterAt(adapter, `models/${key}/adapter（合并连接默认值后）`);
@@ -141,11 +155,16 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 		thinking: { ...config.thinking, effort: config.thinking?.effort ?? "medium" },
 		warnings: Object.hasOwn(models, config.currentModel) ? []
 			: [`currentModel 引用了不存在的模型 ${config.currentModel}；本次使用明确选择的 ${currentModel}，请修正文件中的默认项。`],
-		getApiKey(modelKey = currentModel) {
-			if (!Object.hasOwn(config.models, modelKey)) throw new ByokConfigError(`未找到 BYOK 模型 ${modelKey}。`);
-			const connection = config.connections[config.models[modelKey].connection];
+		getApiKey(requested = currentModel) {
+			const requestedModel = typeof requested === "string" ? models[requested] : requested;
+			if (!requestedModel) throw new ByokConfigError(`未找到 BYOK 模型 ${requested}。`);
+			const connection = connections[requestedModel.provider];
+			if (!connection || connection.api !== requestedModel.api ||
+				connection.baseUrl !== requestedModel.baseUrl || connection.endpoint !== requestedModel.endpoint) {
+				throw new ByokConfigError("请求模型不属于当前连接目录，不能向其他接口发送该连接的凭据。");
+			}
 			const apiKey = (connection.apiKeyEnv !== undefined ? env[connection.apiKeyEnv] : connection.apiKey)?.trim();
-			if (!apiKey) throw new ByokConfigError(`模型 ${modelKey} 缺少凭据${connection.apiKeyEnv ? `：请设置环境变量 ${connection.apiKeyEnv}` : ""}。`);
+			if (!apiKey) throw new ByokConfigError(`模型 ${requestedModel.id} 缺少凭据${connection.apiKeyEnv ? `：请设置环境变量 ${connection.apiKeyEnv}` : ""}。`);
 			return apiKey;
 		},
 	};

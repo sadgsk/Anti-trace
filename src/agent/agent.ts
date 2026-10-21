@@ -20,6 +20,8 @@ import type {
 	ImageContent,
 	Message,
 	Model,
+	ModelRequestSettings,
+	ApiKeyResolver,
 	PrepareNextTurnContext,
 	ShouldStopAfterTurnContext,
 	StreamFn,
@@ -78,7 +80,7 @@ export interface AgentOptions {
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	apiKey?: string;
-	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+	getApiKey?: ApiKeyResolver;
 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
 	afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>;
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
@@ -103,7 +105,7 @@ export class Agent {
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	public streamFunction: StreamFn;
 	public apiKey?: string;
-	public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+	public getApiKey?: ApiKeyResolver;
 	public beforeToolCall?: (
 		context: BeforeToolCallContext,
 		signal?: AbortSignal,
@@ -167,8 +169,8 @@ export class Agent {
 		this._state.errorMessage = undefined;
 	}
 
-	async prompt(text: string, images?: ImageContent[]): Promise<void> {
-		const config = this.createLoopConfig();
+	async prompt(text: string, images?: ImageContent[], settings?: ModelRequestSettings): Promise<void> {
+		const config = this.createLoopConfig(settings);
 		const messages = this.normalizePromptInput(text, images);
 		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
@@ -183,8 +185,8 @@ export class Agent {
 	}
 
 	/** Run another model turn using the messages already in state, without adding a user message. */
-	async continueFromContext(): Promise<void> {
-		const config = this.createLoopConfig();
+	async continueFromContext(settings?: ModelRequestSettings): Promise<void> {
+		const config = this.createLoopConfig(settings);
 		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
 				[],
@@ -225,16 +227,17 @@ export class Agent {
 		};
 	}
 
-	private createLoopConfig(): AgentLoopConfig {
-		if (!this._state.model) throw new Error("尚未配置模型，无法发起模型请求。");
+	private createLoopConfig(settings?: ModelRequestSettings): AgentLoopConfig {
+		const model = settings?.model ?? this._state.model;
+		if (!model) throw new Error("尚未配置模型，无法发起模型请求。");
 		return {
 			// Detach request settings from state so tools and subscribers cannot change this run.
-			model: structuredClone(this._state.model),
-			thinking: { ...this._state.thinking },
+			model: structuredClone(model),
+			thinking: { ...(settings?.thinking ?? this._state.thinking) },
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
-			apiKey: this.apiKey,
-			getApiKey: this.getApiKey,
+			apiKey: settings ? settings.apiKey : this.apiKey,
+			getApiKey: settings ? settings.getApiKey : this.getApiKey,
 			beforeToolCall: this.beforeToolCall,
 			afterToolCall: this.afterToolCall,
 			shouldStopAfterTurn: this.shouldStopAfterTurn,

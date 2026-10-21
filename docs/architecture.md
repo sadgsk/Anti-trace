@@ -2,6 +2,8 @@
 
 项目目标是逐步构建一个可开源、可持续使用和演进的产品级个人 CLI agent。开发过程同时服务于用户理解源码：先参考 Pi，从简单到复杂补齐能力，再持续加入自己的设计和想法。学习决定每次推进的大小，产品目标决定框架和功能的设计。
 
+**长期产品目标（2026-10-21 明确，尚未实现）：** agent 根据用户的一句话描述，动态修改自身 CLI 的功能，范围包括工具、CLI 界面等，并通过热启动应用变更。需求解析、变更实施、验证及热启动机制仍待设计和实现；现有 `/reload` 仅重载模型配置，不能据此视为已经具备该能力。对外说明和预计架构图见 [中文 README](../README.md) / [English README](../README.en.md)。
+
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
 **输入迁移状态（2026-10-15）：**输入迁移功能已完成并提交，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除，已完成的施工计划按用户要求退役。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。此前本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE。现按用户要求，整个 `test/` 均仅保留在本地，取消历史文件跟踪和 npm 测试／探针入口，后续另建测试框架。其他平台原生终端、真实剪贴板和具体终端应用仍需手测，见 §7 和进度文档。上下键仅移动当前输入光标，不提供历史召回。
@@ -80,7 +82,7 @@ startLine(index + segment.length);
 | 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
 | 协议适配 | 上层使用 streamModel；已实现 Chat、Responses、Anthropic 的请求、思考、工具与图文转换。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
-| 思考等级与 BYOK | 第 01 批已确认，第 02 批已提交且主体 review 尾项保留；第 03＋04 批统一入口、规则模板与 Chat 思考链已实现，待 review。05＋06、07＋08 完整 Responses／Anthropic 协议已一起实现并通过本地验收，待 review；运行中控制等后续能力未完成；下一批合并 10～13，随后补 09 厂商规则，最后做 14 验收 |
+| 思考等级与 BYOK | 三协议、统一设置、逐请求凭据、压缩、会话选择恢复和思考显示均已接通；九家厂商有限绑定与 36 个连接预设已完成，既有 review 尾项保留 |
 
 **这一版（v1.2）的既定目标：**
 
@@ -92,13 +94,13 @@ startLine(index + segment.length);
 
 图片文件和剪贴板读取已通过新输入接入完整草稿；提交时按有效引用收集真实图片内容。
 
-**后续范围：** v1.3 做 TUI。v1.2 先以三种协议的基础接入和固定五档／独立开关为目标，模型与接口规则及施工边界见 BYOK build；具体实现细节在各批确定。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
+**后续范围：** v1.3 做 TUI。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
 
 ---
 
 ## 2. v1.2 目标行为
 
-下面的会话、命令和上下文行为已接入新 REPL；BYOK 已实现配置、运行快照、统一入口及 Chat 思考链，后续按 build 文档推进。输入链路的当前职责见 §3，验证范围见 §7。
+下面的会话、命令和上下文行为已接入新 REPL；BYOK 已实现三协议与统一设置链，配置入口见 [厂商示例](../byok.providers.example.json)，验证范围见 [开发进度](./progress.md)。输入链路的当前职责见 §3，验证范围见 §7。
 
 ```text
 main（屏幕）
@@ -146,11 +148,12 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 ```json
 {"type":"session","version":1,"id":"...","timestamp":"...","cwd":"...","name":"帮我改一下"}
+{"type":"settings","modelRef":{"configPath":".../byok.json","modelKey":"main"},"thinking":{"effort":"high","enabled":true}}
 {"type":"message","message":{...AgentMessage}}
 {"type":"compaction","summary":"...","keptMessages":[...]}
 ```
 
-**思考等级现状：** `agent.state.thinking` 保存 `{ enabled?, effort }`，档位固定为 `low / medium / high / xhigh / max`。初始档位 medium，开关未指定表示服务端默认；关闭仍保存档位。`createLoopConfig()` 复制模型（含 adapter 规则）与偏好，loop 传到统一 StreamFn；三协议已按规则完成真实编码与思考解析。`setThinkingLevel` 和 CLI 控制尚未实现；JSONL 已保存思考回传信息，仍无设置变更行，恢复选择在后续批次完成。
+**思考等级现状：** `agent.state.thinking` 保存 `{ enabled?, effort }`，档位固定为 `low / medium / high / xhigh / max`。初始档位 medium，开关未指定表示服务端默认；关闭仍保存档位。`createLoopConfig()` 复制模型（含 adapter 规则）与偏好，loop 传到统一 StreamFn；三协议已按规则完成真实编码与思考解析。Harness 提供 setThinkingLevel / setThinkingEnabled；CLI 提供 /thinking、/effort 和独立 /thinking-display。JSONL settings 保存模型目录引用与偏好；/new 继承，/resume 恢复，缺引用保留历史并提示当前模型。
 
 **上下文容量**先有窗口和用量。压缩在用量过线，或这轮回复表明上下文装不下时自动发生。
 
@@ -172,7 +175,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 | 文件 | 职责与状态 |
 |---|---|
-| `src/harness/harness.ts` | 装配、会话、窗口、用量、自动/手动压缩已接通；prompt 全程和摘要可取消，中断摘要不改历史；可传初始思考偏好，设置入口和 BYOK 压缩请求设置待接 |
+| `src/harness/harness.ts` | 装配、会话、设置、请求快照、用量与压缩；普通请求／摘要共享模型、偏好和逐请求凭据；取消不提交摘要 |
 | `src/harness/session.ts` | cwd 分桶、jsonl 持久化、命名、列表和恢复；已有 compaction 行读写结构 |
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
@@ -188,7 +191,6 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/config/byok.ts` | 加载 cwd 下的 `byok.json` 或显式路径 JSON，校验连接与模型目录、选择启动模型并独立读取凭据；JSON 是唯一模型配置来源，缺失或损坏均报错；dotenv 代码和两个 env 文件已删除，本机 JSON 被 Git 忽略 |
 | `src/cli/main.ts` | `runCli()` 先创建 Harness，再尝试应用 BYOK 配置；TTY 交互和非 TTY EOF 提交共用 REPL 逻辑，配置错误不阻止会话命令；导入不启动进程 |
 | `src/cli/byok-runtime.ts` | 保存待尝试选择、有效配置及诊断，加载校验后通过回调应用设置；提供模型键和可恢复结果，不管理 Harness 生命周期 |
-| `docs/byok-build.md` | 思考等级与 BYOK 的功能分工、Kimi Code／CC Switch 参考入口及可调整的小批次路线 |
 | `src/llm/adapter.ts`、`rules.ts`、`sse.ts` | 统一入口、adapter schema／配置校验／规则与编码模板、可复用 SSE 分帧；当前接入 Chat |
 | `src/types.ts`、`src/agent/agent.ts`、`src/agent/loop.ts` | BYOK 公共数据、模型／偏好（含 adapter）快照、请求选项与 hook 的显式覆盖；线上字段留在协议适配器 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
@@ -241,15 +243,17 @@ BYOK JSON 由 config/byok.ts 加载；原 env.ts 和 dotenv 启动链已删除�
 ```ts
 export interface HarnessModelSettings {
   model: Model;
-  thinking?: ThinkingPreferences; // 初始偏好，Chat 已按 adapter 规则编码
+  modelRef?: ModelReference;
+  thinking?: ThinkingPreferences; // 初始偏好，三协议各自编码
   apiKey?: string;
-  getApiKey?: () => string;
+  getApiKey?: (model: Model) => string | undefined | Promise<string | undefined>;
 }
 
 export interface HarnessOptions extends Partial<HarnessModelSettings> {
   cwd: string;
   streamFn: StreamFn;
   sessionsRoot?: string; // 默认 ~/.cli-agent/sessions；探针用 tmp
+  resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 }
 
 export class Harness {
@@ -263,6 +267,10 @@ export class Harness {
   resumeAt(index: number): boolean; // 1-based，对应 listSessions 的序号；越界或没有则 false
   configureModel(settings: HarnessModelSettings): void;
   setThinkingLevel(level: ThinkingLevel): void;
+  setThinkingEnabled(enabled: boolean | undefined): void;
+  readonly settings: SessionSettings;
+  readonly settingsWarning: string | undefined;
+  describeSettings(): string;
   setContextWindow(tokens: number): void;
   contextUsage(): { used: number; window: number | undefined };
   manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact">;
@@ -270,7 +278,7 @@ export class Harness {
 }
 ```
 
-**现有框架：** 构造时创建四个工具、系统提示和 Agent，允许模型未配置。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；压缩也在内部检查。`abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通。`manualCompact()` 检查模型、手动用量门槛和压后是否有新消息，再调用同一个 `compact()`。`setThinkingLevel` 仍是占位。
+**现有框架：** 构造时创建四个工具、系统提示和 Agent，允许模型未配置。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；压缩也在内部检查。`abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通。`manualCompact()` 检查模型、手动用量门槛和压后是否有新消息，再调用同一个 `compact()`。思考 setters 校验并记录设置；prompt 快照贯穿生成、自动摘要和溢出重试，工具续接／摘要重试重新取 Key。
 
 **对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
 
@@ -278,7 +286,7 @@ export class Harness {
 
 ### 5.2 `src/harness/session.ts`
 
-**做什么：** cwd 目录编码、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 已随 JSONL 保存，模型选择与思考偏好的设置条目和恢复随 10～13 合并批中的 12 职责一起完成。
+**做什么：** cwd 目录编码、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 随 JSONL 保存，settings 行只保存模型目录引用和偏好。loadSession 分别返回消息和最后设置，不从会话加载旧 URL／Key。
 
 - `sessionDirForCwd(cwd, sessionsRoot?): string` → `~/.cli-agent/sessions/--encoded--/`（`sessionsRoot` 默认家目录那份，探针指到 tmp）
 - `sessionTitleFromUserText(text): string` → 前 10 个字符，见 §2
@@ -289,7 +297,7 @@ export class Harness {
 - `findMostRecentSession(cwd): string | undefined` 即列表第 1 条的 path
 - `touchSession(path)`：更新 mtime（resume 时调用）
 
-当前格式不包含树、lane、`session_info` 或 thinking 档位变更行。compaction / 用量相关行的读写也走这里，类型放在 `session.ts`。`HarnessOptions.sessionsRoot?: string` 默认 `~/.cli-agent/sessions`。
+当前格式包含 settings 行，不包含树、lane 或 session_info。compaction / 用量相关行的读写也走这里，类型放在 `session.ts`。`HarnessOptions.sessionsRoot?: string` 默认 `~/.cli-agent/sessions`。
 
 **对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath` 和 `_persist` 中延迟落盘的处理。当前借鉴目录组织和延迟建文件的思路；标题规则、线性格式和恢复交互由本项目确定。
 
@@ -336,31 +344,31 @@ export class Harness {
 - 摘要调用失败则不改 `agent.state.messages`。成功才写回摘要 + kept，jsonl 追加 `compaction`，并用摘要加尾部重新估计 `usedTokens`。
 - 上面几处走同一套切点和摘要。自动路径直接调用 `Harness.compact()`；REPL `/compact` 通过 `manualCompact()` 判断 `used > window / 4` 后复用它。没有 `usage` 时，`stop` 超窗和空 `length` 两条不触发。
 
-手动 `/compact` 只在用量过 1/4 时运行现有摘要；无旧历史或刚压完没有新消息时提示。成功追加 compaction，内存换成摘要＋保留尾部；失败不换历史。分支摘要、文件列表元数据和宽 length 恢复不在本版。Chat 思考链已接通，但摘要尚未传入当前思考偏好，动态凭据与预算重新校验等统一接线随 10～13 合并批中的 11 职责一起完成；摘要只收普通正文。
+手动 `/compact` 只在用量过 1/4 时运行现有摘要；无旧历史或刚压完没有新消息时提示。成功追加 compaction，内存换成摘要＋保留尾部；失败不换历史。分支摘要、文件列表元数据和宽 length 恢复不在本版。三协议思考链已接通，摘要传入当前思考偏好，逐请求动态凭据与预算重新校验均已接通；摘要只收普通正文。
 
 **对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`；`pi/packages/ai/src/utils/overflow.ts` 的 `isContextOverflow`：错误文本、`stop` 且 input 超窗、`length` 且输出为 0。当前不接 `isRecoverableLength`；显示和窗口配置采用本项目设计。
 
 ---
 
-### 5.4 思考等级与 BYOK（第 03–08 批已实现，待 review）
+### 5.4 思考等级与 BYOK（约定功能已实现）
 
-完整产品行为、参考与配置见 [BYOK build](./byok-build.md)，其中 §6.2 记录当前 Chat adapter 契约。第 01 批已确认；第 02 批已提交，byok.ts 主体的 review 尾项保留。03＋04 已作为基线提交推送，review 待办保留；本次用户授权一起完成 05＋06 与 07＋08，源码和本地验收已完成，尚未提交／推送，待 review。
+统一设置链、选定厂商和本地验收已完成，既有 review 尾项保留。配置入口见 [厂商示例](../byok.providers.example.json)，模型绑定在 `src/llm/rules.ts`，命令见 README，验证记录见 [开发进度](./progress.md)。两份 BYOK 专题文档已按用户要求退役。
 
 配置使用 cwd 的 byok.json 或明确指定的路径；loadByokConfig 校验连接／模型目录并分离凭据。连接与模型可填 adapter：模型按字段覆盖连接默认，其中 thinking 整条替换。运行时模型不含凭据，adapter 随 createLoopConfig 的 structuredClone 一起快照；现有 loop 与内部 hook 行为继续复用。
 
 runCli 使用统一 streamModel，三协议均已接通。Chat 的 prepareChatRequest 选择规则，映射思考，序列化历史与工具，校验输出上限；fetch 只负责 HTTP；readSSE 解析正文、思考、工具与 usage，输出已有事件，不新增工具循环。rules.ts 集中保存 schema、规则选择与 effort／toggle／budget 模板，sse.ts 负责与 HTTP chunk 无关的分帧。
 
-用户固定五档和独立开关：未指定开关不发思考控制，开启按原生顺序映射或直接查五档预算；关闭保留档位，必须有真实关闭编码。预算为回答预留空间，装不下最低预算则失败。未知接口不猜 effort；用户明确配置优先于明确启用的预设／模型绑定，再使用协议默认。初始 openai 预设仅有已核对的 GPT-5.1 绑定，完整厂商覆盖仍在第 09 批。
+用户固定五档和独立开关：未指定开关不发思考控制，开启按原生顺序映射或直接查五档预算；关闭保留档位，必须有真实关闭编码。合并输出限额的预算规则为回答预留空间，装不下最低预算则失败。未知接口不猜 effort；用户明确配置优先于明确启用的预设／模型绑定，再使用协议默认。OpenAI 绑定 GPT-5.1/5.2，其他厂商按 rules.ts 中的有限型号绑定，不自动套用未来型号。
 
-Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正文交错的顺序。验证整条流完整结束后才给思考片段附 replay；source 含协议、连接、模型和规范化实际推理 URL。历史按 omit／same-source／required 策略处理，只发送完整同源数据；旧显示文字不当成原生数据，原 session 不变。截断／错误／取消不附 replay，未完成工具调用不作为合法调用落盘。Responses 使用无服务端会话依赖的 store:false／input items，回传完整加密 reasoning item；Anthropic 回传完整 thinking 签名与 redacted-thinking，预算模式工具续接缺必要数据时在 HTTP 前失败。两者默认同来源回传；Chat 的额外签名容器仍未实现。
+Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正文交错的顺序。验证整条流完整结束后才给思考片段附 replay；source 含协议、连接、模型和规范化实际推理 URL。历史按 omit／same-source／required 策略处理，只发送完整同源数据；旧显示文字不当成原生数据，原 session 不变。截断／错误／取消不附 replay，未完成工具调用不作为合法调用落盘。Responses 使用无服务端会话依赖的 store:false／input items，按厂商规则处理加密 reasoning、明文 content 数组／对象或 summary；只有加密模式发送 encrypted_content include。Anthropic 默认回传完整 thinking 签名与 redacted-thinking，兼容规则可允许无签名、选择 Bearer 及独立预算；Claude 默认预算工具续接仍校验必要数据。字符串工具结果的图文附件在整批工具结果之后分组发送。Chat 已接通 MiniMax reasoning_details 与 Gemini thought_signature；36 个连接预设在 config/presets.ts 中维护，模型范围由 rules.ts 的有限绑定确定。
 
-No.5 修复已接通配置恢复、运行中 `/model` 选择与 `Harness.configureModel()` 设置入口，失败操作保留当前会话。完整思考控制命令、逐请求动态凭据、压缩设置统一、会话设置恢复和思考显示已规划为 10＋11＋12＋13 一个完整批次，尚未整批完成。本批未改真实本机配置、未调用真实模型；验证结果见 build／progress。05＋06／07＋08 已一起完成请求、流解析和现有 Agent 工具往返。protocol-utils.ts 共用传输、取消、能力检查与事件小函数，协议各自校验消息结构和结束条件；原生结束原因另存 rawStopReason。Anthropic usage.input 包含普通输入、缓存写入及缓存读取 token。
+配置错误恢复、模型／思考设置、逐请求凭据、压缩设置、JSONL 恢复和显示已全部接通。新增源码为 config/presets.ts，公共可选 replay 扩展到 ToolCall 和 AssistantMessage 以承载 Google 签名。protocol-utils.ts 共用传输、取消、能力检查与事件函数；协议各自校验消息和结束条件。原生结束原因另存 rawStopReason；Anthropic usage.input 合计普通输入与缓存写入／读取。真实配置未修改，实际 DeepSeek 覆盖与网络失败见开发进度的 2026-10-20 记录。
 
 ---
 
 ### 5.5 `main.ts` 装配
 
-启动：`runCli()` 调用 loadByokConfig 取得模型、思考偏好与凭据，装配 Harness 并使用统一 streamModel；三协议均通过同一请求入口运行，缺参数或 HTTP 错误在操作内部报告。TTY 进入 startTerminalRepl；非 TTY 收集 UTF-8 输入到 EOF，再交给同一个 ReplController。
+启动：runCli 先创建 Harness，ByokRuntime 随后加载目录并回调应用模型、偏好与凭据解析函数，使用统一 streamModel；三协议均通过同一请求入口运行，缺参数或 HTTP 错误在操作内部报告。TTY 进入 startTerminalRepl；非 TTY 收集 UTF-8 输入到 EOF，再交给同一个 ReplController。
 
 `npm start` 已恢复交互：输入完整草稿展开后调用 Harness，命令包括 `/new`、`/resume`、`/context`、`/compact`、`/help` 和 `/exit`。接受提交后清理整份草稿；生成时允许编辑下一条但不提前提交。Agent 事件由 REPL 投影到 Ink，不同时订阅直接写 stdout 的 `renderEvent`。退出、EOF、信号、回调异常统一清理订阅和终端模式；非 TTY 只打印模型/命令输出，退出码反映错误或信号。
 
@@ -368,15 +376,15 @@ No.5 修复已接通配置恢复、运行中 `/model` 选择与 `Harness.configu
 
 ## 6. 接下来如何推进
 
-第 3 步上下文容量与第 5 步手动入口代码已完成，真实模型压缩验收暂缓。BYOK 第 01 批已确认，第 02 批已提交且主体 review 尾项保留；03＋04 的 review 待办保留。05＋06、07＋08 已一起实现，待 review；剩余工作按用户确认的顺序推进：先合并 10＋11＋12＋13 的统一设置链路，再按需补 09 厂商规则，最后做 14 整体验收。此次仅调整计划，合并批尚未完整实施。v1.3 才做完整 TUI。
+上下文容量与手动压缩已实现；本轮 BYOK 约定功能、九家厂商范围和本地验收完成，等待用户 review。真实地区账户、跨平台终端和公开试用准备继续按条件推进。v1.3 才做完整 TUI。
 
-每行是一个功能里程碑，按已确定的完整交付边界推进。BYOK 10～13 共用设置、凭据和模型引用，须把 CLI 操作、普通请求／工具续接、压缩及会话恢复一起实现并验收，再按调用链分段 review；原编号仅作职责索引。施工前一次确定 /new、/resume、/reload、/config 的设置关系及 busy 行为。09 随后按选定厂商／接口格式独立扩充，14 最后收尾；每批都完成自己的验证。已经存在的基础函数直接接着使用，不因换对话重复搭建。每个代码小点保持 `tsc --noEmit` 通过，功能接通后再做相应行为验收。
+下表区分实现、review 与真实环境验证。不要在新对话重复搭建已完成的设置、协议或会话链；后续只按新增需求扩充。功能完成后验证，保持类型检查与构建通过。
 
 | 步 | 做哪些文件 | 完成标准 | 主要对照 |
 |---|---|---|---|
 | 3 | 上下文容量：窗口、usage、显示、自动压缩和溢出重试 | 代码与假 `StreamFn` 验证已完成；真实模型压缩验收待做 | `shouldCompact`；`isContextOverflow` |
 | 5 | 手动 `/compact` + 1/4 用量门槛 | 入口代码与假流验证完成；未过线不调模型，过线且有旧历史则生成摘要并落 `compaction`；待 review 和真实模型续聊验收 | 当前 `Harness.compact()`；`findCutIndex` |
-| 4+6 | 思考等级与 BYOK：三协议已实现；按 build 路线先合并 10～13 统一设置链路，再补 09 厂商规则，最后做 14 验收 | 配置模型完成多轮工具调用；用户选择按规则生效，关闭不伪装为低档；会话与压缩沿用正确配置 | 新版 TS Kimi Code、CC Switch 对应映射／兼容模块、官方接口文档 |
+| 4+6 | 思考等级与 BYOK：约定功能与选定厂商范围已实现 | 模型请求、工具、设置恢复和压缩本地验证通过；真实接口范围见开发进度 | Kimi、CC Switch、Pi 与官方文档 |
 | 7 | REPL 按 §7 验收 | 功能验证完成并记录未覆盖的网关差异 | — |
 
 session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
@@ -385,14 +393,14 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 ## 7. 这一版验收
 
-新 REPL 已接通，本机 115 项扩展输入测试通过，包括 macOS 真实 POSIX PTY、实际 Harness 与本地 HTTP SSE；所有测试文件现按用户要求只留本地，仓库不再提供对应测试脚本入口。下列清单仍包含真实模型、特定终端应用及尚未实现的思考/BYOK 验收，不能以本地测试替代。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
+新 REPL 已接通，本机 115 项扩展输入测试通过，包括 macOS 真实 POSIX PTY、实际 Harness 与本地 HTTP SSE；所有测试文件现按用户要求只留本地，仓库不再提供对应测试脚本入口。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以本地测试替代。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
 2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
 3. `/new` 后再说一句，同目录多一个文件，两份 `name` 能分开。
 4. 退出再启动，整行输入 `/resume` 打印「名字 + 上次打开时间」列表，再输入序号接上那一份（能问「我刚才说了什么」对得上）。
 5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改窗口配置或 `/context <n>` 后窗口跟着变。假流探针覆盖阈值压缩、溢出报错、空 `length` 重试和 `stop` 超窗只压。`/compact` 在用量未过 1/4 时提示无需压缩；过线且有可压旧历史时用真实模型生成摘要，jsonl 有 `compaction` 行，续聊能利用摘要和保留的尾部。
-6. 按最终确定的模型配置检查思考选项：能控制的档位与实际请求一致；不能控制或参数被拒绝时有明确反馈，兜底与重试行为可复现。模型切换和会话恢复的预期行为在合并设计时确定。
+6. 按最终确定的模型配置检查思考选项：能控制的档位与实际请求一致；不能控制或参数被拒绝时有明确反馈，兜底与重试行为可复现。模型切换保留偏好，/new 继承，/resume 按已加载目录解析会话引用。
 7. 分别选择 OpenAI Chat Completions、Anthropic Messages、OpenAI Responses，使用自填 URL / key / 模型完成多轮文本、一次工具调用及结果回传；核对 usage、错误、中断和不支持图片时的明确提示。
 8. `/new` 后工具还能用，且开始一份新会话。
 9. 验收实际终端中的多行粘贴、独立 Enter、组合键、图片引用和 `/resume` 序号输入。Windows PowerShell、WebStorm 终端和 macOS Terminal 的手动结果分别记录，不能以单个平台的探针代替。
@@ -411,7 +419,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 1. `session-manager.ts`：`getDefaultSessionDirPath`、`_persist` 延迟建文件
 2. `harness/compaction/compaction.ts`：默认常量和 `shouldCompact`
-3. 思考等级与 BYOK 按 [build 文档](./byok-build.md) 选择新版 TS Kimi Code、CC Switch 的具体入口；Pi 的模型能力和协议处理作为补充参考
+3. 思考等级与 BYOK 参考同级新版 TS Kimi Code 的统一请求边界，以及 [CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) 的规则映射；Pi 的模型能力和协议处理作为补充参考
 4. 仓库里现有的 `src/agent/agent.ts`、`src/llm/openai-chat.ts`、`src/cli/main.ts`
 
 ---
@@ -427,7 +435,7 @@ src/harness/context.ts            窗口 / 计量 / 显示（自定）
 src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*，实现按本项目需求调整
 src/harness/prompt.ts             本项目的系统提示
-思考等级与 BYOK                    模型能力、协议适配和可配置映射，待合并设计
+思考等级与 BYOK                    模型能力、三协议适配与有限绑定，已实现
 cli/input/*                       新输入、完整附件草稿与撤销；参考 CC 输入链路
 cli/repl/*                        提交展开、命令分派、Harness 事件与 Ink 显示
 cli/main.ts                       Harness 装配；TTY 交互 / 非 TTY EOF 提交

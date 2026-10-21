@@ -89,10 +89,10 @@ onSubmit: draft => { void repl.submit(draft); }
 2. 将显示状态设为 `busy`；通过 `onAccept` 重置输入框。已经取得的提交草稿仍供本次请求使用。
 3. 识别命令；普通聊天输入走 `await this.harness.prompt(text, images)`。
 
-接下来，`Harness.prompt()` 检查模型和凭据、管理本次操作的取消状态，再进入 `runPrompt()`。有图片时会保存图片并追加路径说明，随后调用：
+接下来，`Harness.prompt()` 快照当前模型与思考偏好、预检编码和首个 Key、管理本次操作的取消状态，再进入 `runPrompt()`。有图片时会保存图片并追加路径说明，随后调用：
 
 ```ts
-await this.agent.prompt(promptText, images);
+await this.agent.prompt(promptText, images, settings);
 ```
 
 ### 2.3 输入内容进入 currentContext
@@ -159,7 +159,7 @@ const llmContext: Context = {
 };
 ```
 
-随后解析 API Key，调用 `streamFn(model, llmContext, options)`。默认的 `streamFn` 是 `streamModel`，按 `model.api` 选择 Chat Completions、Responses 或 Anthropic 适配器。
+随后调用 `getApiKey(provider, model)` 解析该请求目标连接的 Key，再调用 `streamFn(model, llmContext, options)`。工具续接重新解析 Key，模型和思考偏好沿用本轮快照，除非 prepareNextTurn 显式覆盖。默认的 `streamFn` 是 `streamModel`，按 `model.api` 选择 Chat Completions、Responses 或 Anthropic 适配器。
 
 以 Anthropic 为例：
 
@@ -302,7 +302,7 @@ loop 中 emit(event)
   → Ink 更新终端显示
 ```
 
-REPL 在 `message_update` 的 `text_delta` 分支追加 `liveText`；在 `tool_execution_start` 分支添加“工具正在运行”的显示记录；在 `tool_execution_end` 分支显示结果预览。`toolcall_end` 表示模型的工具调用信息已经完整，实际执行由 loop 随后进行。
+REPL 在 `message_update` 的 text_delta / thinking_delta 分支按顺序追加 liveText，思考附 [思考] 标识，可独立隐藏；在 `tool_execution_start` 分支添加“工具正在运行”的显示记录；在 `tool_execution_end` 分支显示结果预览。`toolcall_end` 表示模型的工具调用信息已经完整，实际执行由 loop 随后进行。
 
 `message_end` 表示一条消息结束，`turn_end` 表示一次模型请求及其工具处理结束，`agent_end` 表示这次 Agent 运行结束。工具结果本身也会产生消息事件，一次运行可以出现多次 `message_end` 和 `turn_end`。
 

@@ -1,5 +1,5 @@
 import type { AssistantMessage, Context, ImageContent, Model, StreamFn, StreamOptions, TextContent, ThinkingContent, ToolCall } from "../types.ts";
-import { encodeNativeThinking, resolveNativeRules } from "./rules.ts";
+import { encodeNativeThinking, resolveNativeRules, type NativeRules } from "./rules.ts";
 import { readSse } from "./sse.ts";
 import type { AssistantMessageEventStream } from "./event-stream.ts";
 import { appendBlock, endBlock, index, object, outputLimit, parseArguments, reconcileText, replayable, requestIdentity, sameSource, startBlock, streamRequest, string, tokenCount, toolIdMap, validateCapabilities, type WireObject } from "./protocol-utils.ts";
@@ -7,13 +7,32 @@ import { appendBlock, endBlock, index, object, outputLimit, parseArguments, reco
 function inputContent(content: (TextContent | ImageContent)[]): WireObject[] {
 	return content.map(block => block.type === "text" ? { type: "input_text", text: block.text } : { type: "input_image", image_url: `data:${block.mimeType};base64,${block.data}`, detail: "auto" });
 }
-function reasoningItem(value: unknown): WireObject | undefined {
+function reasoningParts(value: unknown, type: "summary_text" | "reasoning_text"): WireObject[] | undefined {
+	if (!Array.isArray(value) || value.some(part => !part || part.type !== type || typeof part.text !== "string")) return;
+	return structuredClone(value).map(part => ({ type, text: part.text }));
+}
+function reasoningItem(value: unknown, format: NativeRules["responsesReasoning"]): WireObject | undefined {
 	if (!value || typeof value !== "object" || Array.isArray(value)) return;
 	const item = value as WireObject;
-	if (item.type !== "reasoning" || typeof item.id !== "string" || !item.id || typeof item.encrypted_content !== "string" || !item.encrypted_content || !Array.isArray(item.summary)) return;
-	if (item.summary.some((part: any) => !part || part.type !== "summary_text" || typeof part.text !== "string")) return;
+	if (item.type !== "reasoning" || typeof item.id !== "string" || !item.id) return;
+	if (format === "content-object") {
+		const content = reasoningParts([item.content], "reasoning_text")?.[0];
+		return content ? { type: "reasoning", content } : undefined;
+	}
+	if (format === "content" || format === "content-to-summary") {
+		const content = reasoningParts(item.content, "reasoning_text");
+		if (!content) return;
+		// MiniMax's output uses content; its documented reasoning input uses summary.
+		return format === "content-to-summary"
+			? { type: "reasoning", summary: content.map(part => ({ type: "summary_text", text: part.text })) }
+			: { type: "reasoning", id: item.id, content };
+	}
+	const summary = reasoningParts(item.summary, "summary_text");
+	if (!summary) return;
+	if (format === "summary") return { type: "reasoning", id: item.id, summary };
+	if (typeof item.encrypted_content !== "string" || !item.encrypted_content) return;
 	// Only documented input fields cross the request boundary; preserve opaque bytes unchanged.
-	return { type: "reasoning", id: item.id, summary: structuredClone(item.summary), encrypted_content: item.encrypted_content };
+	return { type: "reasoning", id: item.id, summary, encrypted_content: item.encrypted_content };
 }
 
 function prepareResponsesRequest(model: Model, context: Context, options?: StreamOptions) {
@@ -24,14 +43,24 @@ function prepareResponsesRequest(model: Model, context: Context, options?: Strea
 	const maxTokens = outputLimit(model, options);
 	const id = toolIdMap(context);
 	const input: WireObject[] = [];
+	let attachments: WireObject[] = [];
 	for (const message of context.messages) {
+		if (message.role !== "toolResult" && attachments.length) {
+			input.push({ role: "user", content: attachments });
+			attachments = [];
+		}
 		if (message.role === "user") {
 			if (message.content.length) input.push({ role: "user", content: inputContent(message.content) });
 		} else if (message.role === "toolResult") {
-			input.push({ type: "function_call_output", call_id: id(message.toolCallId), output: message.content.length ? inputContent(message.content) : "(no tool output)" });
+			const content = inputContent(message.content);
+			const text = message.content.filter(block => block.type === "text").map(block => block.text).join("\n");
+			input.push({ type: "function_call_output", call_id: id(message.toolCallId), output: rules.toolResultFormat === "text" ? text || "(no text output)" : content.length ? content : "(no tool output)" });
+			if (rules.toolResultFormat === "text" && message.content.some(block => block.type === "image")) {
+				attachments.push({ type: "input_text", text: `Tool ${message.toolName} (${message.toolCallId}) returned:` }, ...content);
+			}
 		} else {
 			const thoughts = message.content.filter((block): block is ThinkingContent => block.type === "thinking");
-			const native = thoughts.map(block => sameSource(block.replay?.source, source) ? reasoningItem(block.replay?.payload.item) : undefined);
+			const native = thoughts.map(block => sameSource(block.replay?.source, source) ? reasoningItem(block.replay?.payload.item, rules.responsesReasoning) : undefined);
 			const complete = replayable(message) && native.length > 0 && native.every(Boolean);
 			if (rules.reasoningReplay === "required" && options?.thinking?.enabled !== false && message.content.some(block => block.type === "toolCall") && !complete) throw new Error("Responses 工具续接缺少同来源的完整 reasoning item。");
 			let thoughtIndex = 0;
@@ -45,8 +74,10 @@ function prepareResponsesRequest(model: Model, context: Context, options?: Strea
 			}
 		}
 	}
+	if (attachments.length) input.push({ role: "user", content: attachments });
 	const thinking = encodeNativeThinking(model.api, rules, options?.thinking, maxTokens);
-	const body: WireObject = { model: model.id, input, stream: true, store: false, include: ["reasoning.encrypted_content"], ...thinking };
+	const body: WireObject = { model: model.id, input, stream: true, store: false, ...thinking };
+	if (rules.responsesReasoning === "encrypted") body.include = ["reasoning.encrypted_content"];
 	if (context.systemPrompt) body.instructions = context.systemPrompt;
 	if (maxTokens !== undefined) body.max_output_tokens = maxTokens;
 	if (rules.reasoningSummary && options?.thinking?.enabled !== false) body.reasoning = { ...body.reasoning, summary: rules.reasoningSummary };
@@ -61,6 +92,7 @@ interface ItemState {
 	parts: Map<number, { block: TextContent; kind: "output_text" | "refusal"; closed: boolean }>;
 	thinking?: ThinkingContent;
 	summaries: Map<number, string>;
+	reasoningContent: Map<number, string>;
 	tool?: ToolCall;
 	args: string;
 	native?: WireObject;
@@ -73,7 +105,7 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 		const item = object(raw, "output item");
 		if (items.has(position) || [...items.values()].some(state => state.id === item.id)) throw new Error("Responses output item 重复。");
 		if (!["message", "reasoning", "function_call"].includes(item.type)) throw new Error(`不支持的 Responses output item：${item.type}`);
-		const state: ItemState = { id: string(item.id, "item.id"), type: item.type, closed: false, parts: new Map(), summaries: new Map(), args: "" };
+		const state: ItemState = { id: string(item.id, "item.id"), type: item.type, closed: false, parts: new Map(), summaries: new Map(), reasoningContent: new Map(), args: "" };
 		if (!state.id) throw new Error("Responses item.id 不能为空。");
 		items.set(position, state);
 		if (state.type === "reasoning") {
@@ -107,17 +139,20 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 			if (suffix) appendBlock(output, stream, state.tool!, suffix);
 			state.args = item.arguments;
 		} else if (state.type === "reasoning") {
-			if (!Array.isArray(item.summary)) throw new Error("Responses reasoning 缺少 summary。");
-			const summaries = item.summary.map((part: any, i: number) => {
-				if (part?.type !== "summary_text") throw new Error("Responses reasoning summary 类型无效。");
-				reconcileText(state.summaries.get(i) ?? "", part.text);
-				return string(part.text, "summary text");
+			const useContent = ["content", "content-object", "content-to-summary"].includes(request.rules.responsesReasoning);
+			const parts = useContent ? reasoningParts(request.rules.responsesReasoning === "content-object" ? [item.content] : item.content, "reasoning_text") : reasoningParts(item.summary, "summary_text");
+			if (!parts) throw new Error("Responses reasoning 内容格式与当前协议规则不匹配。");
+			const received = useContent ? state.reasoningContent : state.summaries;
+			const texts = parts.map((part, i) => {
+				reconcileText(received.get(i) ?? "", part.text);
+				return part.text as string;
 			});
-			if ([...state.summaries.keys()].some(i => i >= summaries.length)) throw new Error("Responses reasoning summary 丢失。");
-			const suffix = reconcileText(state.thinking!.thinking, summaries.join("\n\n"));
+			if ([...received.keys()].some(i => i >= texts.length)) throw new Error("Responses reasoning 内容丢失。");
+			const suffix = reconcileText(state.thinking!.thinking, texts.join("\n\n"));
 			if (state.closed && suffix) throw new Error("Responses 已结束的 reasoning 仍在变化。");
 			if (suffix) appendBlock(output, stream, state.thinking!, suffix);
-			state.native = reasoningItem(item);
+			// Keep the validated output shape for later source-checked request conversion.
+			state.native = reasoningItem(item, request.rules.responsesReasoning) ? structuredClone(item) : undefined;
 		} else {
 			if (!Array.isArray(item.content)) throw new Error("Responses message 缺少 content。");
 			item.content.forEach((rawPart: any, i: number) => {
@@ -165,7 +200,7 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 		}
 		if (event.type === "response.output_item.added") { addItem(index(event.output_index), event.item); continue; }
 		// Lifecycle/annotations and future non-content events do not affect the message.
-		if (!/^response\.(?:output_item\.done|content_part\.|output_text\.|refusal\.|function_call_arguments\.|reasoning_summary_)/.test(event.type ?? "")) continue;
+		if (!/^response\.(?:output_item\.done|content_part\.|output_text\.|refusal\.|function_call_arguments\.|reasoning_summary_|reasoning_text\.)/.test(event.type ?? "")) continue;
 		const state = items.get(index(event.output_index));
 		if (!state || (event.item_id !== undefined && state.id !== event.item_id)) throw new Error("Responses 增量引用未知 item。");
 		if (state.closed) throw new Error("Responses 已结束的 item 收到增量。");
@@ -175,6 +210,21 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 			const delta = event.type.endsWith(".delta") ? string(event.delta, "工具参数增量") : reconcileText(state.args, event.arguments);
 			state.args += delta;
 			if (delta) appendBlock(output, stream, state.tool, delta);
+		} else if (event.type.startsWith("response.reasoning_text.") || (state.thinking && event.type.startsWith("response.content_part."))) {
+			if (!state.thinking) throw new Error("Responses reasoning 事件引用非 reasoning item。");
+			const position = index(event.content_index ?? 0);
+			// Qwen streams reasoning_text but commits it as summary_text in the final item.
+			const received = request.rules.responsesReasoning === "summary" ? state.summaries : state.reasoningContent;
+			const current = received.get(position) ?? "";
+			if (event.part && event.part.type !== "reasoning_text") throw new Error("Responses reasoning part 类型无效。");
+			const delta = event.type.endsWith(".delta") ? string(event.delta, "reasoning delta") : reconcileText(current, event.part?.text ?? event.text);
+			const visible = request.rules.responsesReasoning !== "encrypted";
+			if (!received.has(position)) {
+				if (position !== received.size) throw new Error("Responses reasoning content 顺序无效。");
+				if (visible && position) appendBlock(output, stream, state.thinking, "\n\n");
+			}
+			received.set(position, current + delta);
+			if (visible && delta) appendBlock(output, stream, state.thinking, delta);
 		} else if (event.type.startsWith("response.reasoning_summary_")) {
 			if (!state.thinking) throw new Error("Responses summary 事件引用非 reasoning item。");
 			const position = index(event.summary_index);
@@ -185,10 +235,10 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 			else if (event.part) delta = reconcileText(current, event.part.text);
 			if (!state.summaries.has(position)) {
 				if (position !== state.summaries.size) throw new Error("Responses summary 顺序无效。");
-				if (position) appendBlock(output, stream, state.thinking, "\n\n");
+				if (position && ["encrypted", "summary"].includes(request.rules.responsesReasoning)) appendBlock(output, stream, state.thinking, "\n\n");
 			}
 			state.summaries.set(position, current + delta);
-			if (delta) appendBlock(output, stream, state.thinking, delta);
+			if (delta && ["encrypted", "summary"].includes(request.rules.responsesReasoning)) appendBlock(output, stream, state.thinking, delta);
 		} else if (event.type.startsWith("response.output_text.") || event.type.startsWith("response.refusal.") || event.type.startsWith("response.content_part.")) {
 			const kind = event.part?.type ?? (event.type.startsWith("response.refusal.") ? "refusal" : "output_text");
 			if (kind !== "output_text" && kind !== "refusal") throw new Error("不支持的 Responses content part。");

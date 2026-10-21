@@ -60,7 +60,7 @@ Agent 会按任务需要读取文件、修改代码和执行命令。这些操�
 
 CLI 默认读取启动目录下的 `byok.json`，也可通过 `CLI_AGENT_CONFIG` 指定其他文件。不会读取 `.env` 文件。`byok.json` 已被 Git 忽略，请勿提交真实密钥。
 
-`baseUrl` 应包含服务所需的版本前缀，例如 `/v1`。思考参数、适配规则与协议细节见 [BYOK 文档](docs/byok-build.md)。不同兼容服务的参数可能有差异，需按实际接口配置。
+`baseUrl` 应包含服务所需的版本前缀，例如 `/v1`。也可从 [厂商配置示例](byok.providers.example.json) 选取连接预设与模型，设置对应的环境变量密钥。示例覆盖九家厂商的 36 个连接选项；各协议、地区和模型的参数按明确规则适配。
 
 ## 常用命令
 
@@ -72,13 +72,16 @@ CLI 默认读取启动目录下的 `byok.json`，也可通过 `CLI_AGENT_CONFIG`
 | `/model <模型键>` | 选择本次运行使用的模型 |
 | `/config [路径]` | 查看配置状态或更换配置文件 |
 | `/reload` | 重新读取模型配置 |
+| `/thinking on\|off\|default` | 开启、关闭思考或使用服务端默认 |
+| `/effort low\|medium\|high\|xhigh\|max` | 设置思考档位 |
+| `/thinking-display on\|off` | 显示或隐藏思考内容 |
 | `/context [正整数]` | 查看或调整上下文窗口 |
 | `/compact` | 尝试手动压缩上下文 |
 | `/exit` | 退出 |
 
 Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生成或清空草稿，空闲且草稿为空时退出。Ctrl+Z 撤销，Ctrl+Y 重做。快捷键识别取决于终端。
 
-当前 `/reload` 仅用于重新读取模型配置。交互式思考控制、思考显示、厂商连接预设和会话设置恢复仍待合入主分支。
+`/reload` 重新读取模型配置，保留当前模型选择和思考偏好；`/new` 继承当前设置，`/resume` 从已加载目录解析会话保存的模型引用。思考显示开关只影响显示，不改变模型请求。
 
 ## 项目方向
 
@@ -88,7 +91,7 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 
 - [ ] 根据自然语言需求动态修改工具、CLI 界面等功能。
 - [ ] 验证功能变更，并通过热启动加载修改。
-- [ ] 合入正在开发的厂商预设、思考控制与统一设置链路。
+- [x] 厂商预设、思考控制与统一设置链路。
 - [ ] 在 v1.3 完善 TUI 交互。
 - [ ] 建立可复现的自动化测试，补充真实模型和跨平台验证。
 - [ ] 修复已记录的工具配对、Windows 命令执行和上下文溢出提示问题。
@@ -105,7 +108,6 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 - [开发进度](docs/progress.md)：当前状态、待办与开发记录。
 - [架构书](docs/architecture.md)：模块职责与设计。
 - [运行主流程](docs/main-flow.md)：输入提交、模型请求、工具执行与事件传播。
-- [BYOK 文档](docs/byok-build.md)：模型配置与协议适配。
 
 项目从阅读和参考 [Pi](https://github.com/earendil-works/pi) 起步，部分基础代码参考并改写自 Pi，使用自己的 `Harness` 和功能设计，当前不依赖 Pi 的运行时包。
 

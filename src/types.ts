@@ -15,6 +15,26 @@ export interface ThinkingPreferences {
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 
+/** A catalog reference, never an endpoint or credential copied from a session. */
+export interface ModelReference {
+	configPath: string;
+	modelKey: string;
+}
+
+export interface SessionSettings {
+	modelRef?: ModelReference;
+	thinking: ThinkingPreferences;
+}
+
+export type ApiKeyResolver = (provider: string, model: Model) => string | undefined | Promise<string | undefined>;
+
+export interface ModelRequestSettings {
+	model: Model;
+	thinking: ThinkingPreferences;
+	apiKey?: string;
+	getApiKey?: ApiKeyResolver;
+}
+
 export interface ReasoningSource {
 	api: ModelApi;
 	provider: string;
@@ -53,6 +73,8 @@ export interface ToolCall {
 	id: string;
 	name: string;
 	arguments: Record<string, any>;
+	/** Opaque tool thought signatures, valid only for their original source. */
+	replay?: ReasoningReplay;
 }
 
 // Messages：对话记录里的一条；transcript 就是 Message[]
@@ -71,6 +93,8 @@ export interface AssistantMessage {
 	stopReason: StopReason;
 	/** Native terminal reason/status, when supplied by the protocol. */
 	rawStopReason?: string;
+	/** Message-level opaque metadata, including Gemini's final-text signature. */
+	replay?: ReasoningReplay;
 	errorMessage?: string;
 	timestamp: number; // Unix timestamp in milliseconds
 	/** Token usage reported by the provider. Absent when the gateway does not send it. */
@@ -251,7 +275,7 @@ export interface AgentLoopConfig extends StreamOptions {
 	model: Model;
 	convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
-	getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined;
+	getApiKey?: ApiKeyResolver;
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 	prepareNextTurn?: (
 		context: PrepareNextTurnContext,

@@ -2,6 +2,9 @@ node_modules/
 dist/
 # 本机 BYOK 配置包含凭据，不进仓库
 /byok.json
+# 已退役的 BYOK 文档，避免本地副本重新进入仓库
+/docs/byok-build.md
+/docs/byok-providers.md
 .DS_Store
 # 零散测试只保留在本地，后续另建测试框架
 /test/

@@ -1,6 +1,8 @@
 import { Agent } from "../agent/agent.ts";
 import { ByokConfigError } from "../config/errors.ts";
-import type { AgentEvent, ImageContent, Model, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
+import type { AgentEvent, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
+import { THINKING_LEVELS } from "../llm/rules.ts";
+import { validateModelThinking } from "../llm/adapter.ts";
 import {
 	buildCompactSummaryMessage,
 	DEFAULT_COMPACTION_SETTINGS,
@@ -29,16 +31,18 @@ import { createWriteTool } from "./tools/write.ts";
 
 export interface HarnessModelSettings {
 	model: Model;
+	modelRef?: ModelReference;
 	thinking?: ThinkingPreferences;
 	apiKey?: string;
 	/** Resolve the configured model's key when a model operation actually needs it. */
-	getApiKey?: () => string;
+	getApiKey?: (model: Model) => string | undefined | Promise<string | undefined>;
 }
 
 export interface HarnessOptions extends Partial<HarnessModelSettings> {
 	cwd: string;
 	streamFn: StreamFn;
 	sessionsRoot?: string;
+	resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 }
 
 export class Harness {
@@ -49,7 +53,10 @@ export class Harness {
 	private usedTokens = 0;
 	private promptController: AbortController | undefined;
 	private compactionController: AbortController | undefined;
-	private getApiKey?: () => string;
+	private getApiKey?: HarnessModelSettings["getApiKey"];
+	private modelRef?: ModelReference;
+	private readonly resolveModel?: HarnessOptions["resolveModel"];
+	private restoreWarning?: string;
 
 	constructor(options: HarnessOptions) {
 		const tools = [
@@ -61,6 +68,8 @@ export class Harness {
 		this.cwd = options.cwd;
 		this.sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
 		this.getApiKey = options.getApiKey;
+		this.modelRef = options.modelRef ? { ...options.modelRef } : undefined;
+		this.resolveModel = options.resolveModel;
 		this.agent = new Agent({
 			streamFn: options.streamFn,
 			apiKey: options.apiKey,
@@ -74,6 +83,7 @@ export class Harness {
 				tools,
 			},
 		});
+		if (options.model) this.agent.getApiKey = this.createRequestSettings(false).getApiKey;
 		this.newSession();
 		this.agent.subscribe((event) => {
 			if (event.type !== "message_end") {
@@ -84,23 +94,36 @@ export class Harness {
 	}
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
-		if (this.promptController || this.compactionController) {
-			throw new Error("Harness is already processing.");
-		}
-		const model = this.requireModel();
-		// Fail before persisting images or adding a user message when no model/key is available.
-		this.agent.apiKey = this.resolveApiKey();
+		this.assertIdle();
+		const settings = this.createRequestSettings();
 		// Own the entire prompt, including the gap between an agent turn and its summary/retry.
 		const controller = new AbortController();
 		this.promptController = controller;
 		try {
-			await this.runPrompt(text, images, controller.signal, model);
+			// Resolve before transcript/image side effects, then consume this key on the first
+			// request. Tool continuations and summary retries resolve again.
+			const resolver = settings.getApiKey!;
+			let firstKey = await resolver(settings.model.provider, settings.model);
+			controller.signal.throwIfAborted();
+			settings.getApiKey = (provider, model) => {
+				if (firstKey !== undefined && model.id === settings.model.id && this.sameConnection(model, settings.model)) {
+					const key = firstKey;
+					firstKey = undefined;
+					return key;
+				}
+				firstKey = undefined;
+				return resolver(provider, model);
+			};
+			// A restored session may have fallen back to the active catalog. Persist the
+			// effective settings before new messages, without rewriting its earlier history.
+			this.recordSettings(this.settings);
+			await this.runPrompt(text, images, controller.signal, settings);
 		} finally {
 			this.promptController = undefined;
 		}
 	}
 
-	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal, model: Model): Promise<void> {
+	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal, settings: ModelRequestSettings): Promise<void> {
 		// Images stay in context as real blocks (so the model sees them right away) and are also
 		// written next to the session jsonl, so the model can `read` one back after compaction
 		// replaces that part of the history with a summary.
@@ -110,7 +133,7 @@ export class Harness {
 			const note = `[Attached image(s) saved at: ${paths.join(", ")}]`;
 			promptText = promptText.length > 0 ? `${promptText}\n\n${note}` : note;
 		}
-		await this.agent.prompt(promptText, images);
+		await this.agent.prompt(promptText, images, settings);
 		// Provider-reported usage is authoritative; fall back to the character estimate when the
 		// gateway does not send it (or when the stream was aborted before the usage chunk).
 		this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
@@ -119,14 +142,14 @@ export class Harness {
 		if (lastMessage?.role !== "assistant") {
 			return;
 		}
-		const window = model.contextWindow;
+		const window = settings.model.contextWindow;
 		const overflow = isContextOverflow(lastMessage, window);
 		if (overflow && (lastMessage.stopReason === "error" || lastMessage.stopReason === "length")) {
 			const originalMessages = this.agent.state.messages;
 			this.agent.state.messages = originalMessages.slice(0, -1);
 			let compacted: boolean;
 			try {
-				compacted = await this.compactWithSignal(undefined, signal);
+				compacted = await this.compactWithSignal(undefined, signal, settings);
 			} catch (error) {
 				this.agent.state.messages = originalMessages;
 				throw error;
@@ -136,7 +159,7 @@ export class Harness {
 				return;
 			}
 			if (signal.aborted) return;
-			await this.agent.continueFromContext();
+			await this.agent.continueFromContext(settings);
 			this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
 			return;
 		}
@@ -144,7 +167,7 @@ export class Harness {
 			lastMessage.stopReason === "stop" &&
 			(overflow || shouldCompact(this.usedTokens, window, DEFAULT_COMPACTION_SETTINGS))
 		) {
-			await this.compactWithSignal(undefined, signal);
+			await this.compactWithSignal(undefined, signal, settings);
 		}
 	}
 
@@ -175,9 +198,12 @@ export class Harness {
 	}
 
 	newSession(): void {
+		this.assertIdle();
 		this.agent.reset();
 		this.usedTokens = 0;
 		this.session = createSessionFile(this.cwd, this.sessionsRoot);
+		this.restoreWarning = undefined;
+		this.recordSettings(this.settings);
 	}
 
 	listSessions(): SessionListItem[] {
@@ -185,6 +211,7 @@ export class Harness {
 	}
 
 	resumeAt(index: number): boolean {
+		this.assertIdle();
 		if (!Number.isInteger(index) || index < 1) {
 			return false;
 		}
@@ -192,8 +219,19 @@ export class Harness {
 		if (!item) {
 			return false;
 		}
-		touchSession(item.filePath);
 		const loaded = loadSession(item.filePath);
+		let restored: HarnessModelSettings | undefined;
+		let warning: string | undefined;
+		if (loaded.settings?.modelRef) {
+			try {
+				if (!this.resolveModel) throw new ByokConfigError("当前入口没有可用的模型目录。");
+				restored = this.resolveModel(loaded.settings.modelRef);
+			} catch (error) {
+				if (!(error instanceof ByokConfigError)) throw error;
+				warning = `未恢复模型 ${loaded.settings.modelRef.modelKey}：${error.message} 当前模型：${this.agent.state.model?.name ?? "未配置"}；会话历史已保留。`;
+			}
+		}
+		touchSession(item.filePath);
 		this.agent.reset();
 		this.agent.state.messages = loaded.messages;
 		this.session = {
@@ -203,24 +241,76 @@ export class Harness {
 			flushed: true,
 		};
 		this.usedTokens = estimateMessagesTokens(loaded.messages);
+		if (restored) this.applyModel(restored);
+		if (loaded.settings) this.agent.state.thinking = { ...loaded.settings.thinking };
+		this.restoreWarning = warning;
 		return true;
 	}
 
-	setThinkingLevel(_level: ThinkingLevel): void {
-		throw new Error("未接上");
+	get settings(): SessionSettings {
+		return { ...(this.modelRef ? { modelRef: { ...this.modelRef } } : {}), thinking: { ...this.agent.state.thinking } };
+	}
+
+	get settingsWarning(): string | undefined { return this.restoreWarning; }
+
+	describeSettings(): string {
+		const thinking = this.agent.state.thinking;
+		return `模型：${this.modelRef?.modelKey ?? this.agent.state.model?.name ?? "未配置"} · 思考：${thinking.enabled === undefined ? "服务端默认" : thinking.enabled ? "开启" : "关闭"} · 档位：${thinking.effort}`;
+	}
+
+	setThinkingLevel(level: ThinkingLevel): void {
+		this.setThinking({ ...this.agent.state.thinking, effort: level });
+	}
+
+	setThinkingEnabled(enabled: boolean | undefined): void {
+		this.setThinking({ effort: this.agent.state.thinking.effort, ...(enabled === undefined ? {} : { enabled }) });
+	}
+
+	private setThinking(thinking: ThinkingPreferences): void {
+		this.assertIdle();
+		this.validatePreferences(thinking);
+		if (this.agent.state.model) validateModelThinking(this.agent.state.model, thinking);
+		this.recordSettings({ ...this.settings, thinking });
+		this.agent.state.thinking = { ...thinking };
 	}
 
 	/** Apply a fully validated configuration without replacing messages, session or subscribers. */
 	configureModel(settings: HarnessModelSettings): void {
-		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
-			throw new Error("Cannot configure a model while the agent is processing");
-		}
-		const model = structuredClone(settings.model);
 		const thinking: ThinkingPreferences = { ...settings.thinking, effort: settings.thinking?.effort ?? "medium" };
-		this.agent.state.model = model;
-		this.agent.state.thinking = thinking;
+		this.assertIdle();
+		this.validatePreferences(thinking);
+		const candidate = { ...settings, model: structuredClone(settings.model), thinking };
+		this.recordSettings({ modelRef: settings.modelRef, thinking });
+		this.applyModel(candidate);
+		this.restoreWarning = undefined;
+	}
+
+	private applyModel(settings: HarnessModelSettings): void {
+		this.agent.state.model = structuredClone(settings.model);
+		this.modelRef = settings.modelRef ? { ...settings.modelRef } : undefined;
+		if (settings.thinking) this.agent.state.thinking = { ...settings.thinking };
 		this.getApiKey = settings.getApiKey;
 		this.agent.apiKey = settings.apiKey;
+		// Direct Agent users retain the same credential boundary as Harness users.
+		this.agent.getApiKey = this.createRequestSettings(false).getApiKey;
+	}
+
+	private validatePreferences(thinking: ThinkingPreferences): void {
+		if (!THINKING_LEVELS.includes(thinking.effort) || (thinking.enabled !== undefined && typeof thinking.enabled !== "boolean")) {
+			throw new ByokConfigError("思考档位必须是 low / medium / high / xhigh / max，开关必须是布尔值或默认。");
+		}
+	}
+
+	private recordSettings(settings: SessionSettings): void {
+		const previous = [...this.session.entries].reverse().find(entry => entry.type === "settings");
+		if (previous && JSON.stringify({ modelRef: previous.modelRef, thinking: previous.thinking }) === JSON.stringify(settings)) return;
+		appendEntry(this.session, { type: "settings", ...structuredClone(settings) });
+	}
+
+	private assertIdle(): void {
+		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
+			throw new Error("Cannot change settings or sessions while the agent is processing.");
+		}
 	}
 
 	private requireModel(): Model {
@@ -229,15 +319,27 @@ export class Harness {
 		return model;
 	}
 
-	private resolveApiKey(): string {
-		// 当前凭据按 prompt／摘要操作解析，工具续接沿用本轮快照。
-		// 10／11 批扩展逐请求动态凭据时，普通请求与压缩仍须共用解析入口和错误边界。
-		const apiKey = (this.getApiKey ? this.getApiKey() : this.agent.apiKey)?.trim();
-		if (!apiKey) throw new ByokConfigError("当前模型缺少凭据，请配置 apiKey 或 apiKeyEnv 后重试。");
-		return apiKey;
+	private sameConnection(left: Model, right: Model): boolean {
+		return left.provider === right.provider && left.api === right.api &&
+			left.baseUrl.replace(/\/+$/, "") === right.baseUrl.replace(/\/+$/, "") && left.endpoint === right.endpoint;
+	}
+
+	private createRequestSettings(validate = true): ModelRequestSettings {
+		const model = structuredClone(this.requireModel());
+		const thinking = { ...this.agent.state.thinking };
+		if (validate) validateModelThinking(model, thinking);
+		const getter = this.getApiKey;
+		const staticKey = this.agent.apiKey;
+		return { model, thinking, getApiKey: async (_provider, requestedModel) => {
+			if (!getter && !this.sameConnection(model, requestedModel)) throw new ByokConfigError("切换接口后不能继续使用原连接的静态凭据。");
+			const key = (getter ? await getter(requestedModel) : staticKey)?.trim();
+			if (!key) throw new ByokConfigError("当前模型缺少凭据，请配置 apiKey 或 apiKeyEnv 后重试。");
+			return key;
+		} };
 	}
 
 	setContextWindow(tokens: number): void {
+		this.assertIdle();
 		if (!Number.isInteger(tokens) || tokens <= 0) {
 			throw new Error("context window 需要正整数");
 		}
@@ -256,7 +358,7 @@ export class Harness {
 		if (this.usedTokens <= model.contextWindow / 4) {
 			return "below-threshold";
 		}
-		if (this.session.entries.at(-1)?.type === "compaction") {
+		if ([...this.session.entries].reverse().find(entry => entry.type !== "settings")?.type === "compaction") {
 			return "nothing-to-compact";
 		}
 		return (await this.compact()) ? "compacted" : "nothing-to-compact";
@@ -269,17 +371,17 @@ export class Harness {
 		return this.compactWithSignal(customInstructions);
 	}
 
-	private async compactWithSignal(customInstructions?: string, parentSignal?: AbortSignal): Promise<boolean> {
+	private async compactWithSignal(customInstructions?: string, parentSignal?: AbortSignal, settings?: ModelRequestSettings): Promise<boolean> {
 		if (this.agent.state.isStreaming || this.compactionController) {
 			throw new Error("Cannot compact while the agent is processing");
 		}
-		const model = this.requireModel();
+		this.requireModel();
 		const messages = this.agent.state.messages;
 		const cutIndex = findCutIndex(messages, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
 		if (cutIndex === 0) {
 			return false;
 		}
-		const apiKey = this.resolveApiKey();
+		const request = settings ?? this.createRequestSettings(false);
 		const controller = new AbortController();
 		const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
 		this.compactionController = controller;
@@ -289,13 +391,14 @@ export class Harness {
 			signal.throwIfAborted();
 			const summary = await summarizeConversation({
 				streamFn: this.agent.streamFunction,
-				model,
+				model: request.model,
 				context: {
 					systemPrompt: this.agent.state.systemPrompt,
 					messages: converted,
 					tools: this.agent.state.tools,
 				},
-				apiKey,
+				getApiKey: request.getApiKey,
+				thinking: request.thinking,
 				reserveTokens: DEFAULT_COMPACTION_SETTINGS.reserveTokens,
 				customInstructions,
 				signal,

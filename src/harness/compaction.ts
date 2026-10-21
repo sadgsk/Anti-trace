@@ -239,7 +239,9 @@ export interface SummarizeConversationOptions {
 	streamFn: StreamFn;
 	model: Model;
 	context: Context;
-	apiKey: string;
+	apiKey?: string;
+	getApiKey?: import("../types.ts").ApiKeyResolver;
+	thinking?: import("../types.ts").ThinkingPreferences;
 	reserveTokens: number;
 	customInstructions?: string;
 	signal?: AbortSignal;
@@ -247,7 +249,7 @@ export interface SummarizeConversationOptions {
 
 /** Request a summary without adding either attempt to the live transcript. */
 export async function summarizeConversation(options: SummarizeConversationOptions): Promise<string> {
-	const maxTokens = Math.floor(options.reserveTokens * 0.8);
+	const maxTokens = Math.min(Math.floor(options.reserveTokens * 0.8), options.model.maxOutputTokens ?? Infinity, options.model.contextWindow);
 	if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) {
 		throw new Error("Compaction reserveTokens must allow at least one summary token");
 	}
@@ -270,9 +272,12 @@ export async function summarizeConversation(options: SummarizeConversationOption
 				},
 			],
 		};
+		const apiKey = options.getApiKey ? await options.getApiKey(options.model.provider, options.model) : options.apiKey;
+		options.signal?.throwIfAborted();
 		const stream = await options.streamFn(options.model, context, {
-			apiKey: options.apiKey,
+			apiKey,
 			maxTokens,
+			thinking: options.thinking ? { ...options.thinking } : undefined,
 			signal: options.signal,
 		});
 		const reply = await stream.result();

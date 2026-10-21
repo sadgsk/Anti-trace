@@ -1,6 +1,7 @@
 import { AssistantMessageEventStream } from "./event-stream.ts";
 import { encodeChatThinking, resolveChatRules, type ChatRules } from "./rules.ts";
 import { readSse } from "./sse.ts";
+import { replayable, sameSource } from "./protocol-utils.ts";
 import type {
 	AssistantMessage,
 	Context,
@@ -51,16 +52,21 @@ type OpenAIChatMessage =
 			content: string | null;
 			reasoning_content?: string;
 			reasoning?: string;
+			reasoning_details?: Record<string, unknown>[];
+			extra_content?: { google: { thought_signature: string } };
 			tool_calls?: Array<{
 				id: string;
 				type: "function";
 				function: { name: string; arguments: string };
+				extra_content?: { google: { thought_signature: string } };
 			}>;
 	  }
 	| { role: "tool"; tool_call_id: string; content: string };
 
 function toOpenAIMessages(context: Context, source: ReasoningSource, rules: ChatRules, thinking?: ThinkingPreferences): OpenAIChatMessage[] {
 	const messages: OpenAIChatMessage[] = [];
+	let lastUser = -1;
+	context.messages.forEach((message, position) => { if (message.role === "user") lastUser = position; });
 
 	// 一批连续的 toolResult 属于同一次 assistant 调用的应答。图片塞不进 tool 消息（OpenAI 的
 	// tool content 只能是字符串），只能拆成 user 消息，但绝不能插在 assistant(tool_calls) 和
@@ -94,7 +100,7 @@ function toOpenAIMessages(context: Context, source: ReasoningSource, rules: Chat
 		messages.push({ role: rules.systemRole, content: context.systemPrompt });
 	}
 
-	for (const msg of context.messages) {
+	for (const [position, msg] of context.messages.entries()) {
 		// 一批 toolResult 结束（遇到别的角色，或遍历到底）时，才把攒下的附件发出去。
 		if (msg.role !== "toolResult") flushToolResults();
 
@@ -115,6 +121,7 @@ function toOpenAIMessages(context: Context, source: ReasoningSource, rules: Chat
 			const text = textFrom(msg.content);
 			const toolCalls = msg.content.filter((block): block is ToolCall => block.type === "toolCall");
 			const reasoning = reasoningForReplay(msg, source, rules);
+			const details = rules.reasoningSplit ? detailsForReplay(msg, source, rules) : undefined;
 			if (rules.reasoningReplay === "required" && thinking?.enabled !== false && toolCalls.length && reasoning === undefined) {
 				throw new Error("工具续接缺少当前模型／接口的完整思考回传数据；不能使用外来或不完整的思考数据。");
 			}
@@ -124,16 +131,19 @@ function toOpenAIMessages(context: Context, source: ReasoningSource, rules: Chat
 				role: "assistant",
 				content: text.length > 0 ? text : null,
 			};
-			if (reasoning !== undefined) assistant[rules.reasoningField] = reasoning;
+			if (details) assistant.reasoning_details = details;
+			else if (reasoning !== undefined) assistant[rules.reasoningField] = reasoning;
+			const signature = rules.toolSignatures === "google" && replayable(msg) ? googleSignature(msg.replay, source) : undefined;
+			if (signature) assistant.extra_content = { google: { thought_signature: signature } };
 			if (toolCalls.length > 0) {
-				assistant.tool_calls = toolCalls.map((tc) => ({
-					id: tc.id,
-					type: "function" as const,
-					function: {
-						name: tc.name,
-						arguments: JSON.stringify(tc.arguments),
-					},
-				}));
+				assistant.tool_calls = toolCalls.map((tc, index) => {
+					const signature = rules.toolSignatures === "google" && replayable(msg) ? googleSignature(tc.replay, source) : undefined;
+					if (rules.requireToolSignature && position > lastUser && index === 0 && !signature) {
+						throw new Error("Gemini 工具续接缺少当前模型／接口的完整 thought_signature。");
+					}
+					return { id: tc.id, type: "function" as const, function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+						...(signature ? { extra_content: { google: { thought_signature: signature } } } : {}) };
+				});
 			}
 			messages.push(assistant);
 			continue;
@@ -167,6 +177,22 @@ function toOpenAIMessages(context: Context, source: ReasoningSource, rules: Chat
 	flushToolResults();
 
 	return messages;
+}
+
+function googleSignature(replay: ToolCall["replay"], source: ReasoningSource): string | undefined {
+	const value = replay?.payload.googleThoughtSignature;
+	return sameSource(replay?.source, source) && typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function detailsForReplay(message: AssistantMessage, source: ReasoningSource, rules: ChatRules): Record<string, unknown>[] | undefined {
+	if (!replayable(message) || rules.reasoningReplay === "omit") return;
+	for (const block of message.content) {
+		if (block.type !== "thinking" || !sameSource(block.replay?.source, source)) continue;
+		const details = block.replay?.payload.reasoning_details;
+		if (Array.isArray(details) && details.every(item => item && typeof item === "object" && !Array.isArray(item))) {
+			return structuredClone(details) as Record<string, unknown>[];
+		}
+	}
 }
 
 function reasoningForReplay(message: AssistantMessage, source: ReasoningSource, rules: ChatRules): string | undefined {
@@ -230,6 +256,10 @@ function prepareChatRequest(model: Model, context: Context, options?: StreamOpti
 		stream: true,
 		...thinking,
 	};
+	if (rules.reasoningSplit) body.reasoning_split = true;
+	if (options?.thinking?.enabled === true && rules.preserveThinking && body.thinking) {
+		body.thinking = { ...(body.thinking as object), ...(rules.preserveThinking === "glm" ? { clear_thinking: false } : { keep: "all" }) };
+	}
 	if (rules.includeUsage) body.stream_options = { include_usage: true };
 	const tools = toOpenAITools(context.tools);
 	if (tools) body.tools = tools;
@@ -266,6 +296,7 @@ type DoneReason = Extract<StopReason, "stop" | "length" | "toolUse">;
 
 interface StreamingToolCall extends ToolCall {
 	partialArgs?: string;
+	pendingSignature?: string;
 }
 
 function mapStopReason(reason: string): DoneReason | "error" {
@@ -294,6 +325,13 @@ async function readSSE(
 	const toolCalls = new Map<number, StreamingToolCall>();
 	let active: TextContent | ThinkingContent | undefined;
 	let finishReason: DoneReason | undefined;
+	let messageSignature: string | undefined;
+	const reasoningDetails = new Map<string, Record<string, any>>();
+	const takeSignature = (value: unknown, previous?: string): string | undefined => {
+		if (value === undefined) return previous;
+		if (typeof value !== "string" || !value || (previous !== undefined && previous !== value)) throw new Error("Gemini thought_signature 无效或在流中变化。");
+		return value;
+	};
 
 	const finishActive = () => {
 		if (!active) return;
@@ -342,27 +380,42 @@ async function readSSE(
 		if (!choice) continue;
 		const delta = choice.delta;
 		const reasoning = delta?.[request.rules.reasoningField];
+		const details = request.rules.reasoningSplit ? delta?.reasoning_details : undefined;
 		if ((reasoning !== undefined && reasoning !== null && typeof reasoning !== "string") ||
 			(delta?.content !== undefined && delta.content !== null && typeof delta.content !== "string")) {
 			throw new Error("Chat SSE 的正文或思考增量不是字符串。");
 		}
-		if (finishReason && (reasoning || delta?.content || delta?.tool_calls?.length || choice.finish_reason)) {
+		if (finishReason && (reasoning || details?.length || delta?.extra_content || delta?.content || delta?.tool_calls?.length || choice.finish_reason)) {
 			throw new Error("Chat SSE 在结束原因之后继续返回消息内容。");
 		}
 		if (finishReason) continue;
+		if (request.rules.toolSignatures === "google") messageSignature = takeSignature(delta?.extra_content?.google?.thought_signature, messageSignature);
+		if (details !== undefined && details !== null) {
+			if (!Array.isArray(details)) throw new Error("MiniMax reasoning_details 必须是数组。");
+			for (const [ordinal, item] of details.entries()) {
+				if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.text !== "string") throw new Error("MiniMax reasoning_details 条目无效。");
+				const key = String(item.index ?? item.id ?? ordinal);
+				const previous = reasoningDetails.get(key);
+				if (previous && ["type", "id", "format"].some(field => item[field] !== undefined && previous[field] !== undefined && previous[field] !== item[field])) throw new Error("MiniMax reasoning_details 标识在流中变化。");
+				reasoningDetails.set(key, { ...previous, ...item, text: (previous?.text ?? "") + item.text });
+				if (typeof reasoning !== "string") appendText("thinking", item.text);
+			}
+		}
 		if (typeof reasoning === "string") appendText("thinking", reasoning);
 		if (typeof delta?.content === "string") appendText("text", delta.content);
 		if (delta?.tool_calls?.length) {
 			finishActive();
-			for (const deltaTool of delta.tool_calls) {
-				if (!Number.isSafeInteger(deltaTool.index) || deltaTool.index < 0) throw new Error("Chat 工具增量缺少有效 index。");
-				let block = toolCalls.get(deltaTool.index);
+			for (const [ordinal, deltaTool] of delta.tool_calls.entries()) {
+				const position = deltaTool.index ?? (request.rules.toolSignatures === "google" ? ordinal : undefined);
+				if (!Number.isSafeInteger(position) || position! < 0) throw new Error("Chat 工具增量缺少有效 index。");
+				let block = toolCalls.get(position!);
 				if (!block) {
 					block = { type: "toolCall", id: "", name: "", arguments: {}, partialArgs: "" };
-					toolCalls.set(deltaTool.index, block);
+					toolCalls.set(position!, block);
 					blocks.push(block);
 					stream.push({ type: "toolcall_start", contentIndex: blocks.length - 1, partial: output });
 				}
+				if (request.rules.toolSignatures === "google") block.pendingSignature = takeSignature(deltaTool.extra_content?.google?.thought_signature, block.pendingSignature);
 				if (deltaTool.id) {
 					if (block.id && block.id !== deltaTool.id) throw new Error("Chat 工具调用 ID 在流中发生变化。");
 					block.id = deltaTool.id;
@@ -375,10 +428,11 @@ async function readSSE(
 			}
 		}
 		if (choice.finish_reason) {
-			const mapped = mapStopReason(choice.finish_reason);
+			const mapped = request.rules.toolSignatures === "google" && choice.finish_reason === "stop" && toolCalls.size ? "toolUse" : mapStopReason(choice.finish_reason);
 			if (mapped === "error") throw new Error(`Provider finish_reason: ${choice.finish_reason}`);
 			finishReason = mapped;
 			output.stopReason = mapped;
+			output.rawStopReason = choice.finish_reason;
 			finishActive();
 		}
 	}
@@ -397,6 +451,10 @@ async function readSSE(
 			if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Chat 工具参数必须是 JSON 对象。");
 			tool.arguments = args as Record<string, unknown>;
 			delete tool.partialArgs;
+			if (tool.pendingSignature) {
+				tool.replay = { source: { ...request.source }, payload: { googleThoughtSignature: tool.pendingSignature } };
+				delete tool.pendingSignature;
+			}
 			stream.push({ type: "toolcall_end", contentIndex: blocks.indexOf(tool), toolCall: tool, partial: output });
 		}
 		// Attach replay only after the whole stream (including trailing errors/usage) is valid.
@@ -405,6 +463,11 @@ async function readSSE(
 				block.replay = { source: { ...request.source }, payload: { [request.rules.reasoningField]: block.thinking } };
 			}
 		}
+		if (reasoningDetails.size) {
+			const first = blocks.find((block): block is ThinkingContent => block.type === "thinking");
+			if (first?.replay) first.replay.payload.reasoning_details = [...reasoningDetails.values()];
+		}
+		if (messageSignature) output.replay = { source: { ...request.source }, payload: { googleThoughtSignature: messageSignature } };
 	} else {
 		// The agent executes any ToolCall in a completed message: incomplete calls must not escape.
 		for (let i = blocks.length - 1; i >= 0; i--) {
@@ -423,7 +486,9 @@ interface ChatChunk {
 			content?: string | null;
 			reasoning_content?: string | null;
 			reasoning?: string | null;
-			tool_calls?: Array<{ index: number; id?: string; function?: { name?: string; arguments?: string } }>;
+			reasoning_details?: Array<Record<string, any>> | null;
+			extra_content?: { google?: { thought_signature?: unknown } };
+			tool_calls?: Array<{ index?: number; id?: string; function?: { name?: string; arguments?: string }; extra_content?: { google?: { thought_signature?: unknown } } }>;
 		};
 	}>;
 }

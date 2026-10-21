@@ -8,6 +8,7 @@ export { streamAnthropic } from "./llm/anthropic.ts";
 export { streamModel } from "./llm/adapter.ts";
 export type { AdapterConfig, ThinkingRule } from "./llm/rules.ts";
 export { loadByokConfig, type LoadByokConfigOptions, type LoadedByokConfig } from "./config/byok.ts";
+export { CONNECTION_PRESETS } from "./config/presets.ts";
 export { AssistantMessageEventStream, EventStream } from "./llm/event-stream.ts";
 export { createBashTool } from "./harness/tools/bash.ts";
 export { createEditTool } from "./harness/tools/edit.ts";

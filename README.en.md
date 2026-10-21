@@ -60,7 +60,7 @@ Models reference a connection through `connection`; `currentModel` selects a key
 
 The CLI reads `byok.json` from the startup working directory by default. Set `CLI_AGENT_CONFIG` to use another file. `.env` files are not loaded. `byok.json` is ignored by Git; do not commit real credentials.
 
-Include any required version prefix in `baseUrl`, such as `/v1`. See the [BYOK documentation](docs/byok-build.md) for reasoning parameters, adapter rules, and protocol details. Compatible providers may accept different parameters; configure them for the actual endpoint.
+Include any required version prefix in `baseUrl`, such as `/v1`. Alternatively, select connection presets and models from the [provider configuration example](byok.providers.example.json), then set the corresponding API key environment variables. The example includes 36 connection options across nine providers, with explicit rules for supported protocols, regions, and models.
 
 ## Common commands
 
@@ -72,13 +72,16 @@ Include any required version prefix in `baseUrl`, such as `/v1`. See the [BYOK d
 | `/model <model-key>` | Select a model for the current run |
 | `/config [path]` | Show configuration status or load another file |
 | `/reload` | Reload model configuration |
+| `/thinking on\|off\|default` | Enable reasoning, disable it, or use the server default |
+| `/effort low\|medium\|high\|xhigh\|max` | Set the reasoning level |
+| `/thinking-display on\|off` | Show or hide reasoning content |
 | `/context [positive integer]` | View or adjust the context window |
 | `/compact` | Attempt manual context compaction |
 | `/exit` | Exit |
 
 Enter submits. Shift/Alt+Enter, or a backslash followed by Enter, inserts a newline. Ctrl+C interrupts generation or clears the draft; when idle with an empty draft, it exits. Ctrl+Z undoes; Ctrl+Y redoes. Shortcut recognition depends on the terminal.
 
-Currently, `/reload` only reloads model configuration. Interactive reasoning controls, reasoning display, provider presets, and session settings restoration still await integration into the main branch.
+`/reload` reloads model configuration while preserving the current model selection and reasoning preferences. `/new` inherits the current settings; `/resume` resolves saved model references against the loaded catalog. The reasoning display switch only affects display, not model requests.
 
 ## Project direction
 
@@ -88,7 +91,7 @@ This capability has not been implemented. The diagram above shows the proposed d
 
 - [ ] Dynamically modify tools, the CLI interface, and other capabilities from natural-language requests.
 - [ ] Validate capability changes and load them through a hot restart.
-- [ ] Integrate provider presets, reasoning controls, and the unified settings workflow currently under development.
+- [x] Provider presets, reasoning controls, and the unified settings workflow.
 - [ ] Improve TUI interaction in v1.3.
 - [ ] Establish reproducible automated tests and expand real-model and cross-platform verification.
 - [ ] Fix recorded issues with tool pairing, Windows command execution, and context-overflow error display.
@@ -107,7 +110,6 @@ The detailed development documents are currently in Chinese.
 - [Development progress](docs/progress.md): current status, pending work, and development history.
 - [Architecture](docs/architecture.md): module responsibilities and design.
 - [Main execution flow](docs/main-flow.md): input submission, model requests, tool execution, and event propagation.
-- [BYOK documentation](docs/byok-build.md): model configuration and protocol adapters.
 
 The project started by studying and referencing [Pi](https://github.com/earendil-works/pi). Some foundational code was adapted from Pi. Anti-trace uses its own `Harness` and feature design, and does not currently depend on Pi runtime packages.
 

@@ -28,9 +28,10 @@ function displayText(text: string): string {
 export function ReplView({ repl, prompt }: { repl: ReplController; prompt: PromptInputController }) {
 	const state = useSyncExternalStore(repl.subscribe, repl.getSnapshot, repl.getSnapshot);
 	return <Box flexDirection="column">
-		<Static items={[...state.entries]}>{entry => <Text key={entry.id}>{displayText(entry.text)}</Text>}</Static>
-		{state.liveText ? <Text>{displayText(state.liveText)}</Text> : null}
+		<Static items={[...state.entries]}>{entry => <Text key={entry.id} dimColor={entry.kind === "thinking"}>{displayText(entry.text)}</Text>}</Static>
+		{state.liveText ? <Text dimColor={state.liveKind === "thinking"}>{displayText(state.liveText)}</Text> : null}
 		{state.closed ? null : <Box flexDirection="column">
+			{state.modelStatus ? <Text dimColor>{displayText(state.modelStatus)}</Text> : null}
 			{state.busy ? <Text dimColor>处理中，Ctrl+C 中断</Text> : null}
 			<Text dimColor>{state.resumeChoices ? "会话序号（空行取消）" : ">"}</Text>
 			<PromptInput controller={prompt} />

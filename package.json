@@ -2,6 +2,7 @@
 	"name": "cli-agent",
 	"private": true,
 	"version": "0.1.0",
+	"license": "MIT",
 	"description": "Minimal evolvable CLI agent skeleton, shaped like pi-agent-core",
 	"type": "module",
 	"scripts": {
