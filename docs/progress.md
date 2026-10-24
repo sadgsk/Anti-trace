@@ -8,10 +8,11 @@
 | 当前版本 | **v1.2** |
 | 阶段 | **输入迁移与约定 BYOK 功能已完成，包含三协议、设置、动态凭据、压缩、会话恢复、思考显示和 36 个连接预设；完整本地回归 163 项通过。2026-10-22 用户确认功能完成并授权提交／推送，退役两份 BYOK 专题文档；既有 review 尾项保留。各厂商真实 Key、实际跨平台终端／剪贴板与测试框架仍待后续条件。** |
 | 架构书 | [architecture.md](./architecture.md) |
+| TUI 实施方案 | [tui-build.md](./tui-build.md) |
 | 运行主流程 | [main-flow.md](./main-flow.md)：Enter 提交、Agent 工具循环、流式事件与显示的流程图 |
 | 暂不修的 bug | [future-issues.md](./future-issues.md) |
-| 对照代码 | `e:\pi-harness\pi`、新版 TS `e:\pi-harness\kimi-code`；[CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) |
-| 最后更新 | 2026-10-22 |
+| 对照代码 | `e:\pi-harness\pi`、`e:\pi-harness\claude-code-rev`、新版 TS `e:\pi-harness\kimi-code`；[CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) |
+| 最后更新 | 2026-10-24 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -30,7 +31,7 @@
 ## 新对话怎么接
 
 1. 读本文件的当前状态、协作约定和待办。
-2. 读 [architecture.md](./architecture.md) 的 §0–§4，按当前小点再看模块说明和相关源码。
+2. 读 [architecture.md](./architecture.md) 的 §0–§4，按当前小点再看模块说明和相关源码；涉及 TUI 更新时读 [tui-build.md](./tui-build.md)。
 3. 按用户当前安排，从「下一步」选一个小点推进。历史更新记录不重新变成待做任务。
 4. 做完一个小点后，记录实际实现和验证结果，更新「阶段 / 最后更新」以及相关待办；整个里程碑完成后再勾选，不因已有占位就标完成。
 5. 版本收尾时保留本版本历史，由用户确定下一阶段目标，再同步架构书和新的版本待办。
@@ -78,6 +79,7 @@
 
 | 日期 | 发生了什么 |
 |---|---|
+| 2026-10-24 | 新增 TUI 更新实施方案 [tui-build.md](./tui-build.md)，同步本页与架构书入口；本轮仅更新文档，未修改源码。 |
 | 2026-10-22 | 用户确认 BYOK 功能完成，授权提交当前源码并推送。删除两份 BYOK 专题文档，将退役路径加入 .gitignore；清理 README、架构、进度、review 记录和源码注释中的失效引用，同步中英文 README 的已完成功能与命令。保留配置示例；真实配置、本地测试、会话和构建产物继续忽略。既有 review 尾项及真实接口／跨平台验证范围保留。 |
 | 2026-10-21 | 按用户要求补齐其他两种协议的厂商适配：Responses 支持 DeepSeek、Kimi、GLM、Qwen、MiniMax 明文形状与 Grok 加密回传；Messages 支持五家兼容厂商的思考控制、可选签名、Bearer 和独立预算。处理字符串工具结果及图片分组，保留原生 OpenAI／Claude 检查与同源回传。核对官方文档，新增 19 个连接预设，共 36 个；同步示例、厂商指南和当前设计。新增 40 项本地 HTTP 场景、完整回归 163 项（图片文件另含 13 场景）、Harness 7 项、上下文 6 项、类型检查、构建及差异检查通过。测试仅留本地，本轮未读改真实配置、未调用真实接口、未提交。用户已看过 main／REPL，协议与 Harness 继续 review。 |
 | 2026-10-21 | 准备开源展示文档：重整中文 README，新增英文版及语言切换，明确“一句话需求驱动 agent 动态修改工具／CLI 等功能并热启动”为尚未实现的长期目标；区分已有能力、计划和验证边界。按用户反馈，预计架构图改用现有 main-flow 图的 Mermaid 分栏、节点和配色风格，统一英文标注，两版 README 共用同一张图；保留 Mermaid 源码和渲染配置。按用户选择添加 MIT 许可证，保留 Pi 来源部分的版权声明，并同步包许可元数据。本次未实现动态功能修改或热启动，既有功能 review 尾项不因此完成。 |
