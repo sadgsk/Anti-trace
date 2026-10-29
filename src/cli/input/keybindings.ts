@@ -65,6 +65,11 @@ export const DEFAULT_KEYBINDINGS: readonly Keybinding[] = [
 export const REPL_KEYBINDINGS: readonly Keybinding[] = [
 	...DEFAULT_KEYBINDINGS,
 	{ context: "Input", chord: [{ name: "d", ctrl: true }], action: "app:exit" },
+	{ context: "Suggestions", chord: [{ name: "up" }], action: "suggestions:previous" },
+	{ context: "Suggestions", chord: [{ name: "down" }], action: "suggestions:next" },
+	{ context: "Suggestions", chord: [{ name: "enter" }], action: "suggestions:accept" },
+	{ context: "Suggestions", chord: [{ name: "tab" }], action: "suggestions:complete" },
+	{ context: "Suggestions", chord: [{ name: "escape" }], action: "suggestions:dismiss" },
 ];
 
 /** Omitted modifiers mean false, so Ctrl+Shift+C never matches Ctrl+C. */

@@ -6,6 +6,7 @@ import { preparePromptSubmission, type PromptDraft } from "../input/prompt-draft
 import { previewToolResult } from "../render.ts";
 import type { ByokRuntime } from "../byok-runtime.ts";
 import { ByokConfigError } from "../../config/errors.ts";
+import { SLASH_COMMANDS, commandUsage, parseSlashCommand, type SlashCommandDefinition } from "../commands/command-registry.ts";
 
 export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
 	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">
@@ -73,10 +74,9 @@ export class ReplController {
 				this.resumeSelection(text);
 				return true;
 			}
-			const line = text.trim();
-			const command = !/[\r\n]/u.test(text) ? /^\/(exit|new|resume|context|compact|help|reload|config|model|thinking|effort|thinking-display)(?:\s+(.*))?$/u.exec(line) : null;
-			if (command && !(command[1] === "resume" && command[2] !== undefined)) {
-				await this.runCommand(command[1]!, command[2] ?? "");
+			const parsed = parseSlashCommand(text);
+			if (parsed) {
+				await this.runCommand(parsed.command, parsed.argument);
 			} else {
 				this.write(`> ${draft.text}`, "user");
 				await this.harness.prompt(text, images.length > 0 ? images : undefined);
@@ -125,16 +125,16 @@ export class ReplController {
 		this.write(`ctx ${used}/${window ?? "未配置"}`);
 	}
 
-	private async runCommand(command: string, argument: string): Promise<void> {
-		if (!["context", "config", "model", "thinking", "effort", "thinking-display"].includes(command) && argument.length > 0) {
-			this.write(`用法：/${command}`);
+	private async runCommand(definition: SlashCommandDefinition, argument: string): Promise<void> {
+		const command = definition.name;
+		if (!definition.argumentHint && argument.length > 0) {
+			this.write(`用法：${commandUsage(definition)}`);
 			return;
 		}
 		if (command === "exit") { this.exit(); return; }
 		if (command === "help") {
-			this.write("/exit 退出 · /new 新会话 · /resume 恢复会话 · /context [窗口] · /compact 压缩上下文");
-			this.write("/config [路径] 查看或更换 BYOK 配置 · /reload 重载配置 · /model <模型键> 选择模型（随会话保存）");
-			this.write("/thinking [on|off|default] 思考开关 · /effort [low|medium|high|xhigh|max] 档位 · /thinking-display [on|off] 显示思考文字");
+			for (const item of SLASH_COMMANDS) this.write(`${commandUsage(item)} · ${item.description}`);
+			this.write("输入 / 打开命令菜单 · ↑↓ 选择 · Enter 确认 · Tab 补全 · Esc 收起");
 			this.write("Enter 提交 · Shift/Alt+Enter 换行 · Ctrl+Z 撤销 · Ctrl+Shift+Z 重做 · Ctrl+C 中断/清空 · Ctrl+D 退出");
 			return;
 		}

@@ -64,6 +64,8 @@ Include any required version prefix in `baseUrl`, such as `/v1`. Alternatively, 
 
 ## Common commands
 
+The interactive command list stays collapsed until you type `/`. Keep typing to filter by name prefix, use ↑↓ to select, Enter to confirm, Tab to complete without running, and Esc to dismiss while keeping the draft. `/model` inserts a prompt for its required model key. For optional arguments, use Tab to complete the command before entering a value, or type the full command directly.
+
 | Command | Purpose |
 |---|---|
 | `/help` | Show help |

@@ -1,8 +1,10 @@
 # TUI Build：参考 Claude Code 的终端界面实施方案（Design 生产 ⇄ 实现消费）
 
-状态：**方案与组件看板已建立；已产出开机屏与基础色板设计资源，代码尚未开始实现**。更新：2026-10-24。
+状态：**全部视觉组件的初版设计已按功能页并入产品原型 v0.1（`designcraft/2026-10-26_产品原型/`，21 个功能页），待整体 review 后统一修改；按用户要求先完成 `/` 命令菜单的后端与现有前端接线，已实现待 Review，后续由 DeepSeek 重设计相关界面；其余组件仍按看板推进**。更新：2026-10-29。
 
 这份文档定义 `cli-agent`（Anti-trace）在 v1.3 阶段补齐完整 TUI 的功能范围、常用 React（Ink）组件库、前后端数据契约，以及**“Design 生产者 ⇄ `designcraft/` 资源池 ⇄ Implementation 消费者”**的异步协作流程。
+
+**目录约定：** TUI 模块统一位于 `src/tui/`，作为 `src/` 的一级子目录，与 `harness/`、`agent/` 平行。当前命令菜单在 `src/tui/suggestions/`；本看板的后续 TUI 组件路径也遵循此约定。
 
 ---
 
@@ -84,6 +86,10 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
 
 ## 2. TUI 组件与底座状态总看板（Producer-Consumer 队列）
 
+> **2026-10-26 进展：** 全部视觉组件的初版设计已并入整体产品原型 `designcraft/2026-10-26_产品原型/`（21 个功能页 + 组件覆盖矩阵），按功能页整体 review；下表 Design 状态待整体确认后统一回填 `已定稿`。
+
+> **2026-10-29 本批范围：** 用户指定先实现隐藏命令列表与 `/` 二级菜单，再重设计界面。本批完成 FD-05 的命令注册表、OV-01 的 `/` 命令菜单及已有输入焦点接线，沿用当前 Ink 组件完成可用交互；不将原型或菜单视觉标记为已定稿，`@` 文件补全、通用焦点栈及各命令专用弹窗仍未实现。
+
 > **看板使用规则：**
 > - **Design 生产者**看 `Design 状态` 列：挑选 `待设计` 的条目进行设计；定稿后写入 `designcraft/` 路径并将状态改为 `已定稿`。
 > - **Implementation 消费者**看 `实现状态` 列：只消费 `就绪待实现`（即 `无需设计` 或 `已定稿`，且前置依赖已完成）的条目。
@@ -92,45 +98,45 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
 
 | ID | 模块名称 | 目标源码路径 | 前置依赖 | Design 状态 | 实现状态 |
 |---|---|---|---|---|---|
-| **FD-01** | **焦点栈与快捷键桥接**<br>(`FocusStackProvider`、`useInputTarget`、`useKeybinding`) | `src/cli/tui/focus/focus-stack.tsx` | 已有 `InputDispatcher` | `无需设计` | **就绪待实现** |
+| **FD-01** | **焦点栈与快捷键桥接**<br>(`FocusStackProvider`、`useInputTarget`、`useKeybinding`) | `src/tui/focus/focus-stack.tsx` | 已有 `InputDispatcher` | `无需设计` | **就绪待实现** |
 | **FD-02** | **结构化消息流状态模型**<br>(`TranscriptItem`、活动回合投影、`Ctrl+O` 全局展开态) | `src/cli/repl/repl-controller.ts` | 已有 `Harness` 事件 | `无需设计` | **就绪待实现** |
 | **FD-03** | **工具后端 `details` 与实时流增强**<br>(`edit` diff hunks、`write` 预览/hunks、`bash` `onUpdate` 实时流) | `src/harness/tools/{edit,write,bash,read}.ts` | 已有四个工具实现 | `无需设计` | **就绪待实现** |
-| **FD-04** | **工具权限拦截内核与模式状态机**<br>(`beforeToolCall` 挂起/恢复、`default`/`auto-edit`/`yolo` 与会话白名单) | `src/cli/tui/permissions/permission-policy.ts`<br>`src/harness/harness.ts` | 已有 `Agent.beforeToolCall` | `无需设计` | **就绪待实现** |
-| **FD-05** | **输入补全数据源**<br>(`/` 斜杠命令注册表、`@` 工作区文件模糊搜索索引) | `src/cli/tui/suggestions/suggestion-sources.ts` | 已有 `PromptDraft` | `无需设计` | **就绪待实现** |
+| **FD-04** | **工具权限拦截内核与模式状态机**<br>(`beforeToolCall` 挂起/恢复、`default`/`auto-edit`/`yolo` 与会话白名单) | `src/tui/permissions/permission-policy.ts`<br>`src/harness/harness.ts` | 已有 `Agent.beforeToolCall` | `无需设计` | **就绪待实现** |
+| **FD-05** | **输入补全数据源**<br>(`/` 斜杠命令注册表、`@` 工作区文件模糊搜索索引) | `src/cli/commands/command-registry.ts`<br>`src/tui/suggestions/suggestion-sources.ts` | 已有 `PromptDraft` | `无需设计` | **`/` 已实现待 Review；`@` 待实现** |
 
 ### 2.2 视觉与交互 React 组件看板（需先产出 `designcraft/` 资源再消费实现）
 
 | ID | 组件分类与名称 | 目标源码路径 | 前置依赖 | Design 状态 | `designcraft/` 资源路径 | 实现状态 |
 |---|---|---|---|---|---|---|
-| **TH-01** | **主题色板、真彩降级与跨平台符号库**<br>(`ThemeProvider`, `ThemedText`, `ThemedBox`, `color.ts`, `figures.ts`) | `src/cli/tui/theme/*` | 无 | **已定稿** | `designcraft/2026-09-21_anti-trace-TUI开机屏/tokens.css`<br>`02-艺术字规范@2x.png` | **就绪待实现** |
-| **LY-01** | **Anti-trace 开机屏与艺术字 Logo**<br>(`WelcomeHeader`, `AsciiLogo`，含默认态、yolo 态与窄屏紧凑态) | `src/cli/tui/layout/WelcomeHeader.tsx` | `TH-01` | **已定稿** | `designcraft/2026-09-21_anti-trace-TUI开机屏/01-anti-trace-开机屏@2x.png`<br>`01-anti-trace-开机屏-yolo@2x.png` | 等待前置 `TH-01`（Design 已就绪） |
-| **DS-01** | **基础展示小原语**<br>(`Divider`, `Byline`, `KeyboardShortcutHint`, `StatusIcon`, `ProgressBar`) | `src/cli/tui/design-system/{Divider,Byline,KeyboardShortcutHint,StatusIcon,ProgressBar}.tsx` | `TH-01` | `待设计` | — | 等待 Design |
-| **DS-02** | **通用面板、模态框与多标签页容器**<br>(`Pane`, `Dialog`, `Tabs`, `Tab`) | `src/cli/tui/design-system/{Pane,Dialog,Tabs}.tsx` | `TH-01`, `FD-01`, `DS-01` | `待设计` | — | 等待 Design |
-| **DS-03** | **通用单选与多选列表组件**<br>(`ListItem`, `Select` 含内联文本输入项, `MultiSelect`) | `src/cli/tui/design-system/{ListItem,Select,MultiSelect}.tsx` | `TH-01`, `FD-01`, `DS-01` | `待设计` | — | 等待 Design |
-| **DS-04** | **模糊搜索选择器**<br>(`FuzzyPicker`：搜索框 + 过滤列表 + 预览区) | `src/cli/tui/design-system/FuzzyPicker.tsx` | `DS-02`, `DS-03` | `待设计` | — | 等待 Design |
-| **LY-02** | **主屏幕布局骨架与底部状态栏**<br>(`ReplScreen`, `StatusLine`, `TokenWarning`) | `src/cli/tui/layout/{ReplScreen,StatusLine}.tsx` | `TH-01`, `FD-01`, `FD-02`, `LY-01` | `待设计` | —（可基于开机屏状态栏扩展） | 等待 Design |
-| **LY-03** | **动态 Spinner 加载行与流光计时组件**<br>(`SpinnerWithVerb`, `SpinnerAnimationRow`, `ShimmerText`) | `src/cli/tui/layout/Spinner.tsx` | `TH-01`, `FD-02` | `待设计` | — | 等待 Design |
-| **LY-04** | **增强输入框外框与附件徽标栏**<br>(`PromptInputBox`：`you>`/模式前缀、`[Image #N]`/`[Pasted #N]` 徽标条) | `src/cli/tui/layout/PromptInputBox.tsx` | `TH-01`, `FD-01` | `待设计` | — | 等待 Design |
-| **MSG-01** | **消息缩进容器与用户消息卡片**<br>(`MessageResponse` `⎿`, `UserPromptMessage`, `CtrlOToExpand`) | `src/cli/tui/messages/{MessageResponse,UserPromptMessage,CtrlOToExpand}.tsx` | `TH-01`, `FD-02` | `待设计` | — | 等待 Design |
-| **MSG-02** | **模型思考块组件**<br>(`AssistantThinkingMessage`：`∴ Thinking` 折叠态与 `▎` 展开态) | `src/cli/tui/messages/AssistantThinkingMessage.tsx` | `MSG-01`, `MD-01` | `待设计` | — | 等待 Design |
-| **MSG-03** | **上下文压缩边界与摘要展开卡片**<br>(`CompactBoundaryMessage`：`✻ Conversation compacted`) | `src/cli/tui/messages/CompactBoundaryMessage.tsx` | `MSG-01` | `待设计` | — | 等待 Design |
-| **MSG-04** | **系统通知、配置错误诊断卡片与中断提示**<br>(`SystemNoticeMessage`, `ErrorMessage`, `InterruptedByUser`) | `src/cli/tui/messages/SystemNoticeMessage.tsx` | `MSG-01` | `待设计` | — | 等待 Design |
-| **MD-01** | **Markdown 渲染器与助手正文卡片**<br>(`Markdown`, `AssistantTextMessage`, `FilePathLink`) | `src/cli/tui/markdown/{Markdown,FilePathLink}.tsx`<br>`src/cli/tui/messages/AssistantTextMessage.tsx` | `TH-01`, `FD-02` | `待设计` | — | 等待 Design |
-| **MD-02** | **终端自适应表格与语法高亮代码块**<br>(`MarkdownTable`, `HighlightedCode`) | `src/cli/tui/markdown/{MarkdownTable,HighlightedCode}.tsx` | `MD-01` | `待设计` | — | 等待 Design |
-| **MD-03** | **结构化行级与词级 Diff 组件**<br>(`StructuredDiff`：行号 Gutter、增删底色、词级高亮) | `src/cli/tui/diff/StructuredDiff.tsx` | `TH-01` | `待设计` | — | 等待 Design |
-| **TL-01** | **工具调用通用外框与闪烁状态点**<br>(`ToolUseCard`, `ToolUseLoader`) | `src/cli/tui/tools/{ToolUseCard,ToolUseLoader}.tsx` | `MSG-01`, `FD-02` | `待设计` | — | 等待 Design |
-| **TL-02** | **Read 工具卡片与连续只读聚合折叠视图**<br>(`ReadToolView`, `GroupedToolUseView`) | `src/cli/tui/tools/{ReadToolView,GroupedToolUseView}.tsx` | `TL-01`, `FD-03`, `MD-02` | `待设计` | — | 等待 Design |
-| **TL-03** | **Edit 工具卡片（内嵌 Diff）**<br>(`EditToolView`) | `src/cli/tui/tools/EditToolView.tsx` | `TL-01`, `FD-03`, `MD-03` | `待设计` | — | 等待 Design |
-| **TL-04** | **Write 工具卡片（新建代码预览／覆写 Diff）**<br>(`WriteToolView`) | `src/cli/tui/tools/WriteToolView.tsx` | `TL-01`, `FD-03`, `MD-02`, `MD-03` | `待设计` | — | 等待 Design |
-| **TL-05** | **Bash 工具卡片与运行中实时输出流**<br>(`BashToolView`, `BashProgressView`) | `src/cli/tui/tools/BashToolView.tsx` | `TL-01`, `FD-03` | `待设计` | — | 等待 Design |
-| **OV-01** | **输入框 `/` 命令与 `@` 文件自动补全浮层**<br>(`PromptSuggestions`) | `src/cli/tui/suggestions/PromptSuggestions.tsx` | `FD-01`, `FD-05`, `LY-04` | `待设计` | — | 等待 Design |
-| **OV-02** | **工具执行权限审批弹窗**<br>(`PermissionDialog`：内嵌 Diff/命令预览 + 三选一审批与内联拒绝反馈) | `src/cli/tui/permissions/PermissionDialog.tsx` | `FD-04`, `DS-02`, `DS-03`, `MD-03` | `待设计` | — | 等待 Design |
-| **OV-03** | **会话恢复选择器弹窗 (`/resume`)**<br>(`SessionPickerDialog`) | `src/cli/tui/dialogs/SessionPickerDialog.tsx` | `DS-02`, `DS-03` (或 `DS-04`) | `待设计` | — | 等待 Design |
-| **OV-04** | **模型切换选择器弹窗 (`/model`)**<br>(`ModelPickerDialog`) | `src/cli/tui/dialogs/ModelPickerDialog.tsx` | `DS-02`, `DS-03` | `待设计` | — | 等待 Design |
-| **OV-05** | **思考开关与五档强度选择器弹窗 (`/thinking`, `/effort`)**<br>(`ThinkingPickerDialog`) | `src/cli/tui/dialogs/ThinkingPickerDialog.tsx` | `DS-02`, `DS-03` | `待设计` | — | 等待 Design |
-| **OV-06** | **上下文容量可视化面板 (`/context`)**<br>(`ContextDialog`) | `src/cli/tui/dialogs/ContextDialog.tsx` | `DS-01`, `DS-02` | `待设计` | — | 等待 Design |
-| **OV-07** | **BYOK 配置诊断与重载面板 (`/config`, `/reload`)**<br>(`ConfigStatusDialog`) | `src/cli/tui/dialogs/ConfigStatusDialog.tsx` | `DS-02` | `待设计` | — | 等待 Design |
-| **OV-08** | **命令与快捷键多标签帮助弹窗 (`/help`, `?`)**<br>(`HelpDialog`) | `src/cli/tui/dialogs/HelpDialog.tsx` | `DS-02` | `待设计` | — | 等待 Design |
+| **TH-01** | **主题色板、真彩降级与跨平台符号库**<br>(`ThemeProvider`, `ThemedText`, `ThemedBox`, `color.ts`, `figures.ts`) | `src/tui/theme/*` | 无 | **已定稿** | `designcraft/2026-09-21_anti-trace-TUI开机屏/tokens.css`<br>`02-艺术字规范@2x.png` | **就绪待实现** |
+| **LY-01** | **Anti-trace 开机屏与艺术字 Logo**<br>(`WelcomeHeader`, `AsciiLogo`，含默认态、yolo 态与窄屏紧凑态) | `src/tui/layout/WelcomeHeader.tsx` | `TH-01` | **已定稿** | `designcraft/2026-09-21_anti-trace-TUI开机屏/01-anti-trace-开机屏@2x.png`<br>`01-anti-trace-开机屏-yolo@2x.png` | 等待前置 `TH-01`（Design 已就绪） |
+| **DS-01** | **基础展示小原语**<br>(`Divider`, `Byline`, `KeyboardShortcutHint`, `StatusIcon`, `ProgressBar`) | `src/tui/design-system/{Divider,Byline,KeyboardShortcutHint,StatusIcon,ProgressBar}.tsx` | `TH-01` | **已定稿** | `designcraft/2026-10-26_DS-01_基础展示原语/`<br>(`design.html` + 场景样张) | 等待前置 `TH-01`（Design 已就绪） |
+| **DS-02** | **通用面板、模态框与多标签页容器**<br>(`Pane`, `Dialog`, `Tabs`, `Tab`) | `src/tui/design-system/{Pane,Dialog,Tabs}.tsx` | `TH-01`, `FD-01`, `DS-01` | `待设计` | — | 等待 Design |
+| **DS-03** | **通用单选与多选列表组件**<br>(`ListItem`, `Select` 含内联文本输入项, `MultiSelect`) | `src/tui/design-system/{ListItem,Select,MultiSelect}.tsx` | `TH-01`, `FD-01`, `DS-01` | `待设计` | — | 等待 Design |
+| **DS-04** | **模糊搜索选择器**<br>(`FuzzyPicker`：搜索框 + 过滤列表 + 预览区) | `src/tui/design-system/FuzzyPicker.tsx` | `DS-02`, `DS-03` | `待设计` | — | 等待 Design |
+| **LY-02** | **主屏幕布局骨架与底部状态栏**<br>(`ReplScreen`, `StatusLine`, `TokenWarning`) | `src/tui/layout/{ReplScreen,StatusLine}.tsx` | `TH-01`, `FD-01`, `FD-02`, `LY-01` | `待设计` | —（可基于开机屏状态栏扩展） | 等待 Design |
+| **LY-03** | **动态 Spinner 加载行与流光计时组件**<br>(`SpinnerWithVerb`, `SpinnerAnimationRow`, `ShimmerText`) | `src/tui/layout/Spinner.tsx` | `TH-01`, `FD-02` | `待设计` | — | 等待 Design |
+| **LY-04** | **增强输入框外框与附件徽标栏**<br>(`PromptInputBox`：`you>`/模式前缀、`[Image #N]`/`[Pasted #N]` 徽标条) | `src/tui/layout/PromptInputBox.tsx` | `TH-01`, `FD-01` | `待设计` | — | 等待 Design |
+| **MSG-01** | **消息缩进容器与用户消息卡片**<br>(`MessageResponse` `⎿`, `UserPromptMessage`, `CtrlOToExpand`) | `src/tui/messages/{MessageResponse,UserPromptMessage,CtrlOToExpand}.tsx` | `TH-01`, `FD-02` | `待设计` | — | 等待 Design |
+| **MSG-02** | **模型思考块组件**<br>(`AssistantThinkingMessage`：`∴ Thinking` 折叠态与 `▎` 展开态) | `src/tui/messages/AssistantThinkingMessage.tsx` | `MSG-01`, `MD-01` | `待设计` | — | 等待 Design |
+| **MSG-03** | **上下文压缩边界与摘要展开卡片**<br>(`CompactBoundaryMessage`：`✻ Conversation compacted`) | `src/tui/messages/CompactBoundaryMessage.tsx` | `MSG-01` | `待设计` | — | 等待 Design |
+| **MSG-04** | **系统通知、配置错误诊断卡片与中断提示**<br>(`SystemNoticeMessage`, `ErrorMessage`, `InterruptedByUser`) | `src/tui/messages/SystemNoticeMessage.tsx` | `MSG-01` | `待设计` | — | 等待 Design |
+| **MD-01** | **Markdown 渲染器与助手正文卡片**<br>(`Markdown`, `AssistantTextMessage`, `FilePathLink`) | `src/tui/markdown/{Markdown,FilePathLink}.tsx`<br>`src/tui/messages/AssistantTextMessage.tsx` | `TH-01`, `FD-02` | `待设计` | — | 等待 Design |
+| **MD-02** | **终端自适应表格与语法高亮代码块**<br>(`MarkdownTable`, `HighlightedCode`) | `src/tui/markdown/{MarkdownTable,HighlightedCode}.tsx` | `MD-01` | `待设计` | — | 等待 Design |
+| **MD-03** | **结构化行级与词级 Diff 组件**<br>(`StructuredDiff`：行号 Gutter、增删底色、词级高亮) | `src/tui/diff/StructuredDiff.tsx` | `TH-01` | `待设计` | — | 等待 Design |
+| **TL-01** | **工具调用通用外框与闪烁状态点**<br>(`ToolUseCard`, `ToolUseLoader`) | `src/tui/tools/{ToolUseCard,ToolUseLoader}.tsx` | `MSG-01`, `FD-02` | `待设计` | — | 等待 Design |
+| **TL-02** | **Read 工具卡片与连续只读聚合折叠视图**<br>(`ReadToolView`, `GroupedToolUseView`) | `src/tui/tools/{ReadToolView,GroupedToolUseView}.tsx` | `TL-01`, `FD-03`, `MD-02` | `待设计` | — | 等待 Design |
+| **TL-03** | **Edit 工具卡片（内嵌 Diff）**<br>(`EditToolView`) | `src/tui/tools/EditToolView.tsx` | `TL-01`, `FD-03`, `MD-03` | `待设计` | — | 等待 Design |
+| **TL-04** | **Write 工具卡片（新建代码预览／覆写 Diff）**<br>(`WriteToolView`) | `src/tui/tools/WriteToolView.tsx` | `TL-01`, `FD-03`, `MD-02`, `MD-03` | `待设计` | — | 等待 Design |
+| **TL-05** | **Bash 工具卡片与运行中实时输出流**<br>(`BashToolView`, `BashProgressView`) | `src/tui/tools/BashToolView.tsx` | `TL-01`, `FD-03` | `待设计` | — | 等待 Design |
+| **OV-01** | **输入框 `/` 命令与 `@` 文件自动补全浮层**<br>(`PromptSuggestions`) | `src/tui/suggestions/PromptSuggestions.tsx`<br>`prompt-suggestions-controller.ts` | `/` 使用已有 `InputDispatcher` / `PromptInput`；完整外框仍依赖 `FD-01`, `FD-05`, `LY-04` | `待重设计` | 原型 P09/P10 初版，待本次交互调整后重设计 | **`/` 交互已实现待 Review；`@` 与视觉定稿待后续** |
+| **OV-02** | **工具执行权限审批弹窗**<br>(`PermissionDialog`：内嵌 Diff/命令预览 + 三选一审批与内联拒绝反馈) | `src/tui/permissions/PermissionDialog.tsx` | `FD-04`, `DS-02`, `DS-03`, `MD-03` | `待设计` | — | 等待 Design |
+| **OV-03** | **会话恢复选择器弹窗 (`/resume`)**<br>(`SessionPickerDialog`) | `src/tui/dialogs/SessionPickerDialog.tsx` | `DS-02`, `DS-03` (或 `DS-04`) | `待设计` | — | 等待 Design |
+| **OV-04** | **模型切换选择器弹窗 (`/model`)**<br>(`ModelPickerDialog`) | `src/tui/dialogs/ModelPickerDialog.tsx` | `DS-02`, `DS-03` | `待设计` | — | 等待 Design |
+| **OV-05** | **思考开关与五档强度选择器弹窗 (`/thinking`, `/effort`)**<br>(`ThinkingPickerDialog`) | `src/tui/dialogs/ThinkingPickerDialog.tsx` | `DS-02`, `DS-03` | `待设计` | — | 等待 Design |
+| **OV-06** | **上下文容量可视化面板 (`/context`)**<br>(`ContextDialog`) | `src/tui/dialogs/ContextDialog.tsx` | `DS-01`, `DS-02` | `待设计` | — | 等待 Design |
+| **OV-07** | **BYOK 配置诊断与重载面板 (`/config`, `/reload`)**<br>(`ConfigStatusDialog`) | `src/tui/dialogs/ConfigStatusDialog.tsx` | `DS-02` | `待设计` | — | 等待 Design |
+| **OV-08** | **命令与快捷键多标签帮助弹窗 (`/help`, `?`)**<br>(`HelpDialog`) | `src/tui/dialogs/HelpDialog.tsx` | `DS-02` | `待设计` | — | 等待 Design |
 
 ---
 
@@ -189,7 +195,7 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
 | `src/cli/input/*` | **原样保留编辑与粘贴核心**。在其上通过 `FD-01` 挂载焦点栈，通过 `LY-04` / `OV-01` 增加外框、附件徽标与补全浮层 |
 | `src/cli/repl/repl-controller.ts` | **重点升级（`FD-02`）**。将扁平 `entries: { id, text, kind }[]` 升级为结构化 `TranscriptItem[]` + `activeTurn` + `activeDialog` + `pendingPermission` |
 | `src/cli/repl/terminal-repl.tsx` | **重点升级（`LY-02`）**。将简单的 `ReplView` 替换为包裹在 `ThemeProvider` 与 `FocusStackProvider` 下的 `<ReplScreen />` |
-| `src/cli/render.ts` | 保留 `previewToolResult` / `renderEvent` 仅供非 TTY 或最小兜底使用；交互式 TUI 改走 `src/cli/tui/tools/*` 结构化渲染 |
+| `src/cli/render.ts` | 保留 `previewToolResult` / `renderEvent` 仅供非 TTY 或最小兜底使用；交互式 TUI 改走 `src/tui/tools/*` 结构化渲染 |
 | `src/harness/tools/{edit,write,bash,read}.ts` | **扩充 `details` 与 `onUpdate`（`FD-03`）**。不改变发给模型的 `content` 文本，仅丰富返回给 UI 的 `details` 结构化数据与实时进度回调 |
 | `src/harness/harness.ts` | **接入权限回调与压缩通知（`FD-04`）**。将 `Agent.beforeToolCall` 暴露为可配置的异步权限检查钩子 |
 
@@ -203,7 +209,7 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
 
 ### 6.1 纯逻辑与后端数据底座（`FD-01` ~ `FD-05`）
 
-#### `FD-01`｜焦点栈与快捷键桥接（`src/cli/tui/focus/focus-stack.tsx`）
+#### `FD-01`｜焦点栈与快捷键桥接（`src/tui/focus/focus-stack.tsx`）
 - **功能与数据契约**：
   - 定义焦点层级枚举：`type FocusLayer = "modal" | "suggestion" | "editor" | "global"`。
   - 提供 `<FocusStackProvider dispatcher={dispatcher} baseBindings={...}>` 与 Hook `useInputTarget(layer, context, actions, isActive)`。
@@ -228,7 +234,7 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
   - **`bash.ts` (`BashToolDetails` & `onUpdate`)**：在子进程 stdout/stderr 到达时，调用 `onUpdate({ content: [...], details: { liveLines: string[], totalLines: number, elapsedMs: number } })`（做 80ms 节流，防止高频阻塞）；执行结束时在 `details` 中记录 `exitCode`、`timedOut`、`durationMs`、`totalLines`。
 - **实现要点**：严格保持各工具返回给模型的 `content: [{ type: "text", text: ... }]` 格式不变，所有新增字段仅放入 `details`，不污染 LLM 上下文与前缀缓存。
 
-#### `FD-04`｜工具权限拦截内核与模式状态机（`src/cli/tui/permissions/permission-policy.ts`）
+#### `FD-04`｜工具权限拦截内核与模式状态机（`src/tui/permissions/permission-policy.ts`）
 - **功能与数据契约**：
   - 权限模式：`type PermissionMode = "default" | "auto-edit" | "yolo"`，支持 `Shift+Tab` 循环切换。
   - 会话级白名单：记录用户在当前会话中选择“本会话不再询问”的规则（如允许本会话所有文件编辑，或允许特定前缀的 bash 命令）。
@@ -238,10 +244,12 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
     - 拒绝并附带反馈：`resolve({ block: true, reason: userFeedback || "User rejected this tool call." })`。
 - **实现要点**：非 TTY 管道模式默认不弹交互框；正在等待权限审批时若用户按 `Ctrl+C` 中断，自动 reject/abort 并清理挂起状态。
 
-#### `FD-05`｜输入补全数据源（`src/cli/tui/suggestions/suggestion-sources.ts`）
+#### `FD-05`｜输入补全数据源（`src/tui/suggestions/suggestion-sources.ts`）
 - **功能与数据契约**：
-  - 斜杠命令表：统一定义所有斜杠命令的名称、参数提示、中文简述、是否支持无参直开弹窗（`/help`, `/new`, `/resume`, `/model`, `/thinking`, `/effort`, `/thinking-display`, `/context`, `/compact`, `/config`, `/reload`, `/exit`）。
+  - 斜杠命令表（已实现待 Review）：`src/cli/commands/command-registry.ts` 统一定义所有斜杠命令的名称、参数提示、中文简述、必填参数及精确匹配规则（`/help`, `/new`, `/resume`, `/model`, `/thinking`, `/effort`, `/thinking-display`, `/context`, `/compact`, `/config`, `/reload`, `/exit`）。REPL 识别、帮助输出和菜单共用这份表；各命令专用弹窗仍未实现。
   - `@` 文件索引：异步扫描并缓存 `cwd` 下的相对文件路径（排除 `.git`、`node_modules`、`dist`），支持按子串或首字母模糊打分排序，返回前 N 条候选。
+
+**已接通的 `/` 菜单契约（2026-10-29）：** `commandSuggestionQuery()` 从无附件的单行草稿读取行首命令前缀，要求光标在末尾；`getCommandSuggestions()` 返回匹配命令，完整名称优先。`PromptSuggestionsController` 订阅完整草稿及 REPL 状态，输出 `{ open, items, selectedIndex }` 和 `Suggestions` 输入 target。↑↓ 循环选择；Enter 确认无参操作，`/model` 补入参数编辑；Tab 仅补全命令，支持参数时追加空格；Esc 收起并保留草稿。`PromptSuggestions` 在输入框下方显示最多 6 项并随选中项滚动，小窗口减少行数，空结果显示提示。粘贴未完成、请求忙碌和会话序号输入期间禁用菜单；普通编辑、撤销重做、全局中断和非 TTY 命令沿用原有链路。原型 P09 需按此行为重设计；P10 的 `@` 补全不在本批。
 
 ---
 
@@ -249,7 +257,7 @@ TUI 同时包含**视觉样式设计**与**前后端代码实现**。为了避�
 
 #### `TH-01`｜主题色板、真彩降级与跨平台符号库（**Design 已定稿**）
 - **Design 资源**：`designcraft/2026-09-21_anti-trace-TUI开机屏/tokens.css` 与 `02-艺术字规范@2x.png`。
-- **包含文件**：`src/cli/tui/theme/{theme.ts,color.ts,figures.ts,ThemeProvider.tsx}`。
+- **包含文件**：`src/tui/theme/{theme.ts,color.ts,figures.ts,ThemeProvider.tsx}`。
 - **实现要点**：
   - 精确收录 `tokens.css` 中的色值：`brand` (`#FCEE0A`)、`accent` (`#00F0FF`)、`error` (`#FF003C`)、`bg` (`#030408`)、`bgBar` (`#05070D`)、`muted` (`#898D99`)、`dim` (`#393B42`)、`faint` (`#1E2025`)，并补齐 `success`、`warning`、`permission`、`diffAdded`、`diffRemoved`、`diffAddedWord`、`diffRemovedWord`。
   - 实现 24-bit Truecolor 到 256 色（`226` 黄、`51` 青、`197` 红）的终端能力检测与转换函数。

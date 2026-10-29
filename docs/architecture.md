@@ -8,6 +8,8 @@
 
 **输入迁移状态（2026-10-15）：**输入迁移功能已完成并提交，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除，已完成的施工计划按用户要求退役。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。此前本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE。现按用户要求，整个 `test/` 均仅保留在本地，取消历史文件跟踪和 npm 测试／探针入口，后续另建测试框架。其他平台原生终端、真实剪贴板和具体终端应用仍需手测，见 §7 和进度文档。上下键仅移动当前输入光标，不提供历史召回。
 
+**TUI 目录约定：** 终端界面模块统一放在 `src/tui/`，与 `src/harness/`、`src/agent/` 平行；当前命令菜单位于 `src/tui/suggestions/`。CLI 入口、命令分派和现有输入底层继续由 `src/cli/` 承担。
+
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
 ---
@@ -79,6 +81,7 @@ startLine(index + segment.length);
 | 对话与工具 | Harness、多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 已接入新 REPL；交互入口已恢复 |
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；新 REPL 已接回 `/new`、`/resume` 列表与序号选择 |
 | 终端输入 | 输入迁移已完成；唯一 stdin 宿主、协议解析、焦点分发、多行字素编辑、粘贴合并、完整附件草稿、撤销/重做和提交展开已接通；非 TTY 在 EOF 提交一次原文 |
+| 命令入口 | `/` 命令菜单已实现待 review：默认收起、前缀筛选、上下选择、Enter 确认、Tab 补全、Esc 收起；注册表统一驱动 REPL 识别、帮助和菜单。视觉重设计及 `@` 文件补全待后续 |
 | 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
 | 协议适配 | 上层使用 streamModel；已实现 Chat、Responses、Anthropic 的请求、思考、工具与图文转换。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
@@ -121,6 +124,8 @@ Agent / loop（已有，不改职责）
 ```
 
 新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 先装配 Harness，再尝试加载配置，最后选择 TTY 交互或非 TTY EOF 提交。`ByokRuntime.reload()` 只负责候选配置的加载、校验与应用；通过 main 注入的回调调用现有 `Harness.configureModel()`，不持有或创建 Harness。无配置时 Agent 的 model 为 `undefined`，工具、消息和会话管理照常工作；具体模型操作内部检查配置。`/reload` 重试最近的路径与选择，`/config [路径]` 查看状态或更换文件，`/model <模型键>` 选择本次运行的模型；失败候选与当前生效配置分别保存，设置成功应用后才提交配置状态。重载不重建 Harness、Agent、会话或订阅。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
+
+**命令菜单（2026-10-29，已实现待 review）：** `src/cli/commands/command-registry.ts` 统一定义 12 条命令的名称、中文说明、参数提示和必填标记，供 REPL 解析、`/help` 和 `tui/suggestions/` 使用。主页仅显示“输入 / 查看命令”；纯文本单行草稿在行首输入 `/` 且光标位于末尾时打开菜单，按名称前缀筛选，最多显示 6 项并随选中项滚动。↑↓ 选择，Enter 执行当前命令；`/model` 需参数，先补入 `/model `。Tab 仅补全，带参数的命令补入尾随空格；补全属于可撤销的普通编辑。Esc 收起并保留草稿，继续修改文字后可再次触发。菜单通过已有 `InputDispatcher` 的 `Suggestions → Input → Global` 上下文分发，普通编辑和全局中断继续生效；粘贴未完成、忙碌或正在输入恢复会话序号时不打开菜单。菜单在 Ink 动态区渲染，不写入聊天记录。多行草稿、附件、未知斜杠文本及 `/resume 2` 保留原有提交语义，非 TTY 不显示菜单。后续 DeepSeek 重设计菜单外观，其他命令专用弹窗与 `@` 文件补全仍按 TUI 看板推进。
 
 磁盘采用按项目分桶的线性会话，格式由本项目定义：
 

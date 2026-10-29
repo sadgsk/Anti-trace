@@ -120,6 +120,11 @@ export class TextInputController {
 		if (this.active) this.edit({ type: "insert", text });
 	}
 
+	/** Completion replaces text as a normal edit, preserving the draft owner's undo history. */
+	replaceText(text: string): void {
+		if (this.active) this.applyEdit({ start: 0, end: this.getState().text.length, text });
+	}
+
 	dispose(): void {
 		if (!this.active) return;
 		this.active = false;

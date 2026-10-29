@@ -4,6 +4,8 @@
 
 主线以 **TTY 终端、普通聊天输入、默认 Enter 提交**为例。`/help` 等命令在 REPL 内分流；空草稿、忙碌状态、粘贴未完成、反斜杠换行等情况会经过各自的提交判断。
 
+输入 `/` 打开命令菜单时，`PromptSuggestionsController` 先通过 `InputDispatcher` 的 `Suggestions` 上下文接收 ↑↓ / Enter / Tab / Esc。Enter 将所选命令交给同一个 `ReplController.submit()`；需要参数的 `/model` 和 Tab 操作只补入输入框，等待用户继续编辑。普通文字仍传给原输入组件。命令菜单的数据、`/help` 输出与 REPL 的 `parseSlashCommand()` 共同使用 `src/cli/commands/command-registry.ts`。
+
 一次 Enter 通常启动一次 `runAgentLoop`。其中的 `runLoop` 可以自动请求 LLM 多次，不需要用户再次按 Enter。一次 LLM 请求及其工具执行，构成这里的一轮 `turn`。
 
 下方三张图用 Mermaid 绘制，并嵌入已渲染的 SVG；图的 `.mmd` 源码和[渲染配置](./assets/main-flow-mermaid.json)保存在 `docs/assets/`，可以随调用关系一起修改。

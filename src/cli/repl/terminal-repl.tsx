@@ -8,6 +8,8 @@ import { PromptInputController } from "../input/prompt-input-controller.ts";
 import type { TextInputOptions } from "../input/text-input-controller.ts";
 import { ReplController, type ReplHarness } from "./repl-controller.ts";
 import type { ByokRuntime } from "../byok-runtime.ts";
+import { PromptSuggestions } from "../../tui/suggestions/PromptSuggestions.tsx";
+import { PromptSuggestionsController } from "../../tui/suggestions/prompt-suggestions-controller.ts";
 
 export interface TerminalReplOptions {
 	harness: ReplHarness;
@@ -25,7 +27,12 @@ function displayText(text: string): string {
 }
 
 /** Ink owns both the streaming reply and draft display; no competing stdout writer. */
-export function ReplView({ repl, prompt }: { repl: ReplController; prompt: PromptInputController }) {
+export function ReplView({ repl, prompt, suggestions, availableSuggestionRows }: {
+	repl: ReplController;
+	prompt: PromptInputController;
+	suggestions: PromptSuggestionsController;
+	availableSuggestionRows?: number;
+}) {
 	const state = useSyncExternalStore(repl.subscribe, repl.getSnapshot, repl.getSnapshot);
 	return <Box flexDirection="column">
 		<Static items={[...state.entries]}>{entry => <Text key={entry.id} dimColor={entry.kind === "thinking"}>{displayText(entry.text)}</Text>}</Static>
@@ -33,8 +40,9 @@ export function ReplView({ repl, prompt }: { repl: ReplController; prompt: Promp
 		{state.closed ? null : <Box flexDirection="column">
 			{state.modelStatus ? <Text dimColor>{displayText(state.modelStatus)}</Text> : null}
 			{state.busy ? <Text dimColor>处理中，Ctrl+C 中断</Text> : null}
-			<Text dimColor>{state.resumeChoices ? "会话序号（空行取消）" : ">"}</Text>
+			<Text dimColor>{state.resumeChoices ? "会话序号（空行取消）" : "> · 输入 / 查看命令"}</Text>
 			<PromptInput controller={prompt} />
+			<PromptSuggestions controller={suggestions} availableRows={availableSuggestionRows} />
 		</Box>}
 	</Box>;
 }
@@ -70,12 +78,23 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		...prompt.target.actions,
 		"app:exit": () => repl.exit(),
 	} };
-	dispatcher.configure([inputTarget, global], options.bindings ?? REPL_KEYBINDINGS);
-	const resize = () => prompt.setAvailableColumns(columns());
+	const suggestions = new PromptSuggestionsController(prompt, repl);
+	const configureTargets = () => dispatcher.configure(suggestions.getSnapshot().open
+		? [suggestions.target, inputTarget, global] : [inputTarget, global], options.bindings ?? REPL_KEYBINDINGS);
+	const unsubscribeSuggestions = suggestions.subscribe(configureTargets);
+	configureTargets();
+	const renderView = () => host?.rerender(<ReplView repl={repl} prompt={prompt} suggestions={suggestions}
+		availableSuggestionRows={Math.max(1, (streams.stdout.rows || 24) - 8)} />);
+	const resize = () => {
+		prompt.setAvailableColumns(columns());
+		renderView();
+	};
 	const cleanup = () => {
 		if (!active) return;
 		active = false;
 		streams.stdout.off("resize", resize);
+		unsubscribeSuggestions();
+		suggestions.dispose();
 		prompt.dispose();
 		repl.dispose();
 		resolveDone();
@@ -88,14 +107,13 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	try {
 		if (options.banner) repl.write(options.banner);
 		if (options.startupMessage) repl.write(options.startupMessage);
-		repl.write("/help 查看命令和快捷键。");
 		repl.writeContext();
 		host = startTerminalHost(event => dispatcher.dispatch(event), streams, cleanup);
 		streams.stdout.on("resize", resize);
-		host.rerender(<ReplView repl={repl} prompt={prompt} />);
+		renderView();
 	} catch (error) {
 		stop();
 		throw error;
 	}
-	return { prompt, repl, dispatcher, stop, done };
+	return { prompt, repl, suggestions, dispatcher, stop, done };
 }
