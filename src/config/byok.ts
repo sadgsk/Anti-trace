@@ -45,6 +45,7 @@ const ConfigSchema = Type.Object({
 		])),
 	}, { additionalProperties: false })),
 }, { additionalProperties: false });
+export type ByokConfigDocument = Static<typeof ConfigSchema>;
 
 export interface LoadByokConfigOptions {
 	cwd?: string;
@@ -83,6 +84,11 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 		throw new ByokConfigError(`无法读取 BYOK 配置 ${configPath}（${code ?? "读取失败"}）。`);
 	}
 
+	return parseByokConfig(text, configPath, env, options.model);
+}
+
+/** Shared validation for disk loading and TUI saves, before replacing a file. */
+export function parseByokConfig(text: string, configPath: string, env: NodeJS.ProcessEnv = process.env, selectedModel?: string): LoadedByokConfig {
 	let raw: unknown;
 	try {
 		raw = JSON.parse(text.replace(/^\uFEFF/, ""));
@@ -144,9 +150,9 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 			...(adapter !== undefined ? { adapter: structuredClone(adapter) } : {}),
 		};
 	}
-	const currentModel = options.model ?? config.currentModel;
+	const currentModel = selectedModel ?? config.currentModel;
 	if (!Object.hasOwn(models, currentModel)) {
-		throw new ByokConfigError(options.model === undefined
+		throw new ByokConfigError(selectedModel === undefined
 			? `currentModel 引用了不存在的模型 ${currentModel}。`
 			: `未找到 BYOK 模型 ${currentModel}。`);
 	}

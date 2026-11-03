@@ -1,6 +1,6 @@
 import { Agent } from "../agent/agent.ts";
 import { ByokConfigError } from "../config/errors.ts";
-import type { AgentEvent, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
+import type { AgentEvent, AgentMessage, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { validateModelThinking } from "../llm/adapter.ts";
 import {
@@ -23,6 +23,7 @@ import {
 	touchSession,
 	type SessionFile,
 	type SessionListItem,
+	type SessionEntry,
 } from "./session.ts";
 import { createBashTool } from "./tools/bash.ts";
 import { createEditTool } from "./tools/edit.ts";
@@ -45,6 +46,14 @@ export interface HarnessOptions extends Partial<HarnessModelSettings> {
 	resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 }
 
+export type HarnessEvent = AgentEvent
+	| { type: "compaction_start"; tokensBefore: number }
+	| { type: "compaction_end"; tokensBefore: number; tokensAfter: number; summary: string }
+	| { type: "compaction_error"; message: string };
+export interface HarnessDisplayState {
+	modelName: string; thinking: ThinkingPreferences; contextUsed: number; contextWindow?: number; sessionTitle: string;
+}
+
 export class Harness {
 	readonly agent: Agent;
 	private readonly cwd: string;
@@ -57,6 +66,7 @@ export class Harness {
 	private modelRef?: ModelReference;
 	private readonly resolveModel?: HarnessOptions["resolveModel"];
 	private restoreWarning?: string;
+	private readonly displayListeners = new Set<(event: HarnessEvent, signal: AbortSignal) => Promise<void> | void>();
 
 	constructor(options: HarnessOptions) {
 		const tools = [
@@ -193,8 +203,29 @@ export class Harness {
 		this.agent.abort();
 	}
 
-	subscribe(listener: (event: AgentEvent, signal: AbortSignal) => Promise<void> | void): () => void {
-		return this.agent.subscribe(listener);
+	subscribe(listener: (event: HarnessEvent, signal: AbortSignal) => Promise<void> | void): () => void {
+		const unsubscribe = this.agent.subscribe(listener);
+		this.displayListeners.add(listener);
+		return () => { unsubscribe(); this.displayListeners.delete(listener); };
+	}
+
+	getDisplayState(): HarnessDisplayState {
+		return { modelName: this.agent.state.model?.name ?? "模型未配置", thinking: { ...this.agent.state.thinking },
+			contextUsed: this.usedTokens, contextWindow: this.agent.state.model?.contextWindow, sessionTitle: this.session.header.name ?? "新会话" };
+	}
+	getSessionMessages(): readonly AgentMessage[] { return structuredClone(this.agent.state.messages); }
+	getSessionHistory(): readonly SessionEntry[] { return structuredClone(this.session.entries); }
+	setBeforeToolCall(handler: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>): () => void {
+		const previous = this.agent.beforeToolCall;
+		const combined = async (context: BeforeToolCallContext, signal?: AbortSignal) => {
+			const result = await previous?.(context, signal);
+			return result?.block ? result : handler(context, signal);
+		};
+		this.agent.beforeToolCall = combined;
+		return () => { if (this.agent.beforeToolCall === combined) this.agent.beforeToolCall = previous; };
+	}
+	private async emitDisplay(event: HarnessEvent, signal: AbortSignal): Promise<void> {
+		for (const listener of this.displayListeners) await listener(event, signal);
 	}
 
 	newSession(): void {
@@ -385,8 +416,10 @@ export class Harness {
 		const controller = new AbortController();
 		const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
 		this.compactionController = controller;
+		const tokensBefore = this.usedTokens;
 		try {
 			signal.throwIfAborted();
+			await this.emitDisplay({ type: "compaction_start", tokensBefore }, signal);
 			const converted = await this.agent.convertToLlm(messages);
 			signal.throwIfAborted();
 			const summary = await summarizeConversation({
@@ -427,7 +460,11 @@ export class Harness {
 			});
 			this.agent.state.messages = compactedMessages;
 			this.usedTokens = estimateMessagesTokens(compactedMessages);
+			await this.emitDisplay({ type: "compaction_end", tokensBefore, tokensAfter: this.usedTokens, summary: wrappedSummary }, signal);
 			return true;
+		} catch (error) {
+			await this.emitDisplay({ type: "compaction_error", message: error instanceof Error ? error.message : String(error) }, signal);
+			throw error;
 		} finally {
 			this.compactionController = undefined;
 		}

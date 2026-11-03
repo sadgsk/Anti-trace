@@ -4,7 +4,7 @@
 
 主线以 **TTY 终端、普通聊天输入、默认 Enter 提交**为例。`/help` 等命令在 REPL 内分流；空草稿、忙碌状态、粘贴未完成、反斜杠换行等情况会经过各自的提交判断。
 
-输入 `/` 打开命令菜单时，`PromptSuggestionsController` 先通过 `InputDispatcher` 的 `Suggestions` 上下文接收 ↑↓ / Enter / Tab / Esc。Enter 将所选命令交给同一个 `ReplController.submit()`；需要参数的 `/model` 和 Tab 操作只补入输入框，等待用户继续编辑。普通文字仍传给原输入组件。命令菜单的数据、`/help` 输出与 REPL 的 `parseSlashCommand()` 共同使用 `src/cli/commands/command-registry.ts`。
+输入 `/` 打开命令菜单时，`PromptSuggestionsController` 先通过 `InputDispatcher` 的 `Suggestions` 上下文接收 ↑↓ / Enter / Tab / Esc。Enter 将所选命令交给同一个 `ReplController.submit()`；`/model`、`/effort`、`/thinking`、`/thinking-display`、`/resume`、`/config` 无参数时打开二级界面，`CommandDialogController` 经同一分发器接管模态输入。确认后调用 ByokRuntime／Harness 的真实设置或会话接口；配置表单通过 ConfigProfiles 校验、保存并应用。Tab 仍仅补全，原有显式参数保留兼容。命令菜单、`/help` 与解析共用 `src/cli/commands/command-registry.ts`。
 
 一次 Enter 通常启动一次 `runAgentLoop`。其中的 `runLoop` 可以自动请求 LLM 多次，不需要用户再次按 Enter。一次 LLM 请求及其工具执行，构成这里的一轮 `turn`。
 
@@ -199,7 +199,7 @@ for (const result of toolResults) {
 }
 ```
 
-工具由 Agent 侧的工具实现执行。模型提出的是工具名称和参数；REPL 接收相关事件，用来显示运行状态和结果预览。
+工具由 Agent 侧的工具实现执行。模型提出的是工具名称和参数；REPL 接收相关事件，投影工具参数、状态、实时输出和 details 供工具卡展示；权限策略通过 Harness 的前置钩子挂起与恢复执行。
 
 ### 3.3 下一次 HTTP 请求如何被触发
 
@@ -300,11 +300,11 @@ loop 中 emit(event)
   → Agent.processEvents(event)：更新 Agent 状态
   → 遍历 Agent.listeners，调用注册的回调
   → ReplController.handleEvent(event)：更新显示状态
-  → ReplView 通过 useSyncExternalStore 得知状态变化
+  → ReplScreen 通过 useSyncExternalStore 得知状态变化
   → Ink 更新终端显示
 ```
 
-REPL 在 `message_update` 的 text_delta / thinking_delta 分支按顺序追加 liveText，思考附 [思考] 标识，可独立隐藏；在 `tool_execution_start` 分支添加“工具正在运行”的显示记录；在 `tool_execution_end` 分支显示结果预览。`toolcall_end` 表示模型的工具调用信息已经完整，实际执行由 loop 随后进行。
+REPL 在 message_update 的 text_delta / thinking_delta 分支同时投影结构化助手块与管道 liveText；TUI 由 ReplScreen 消费 transcript／activeItems，思考正文可独立隐藏；在 `tool_execution_start` 分支添加“工具正在运行”的显示记录；在 `tool_execution_end` 分支显示结果预览。`toolcall_end` 表示模型的工具调用信息已经完整，实际执行由 loop 随后进行。
 
 `message_end` 表示一条消息结束，`turn_end` 表示一次模型请求及其工具处理结束，`agent_end` 表示这次 Agent 运行结束。工具结果本身也会产生消息事件，一次运行可以出现多次 `message_end` 和 `turn_end`。
 
@@ -330,7 +330,8 @@ Harness 还有上下文溢出的收尾分支：符合条件时先压缩历史，
 | 源码 | 重点入口 |
 |---|---|
 | [cli/main.ts](../src/cli/main.ts) | `runCli`：创建 Harness，进入终端 REPL |
-| [cli/repl/terminal-repl.tsx](../src/cli/repl/terminal-repl.tsx) | `startTerminalRepl`：创建控制器、连接回调、配置 dispatcher、启动 host；`ReplView` 渲染 |
+| [cli/repl/terminal-repl.tsx](../src/cli/repl/terminal-repl.tsx) | `startTerminalRepl`：创建控制器、连接回调、配置 dispatcher 与 FocusStack、启动 host |
+| [tui/layout/ReplScreen.tsx](../src/tui/layout/ReplScreen.tsx) | `ReplScreen`：订阅状态，组合历史视窗、活跃回合、输入／菜单、审批和状态栏 |
 | [cli/ink/terminal-host.ts](../src/cli/ink/terminal-host.ts) | `startTerminalHost`、`handleData`、`emitEvents` |
 | [cli/input/input-dispatcher.ts](../src/cli/input/input-dispatcher.ts) | `configure`、`dispatch` |
 | [cli/input/keybindings.ts](../src/cli/input/keybindings.ts) | Enter → `input:submit` |

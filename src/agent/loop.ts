@@ -131,7 +131,7 @@ async function runLoop(
 			return;
 		}
 
-		if (!hasMoreToolCalls) {
+		if (!hasMoreToolCalls || signal?.aborted) {
 			await emit({ type: "agent_end", messages: newMessages });
 			return;
 		}
@@ -298,9 +298,7 @@ async function executeToolCallsSequential(
 		finalizedCalls.push(finalized);
 		messages.push(toolResultMessage);
 
-		if (signal?.aborted) {
-			break;
-		}
+		// Complete the batch with aborted results so every model call retains a paired result.
 	}
 
 	return {
@@ -367,6 +365,7 @@ async function prepareToolCall(
 	config: AgentLoopConfig,
 	signal: AbortSignal | undefined,
 ): Promise<PreparedToolCall | ImmediateToolCallOutcome> {
+	if (signal?.aborted) return { kind: "immediate", result: createErrorToolResult("Operation aborted"), isError: true };
 	const tool = currentContext.tools?.find((candidate) => candidate.name === toolCall.name);
 	if (!tool) {
 		return {

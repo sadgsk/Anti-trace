@@ -64,22 +64,25 @@ CLI 默认读取启动目录下的 `byok.json`，也可通过 `CLI_AGENT_CONFIG`
 
 ## 常用命令
 
-交互界面默认收起命令列表。输入 `/` 打开命令菜单，继续输入可按名称前缀筛选；↑↓ 选择，Enter 确认，Tab 仅补全，Esc 收起并保留草稿。`/model` 需要继续填写模型键；有可选参数的命令可用 Tab 补入后填写参数，也可直接按原有语法输入完整命令。
+交互界面默认收起命令列表。输入 `/` 打开命令菜单，继续输入按名称筛选；↑↓ 选择，Enter 确认，Tab 仅补全，Esc 返回。模型、effort、思考及展示开关、会话恢复和配置管理使用二级界面，无需手输参数；原有显式参数仍兼容。输入框默认位于底部，滚轮和 PgUp／PgDn 回看历史，Ctrl+End 返回最新；Shift+拖动选中文本。
 
 | 命令 | 用途 |
 |---|---|
 | `/help` | 查看帮助 |
 | `/new` | 开始新会话 |
-| `/resume` | 列出会话，输入序号恢复 |
-| `/model <模型键>` | 选择本次运行使用的模型 |
-| `/config [路径]` | 查看配置状态或更换配置文件 |
+| `/resume` | 方向键选择并恢复会话 |
+| `/model` | 从当前配置选择模型 |
+| `/config` | 配置文件菜单，同级新增／修改；同一文件新增多个模型，Enter 独立编辑字段 |
 | `/reload` | 重新读取模型配置 |
-| `/thinking on\|off\|default` | 开启、关闭思考或使用服务端默认 |
-| `/effort low\|medium\|high\|xhigh\|max` | 设置思考档位 |
-| `/thinking-display on\|off` | 显示或隐藏思考内容 |
+| `/thinking` | 选择开启／关闭模型思考 |
+| `/effort` | 方向键选择 low／medium／high／xhigh／max |
+| `/thinking-display` | 选择开启／关闭思考文字默认展示 |
+| `/language` | 切换中文／English 界面，即时生效并记住偏好 |
 | `/context [正整数]` | 查看或调整上下文窗口 |
 | `/compact` | 尝试手动压缩上下文 |
 | `/exit` | 退出 |
+
+当前整体 TUI 已进入试用，交互与实现见 [架构文档](docs/architecture.md#4-分层)，验证和待办见 [开发进度](docs/progress.md)。支持 Markdown／代码／表格、工具卡与 Diff、权限审批、@ 文件补全和附件栏。Ctrl+O 在回看处原位展开／收起，在最新处定位并展开最近工具；Shift+Tab 切换权限模式。可用 `npm start -- --auto-edit` 或 `npm start -- --yolo` 显式指定启动模式。
 
 Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生成或清空草稿，空闲且草稿为空时退出。Ctrl+Z 撤销，Ctrl+Y 重做。快捷键识别取决于终端。
 
@@ -101,7 +104,7 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 ## 已知限制
 
 - Windows 上的 `bash` 工具实际使用 `cmd.exe`，存在命令执行失败和卡住的问题，见 [问题记录](docs/future-issues.md)。
-- 中断后的工具配对，以及可恢复的上下文溢出错误提前显示问题仍待处理，见 [评审记录](docs/review-records.md)。
+- 可恢复的上下文溢出错误提前显示问题仍待处理；工具批次中断配对已在 TUI 批次修复，见 [评审记录](docs/review-records.md)。
 - 已有本地 HTTP SSE 和 macOS POSIX PTY 验证记录，真实模型、剪贴板和其他终端平台的覆盖仍不完整。
 - 仓库尚未提供可复现的自动化测试套件。`npm run typecheck` 和 `npm run build` 可用于类型检查与构建。
 

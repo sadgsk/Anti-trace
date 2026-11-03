@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { StringDecoder } from "node:string_decoder";
 import { type Static, Type } from "typebox";
 import type { AgentTool } from "../../types.ts";
 
@@ -12,6 +13,9 @@ export type BashToolInput = Static<typeof bashSchema>;
 export interface BashToolDetails {
 	exitCode: number | null;
 	timedOut?: boolean;
+	durationMs?: number;
+	liveLines?: string[];
+	totalLines?: number;
 }
 
 export function createBashTool(cwd: string): AgentTool<typeof bashSchema, BashToolDetails> {
@@ -21,7 +25,7 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema, BashTo
 		description:
 			"Run a shell command in the working directory. Returns combined stdout and stderr. On Windows this uses cmd.exe.",
 		parameters: bashSchema,
-		async execute(_toolCallId, { command, timeout }, signal) {
+		async execute(_toolCallId, { command, timeout }, signal, onUpdate) {
 			if (timeout !== undefined && (!Number.isFinite(timeout) || timeout <= 0)) {
 				throw new Error("Invalid timeout: must be a positive number of seconds");
 			}
@@ -30,17 +34,33 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema, BashTo
 			// 模型在 Windows 上仍可能发 rm/ls/find 等 bash 命令，导致失败或卡住。见 docs/future-issues.md No.1。
 			const child =
 				process.platform === "win32"
-					? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], {
-							cwd,
-							windowsHide: true,
-						})
+					? spawn(command, { cwd, shell: process.env.ComSpec ?? "cmd.exe", windowsHide: true })
 					: spawn("bash", ["-lc", command], { cwd });
 
 			let timedOut = false;
 			const chunks: Buffer[] = [];
+			const startedAt = Date.now();
+			const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
+			let tail = "", totalLines = 0, updateTimer: NodeJS.Timeout | undefined, finished = false;
+			const publish = () => {
+				updateTimer = undefined;
+				if (finished) return;
+				onUpdate?.({ content: [], details: { exitCode: null, liveLines: tail.split(/\r?\n/).slice(-5), totalLines,
+					durationMs: Date.now() - startedAt } });
+			};
+			const collect = (stream: "stdout" | "stderr", chunk: Buffer) => {
+				if (finished) return;
+				chunks.push(chunk);
+				const text = decoders[stream].write(chunk);
+				totalLines += text.split("\n").length - 1;
+				tail = (tail + text).split(/\r?\n/).slice(-6).join("\n").slice(-16000);
+				if (!updateTimer && onUpdate) updateTimer = setTimeout(publish, 80);
+			};
 
 			const output = await new Promise<string>((resolve, reject) => {
 				const onAbort = () => {
+					finished = true;
+					if (updateTimer) clearTimeout(updateTimer);
 					child.kill();
 					reject(new Error("Command aborted"));
 				};
@@ -59,14 +79,18 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema, BashTo
 								child.kill();
 							}, timeout * 1000);
 
-				child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-				child.stderr.on("data", (chunk: Buffer) => chunks.push(chunk));
+				child.stdout.on("data", (chunk: Buffer) => collect("stdout", chunk));
+				child.stderr.on("data", (chunk: Buffer) => collect("stderr", chunk));
 				child.on("error", (error) => {
+					finished = true;
+					if (updateTimer) clearTimeout(updateTimer);
 					if (timer) clearTimeout(timer);
 					signal?.removeEventListener("abort", onAbort);
 					reject(error);
 				});
 				child.on("close", (code) => {
+					finished = true;
+					if (updateTimer) clearTimeout(updateTimer);
 					if (timer) clearTimeout(timer);
 					signal?.removeEventListener("abort", onAbort);
 					const text = Buffer.concat(chunks).toString("utf8");
@@ -85,7 +109,8 @@ export function createBashTool(cwd: string): AgentTool<typeof bashSchema, BashTo
 
 			return {
 				content: [{ type: "text", text: output }],
-				details: { exitCode: child.exitCode, timedOut: timedOut || undefined },
+				details: { exitCode: child.exitCode, timedOut: timedOut || undefined, durationMs: Date.now() - startedAt,
+					totalLines: output.split(/\r?\n/).length, liveLines: tail.split(/\r?\n/).slice(-5) },
 			};
 		},
 	};

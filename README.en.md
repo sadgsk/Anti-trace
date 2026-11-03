@@ -64,22 +64,25 @@ Include any required version prefix in `baseUrl`, such as `/v1`. Alternatively, 
 
 ## Common commands
 
-The interactive command list stays collapsed until you type `/`. Keep typing to filter by name prefix, use ↑↓ to select, Enter to confirm, Tab to complete without running, and Esc to dismiss while keeping the draft. `/model` inserts a prompt for its required model key. For optional arguments, use Tab to complete the command before entering a value, or type the full command directly.
+Type `/` to open the command menu; use arrows to select, Enter to confirm, Tab to complete and Esc to return. Model, effort, thinking, thinking display, session resume and configuration commands open selection screens without typed arguments. Explicit arguments remain compatible. Input starts at the bottom; use the mouse wheel or PgUp/PgDn to review history, Ctrl+End to return to the latest output, and Shift+drag to select text.
 
 | Command | Purpose |
 |---|---|
 | `/help` | Show help |
 | `/new` | Start a new session |
-| `/resume` | List sessions and restore one by number |
-| `/model <model-key>` | Select a model for the current run |
-| `/config [path]` | Show configuration status or load another file |
+| `/resume` | Select and restore a session with arrow keys |
+| `/model` | Select from models in the current configuration |
+| `/config` | Choose, add or edit configurations; add models to one file and edit each field on a separate page |
 | `/reload` | Reload model configuration |
-| `/thinking on\|off\|default` | Enable reasoning, disable it, or use the server default |
-| `/effort low\|medium\|high\|xhigh\|max` | Set the reasoning level |
-| `/thinking-display on\|off` | Show or hide reasoning content |
+| `/thinking` | Select reasoning on/off |
+| `/effort` | Select low/medium/high/xhigh/max with arrow keys |
+| `/thinking-display` | Select the default reasoning text visibility |
+| `/language` | Switch between Chinese and English and remember the preference |
 | `/context [positive integer]` | View or adjust the context window |
 | `/compact` | Attempt manual context compaction |
 | `/exit` | Exit |
+
+The complete TUI is ready for trial; see the [architecture and interaction notes](docs/architecture.md#4-分层) and [progress record](docs/progress.md) for validation and remaining work. It includes Markdown, code and tables, tool cards and diffs, permission approval, file completion with `@`, and attachment indicators. Ctrl+O expands/collapses content at the current reading position, or opens the latest tool when following live output; Shift+Tab cycles permission modes. Use `npm start -- --auto-edit` or `npm start -- --yolo` to choose a startup mode explicitly.
 
 Enter submits. Shift/Alt+Enter, or a backslash followed by Enter, inserts a newline. Ctrl+C interrupts generation or clears the draft; when idle with an empty draft, it exits. Ctrl+Z undoes; Ctrl+Y redoes. Shortcut recognition depends on the terminal.
 
@@ -101,7 +104,7 @@ This capability has not been implemented. The diagram above shows the proposed d
 ## Known limitations
 
 - On Windows, the `bash` tool actually uses `cmd.exe`. Command failures and hangs are recorded in [future-issues.md](docs/future-issues.md).
-- Tool pairing after interruption and premature display of recoverable context-overflow errors still need work; see the [review records](docs/review-records.md).
+- Premature display of recoverable context-overflow errors still needs work. Interrupted tool-batch pairing was fixed in the TUI implementation; see the [review records](docs/review-records.md).
 - Local HTTP SSE and macOS POSIX PTY verification records exist. Coverage of real models, clipboards, and other terminal platforms remains incomplete.
 - The repository does not yet provide a reproducible automated test suite. Use `npm run typecheck` for type checking and `npm run build` to build the project.
 

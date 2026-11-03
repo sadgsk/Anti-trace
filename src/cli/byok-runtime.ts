@@ -3,8 +3,10 @@ import { loadByokConfig, type LoadedByokConfig, type LoadByokConfigOptions } fro
 import { ByokConfigError } from "../config/errors.ts";
 import type { ModelReference, SessionSettings } from "../types.ts";
 import type { HarnessModelSettings } from "../harness/harness.ts";
+import { ConfigProfiles, type ProfileEdit } from "../config/config-profiles.ts";
+import { parseByokConfig } from "../config/byok.ts";
 
-export const BYOK_RECOVERY_HELP = "修改配置文件后输入 /reload 重试；/config <路径> 更换文件，/model <模型键> 重新选择，/exit 退出。";
+export const BYOK_RECOVERY_HELP = "输入 /config 管理配置，/model 选择模型，/reload 重新加载，/exit 退出。";
 
 export type ByokReloadResult = { ok: true; message: string; warnings: string[] } | { ok: false; reason: string; message: string };
 
@@ -14,15 +16,28 @@ export class ByokRuntime {
 	private config?: LoadedByokConfig;
 	private resolveApiKey?: LoadedByokConfig["getApiKey"];
 	private lastError?: string;
+	readonly profiles: ConfigProfiles;
 
 	constructor(options: LoadByokConfigOptions, private readonly applyConfig: (config: LoadedByokConfig) => void,
 		private readonly readSettings?: () => SessionSettings) {
 		this.selection = { ...options };
+		this.profiles = new ConfigProfiles(options.cwd ?? process.cwd(), options.env ?? process.env);
 	}
 
 	get modelName(): string { return this.config?.model.name ?? "模型未就绪"; }
 	get hasConfig(): boolean { return this.config !== undefined; }
 	get modelKeys(): string[] { return this.config ? Object.keys(this.config.models) : []; }
+	get configPath(): string { return this.config?.configPath ?? resolve(this.selection.cwd ?? process.cwd(), this.selection.configPath ?? (this.selection.env ?? process.env).CLI_AGENT_CONFIG ?? "byok.json"); }
+	get selectedModel(): string | undefined { return this.readSettings?.().modelRef?.modelKey ?? this.config?.currentModel; }
+	get modelChoices() { return Object.entries(this.config?.models ?? {}).map(([key, model]) => ({ id: key, label: model.name, description: `${key} · ${model.id}`, current: key === this.selectedModel })); }
+	saveProfile(values: Record<string, string>, edit?: ProfileEdit): void {
+		const candidate = this.profiles.prepare(values, edit);
+		const config = parseByokConfig(candidate.text, candidate.path, this.selection.env ?? process.env);
+		const undo = this.profiles.write(candidate.path, candidate.text);
+		try { this.applyConfig(config); } catch (error) { undo(); throw error; }
+		this.config = config; this.resolveApiKey = config.getApiKey; this.lastError = undefined;
+		this.selection = { ...this.selection, configPath: candidate.path, model: config.currentModel };
+	}
 
 	resolveModel(reference: ModelReference): HarnessModelSettings {
 		const config = this.config;

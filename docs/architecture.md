@@ -8,7 +8,7 @@
 
 **输入迁移状态（2026-10-15）：**输入迁移功能已完成并提交，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除，已完成的施工计划按用户要求退役。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。此前本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE。现按用户要求，整个 `test/` 均仅保留在本地，取消历史文件跟踪和 npm 测试／探针入口，后续另建测试框架。其他平台原生终端、真实剪贴板和具体终端应用仍需手测，见 §7 和进度文档。上下键仅移动当前输入光标，不提供历史召回。
 
-**TUI 目录约定：** 终端界面模块统一放在 `src/tui/`，与 `src/harness/`、`src/agent/` 平行；当前命令菜单位于 `src/tui/suggestions/`。CLI 入口、命令分派和现有输入底层继续由 `src/cli/` 承担。
+**TUI 当前结构（2026-11-03）：** 界面统一位于 `src/tui/`，与 `harness/`、`agent/` 平行。整体 TUI、FB-001～029 反馈修复及历史回看闪烁修复已接入：`ReplScreen` 取代 `ReplView`，`terminal-repl.tsx` 负责启动、控制器、终端与焦点装配。消息／工具／Markdown／Diff 为分层 React Ink 组件，控制器投影结构化历史和活跃回合，Harness 提供数据与权限钩子。当前结构与交互统一见 §4，验证和最终 Review 待办见 [progress.md](./progress.md)；施工计划、试用及反馈专题文档已退役。
 
 对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
@@ -21,7 +21,7 @@
 - 当前优先补齐已经规划的核心能力，做出能完整运行的 agent。产品级是持续建设的目标；每个版本交付其中一部分，不以练手为由刻意降低实现质量。
 - 对已确定的模块职责、数据流和近期功能，能一次搭好的框架就先搭好。接口、类型和函数入口可以先保留，后续沿同一套设计填充，减少因临时方案造成的反复重构。
 - 预留入口标明未实现，不把占位当成可用功能。框架先行不等于提前实现全部功能，也不为尚未确定的需求铺设大量兼容分支和兜底。
-- 每批必须新增或完善一个主流程函数，交付清楚的输入、处理步骤和输出；期间更新的功能函数、必要类型和接线不计数量，不再按函数总数拆批。每批改之前先说明主流程函数和配套改动，写完等用户 review 再继续。版本目标可以跨多批完成；例如上下文容量是一个版本目标，不要求一次写完窗口、计量、显示和压缩。
+- 每批必须新增或完善一个主流程函数，交付清楚的输入、处理步骤和输出；期间更新的功能函数、必要类型和接线不计数量，不再按函数总数拆批。每批改之前先说明主流程函数和配套改动，默认写完后 review；当前 TUI 按用户要求整体完成后先试用、集中反馈、满意后最终 Review。版本目标可以跨多批完成；例如上下文容量是一个版本目标，不要求一次写完窗口、计量、显示和压缩。
 - 每个功能点尽量直接采用整个功能完成后仍会保留的结构和行为，避免为当前小批临时能跑而加入过渡类型、临时接线、假实现或短期分支，后续再大改。依赖紧密、难以独立完成时扩大本批范围，合并相关步骤，一次完成一个完整功能后再 review；不要为了拆小步制造后续需要推倒的实现。
 - 文件中的已知职责应尽量一次按最终结构完成。若必须保留以后确定会替换的代码，动手前说明依赖，在代码原处注明阶段性原因、替换条件／批次，并在交付中列具体位置；仅在规划文档写待办不够。新增能力与替换已有逻辑分别说明，不为“以后可能共用”主动制造重构。
 - 一个功能全部实现完再开始测试，验证方式和结果在功能完成后一起交代。实现过程中发现设计冲突、边界或影响面问题，当场说明，不留到 review 之后。允许修改已有函数、填充占位和调整必要的类型；减少返工是设计目标，不是「代码写过就不能再改」的禁令。
@@ -81,7 +81,7 @@ startLine(index + segment.length);
 | 对话与工具 | Harness、多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 已接入新 REPL；交互入口已恢复 |
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；新 REPL 已接回 `/new`、`/resume` 列表与序号选择 |
 | 终端输入 | 输入迁移已完成；唯一 stdin 宿主、协议解析、焦点分发、多行字素编辑、粘贴合并、完整附件草稿、撤销/重做和提交展开已接通；非 TTY 在 EOF 提交一次原文 |
-| 命令入口 | `/` 命令菜单已实现待 review：默认收起、前缀筛选、上下选择、Enter 确认、Tab 补全、Esc 收起；注册表统一驱动 REPL 识别、帮助和菜单。视觉重设计及 `@` 文件补全待后续 |
+| 命令入口与 TUI | / 菜单、@ 文件补全、结构化消息与工具卡、Markdown／Diff、权限审批、主题／焦点与状态栏已接入；模型／思考／会话／配置／语言使用二级界面，显式参数继续兼容 |
 | 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
 | 协议适配 | 上层使用 streamModel；已实现 Chat、Responses、Anthropic 的请求、思考、工具与图文转换。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
@@ -97,7 +97,7 @@ startLine(index + segment.length);
 
 图片文件和剪贴板读取已通过新输入接入完整草稿；提交时按有效引用收集真实图片内容。
 
-**后续范围：** v1.3 更新 TUI，具体方案见 [tui-build.md](./tui-build.md)。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
+**后续范围：** 原计划 v1.3 的整体 TUI 已提前接入当前版本，后续完成用户复试及最终 Review，不再按施工计划重复实现。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
 
 ---
 
@@ -125,7 +125,7 @@ Agent / loop（已有，不改职责）
 
 新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 先装配 Harness，再尝试加载配置，最后选择 TTY 交互或非 TTY EOF 提交。`ByokRuntime.reload()` 只负责候选配置的加载、校验与应用；通过 main 注入的回调调用现有 `Harness.configureModel()`，不持有或创建 Harness。无配置时 Agent 的 model 为 `undefined`，工具、消息和会话管理照常工作；具体模型操作内部检查配置。`/reload` 重试最近的路径与选择，`/config [路径]` 查看状态或更换文件，`/model <模型键>` 选择本次运行的模型；失败候选与当前生效配置分别保存，设置成功应用后才提交配置状态。重载不重建 Harness、Agent、会话或订阅。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
 
-**命令菜单（2026-10-29，已实现待 review）：** `src/cli/commands/command-registry.ts` 统一定义 12 条命令的名称、中文说明、参数提示和必填标记，供 REPL 解析、`/help` 和 `tui/suggestions/` 使用。主页仅显示“输入 / 查看命令”；纯文本单行草稿在行首输入 `/` 且光标位于末尾时打开菜单，按名称前缀筛选，最多显示 6 项并随选中项滚动。↑↓ 选择，Enter 执行当前命令；`/model` 需参数，先补入 `/model `。Tab 仅补全，带参数的命令补入尾随空格；补全属于可撤销的普通编辑。Esc 收起并保留草稿，继续修改文字后可再次触发。菜单通过已有 `InputDispatcher` 的 `Suggestions → Input → Global` 上下文分发，普通编辑和全局中断继续生效；粘贴未完成、忙碌或正在输入恢复会话序号时不打开菜单。菜单在 Ink 动态区渲染，不写入聊天记录。多行草稿、附件、未知斜杠文本及 `/resume 2` 保留原有提交语义，非 TTY 不显示菜单。后续 DeepSeek 重设计菜单外观，其他命令专用弹窗与 `@` 文件补全仍按 TUI 看板推进。
+**命令与界面：** `command-registry.ts` 统一定义 13 条命令，供识别、帮助和菜单使用。`PromptSuggestionsController` 提供 / 命令与 @ 文件补全。模型／effort／思考／思考展示／恢复会话／配置管理／语言无参数时进入 `CommandDialogController` 管理的二级界面，经同一 `InputDispatcher` 接管模态输入；确认调用真实 `ByokRuntime`／`Harness` 接口。`ConfigProfiles` 提供配置发现、表单映射、校验与原子保存，应用失败回滚文件。`ReplScreen` 在单一视窗中组合历史与活跃消息，输入框固定底部。具体职责与交互见 §4。
 
 磁盘采用按项目分桶的线性会话，格式由本项目定义：
 
@@ -142,10 +142,10 @@ Agent / loop（已有，不改职责）
 - 名字写进 header 的 `name`：内存里 `createSessionFile` 时还没有用户话；**第一次 flush**（首条 assistant 落盘）时已经有 user 消息，那时填上，之后不改。
 - 上次打开时间用该 jsonl 的 **mtime**。`/resume` 加载时 `touch` 一下，即使没再说话也算打开过。
 
-**`/resume`（REPL 打印几行，不是 TUI 选择器）：**
+**`/resume`（交互选择器与管道文字入口）：**
 
 - 列出当前 cwd 桶内已落盘的会话，按上次打开时间新到旧，每行：`序号. 名字  YYYY-MM-DD HH:mm`。
-- `/resume`：打印列表，再通过同一输入组件读取序号，调用 `resumeAt`。空行取消，不加载。
+- TTY 中 `/resume` 打开会话选择器，↑↓ 选择，Enter 调用 `resumeAt`，Esc 取消；非 TTY 保留列表与序号输入。
 - 只有整行恰好是 `/resume` 才进这条命令；`/resume 2` 这类不算。
 - 没有可 resume 的文件则打印一句，不 throw。不自动打开最近一份。
 
@@ -192,7 +192,8 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/cli/input/paste-handler.ts`、`src/cli/utils/image-paste.ts` | 100 ms 粘贴合并、同步 pending、按序交付文本/图片、异步读取及停止/换草稿清理；图片交给完整草稿层 |
 | `src/cli/input/prompt-draft.ts` | 文字、光标、可信引用范围与附件同属不可变草稿；`preparePromptSubmission()` 展开原文并收集图片 |
 | `src/cli/input/prompt-input-controller.ts`、`prompt-input.tsx` | 长文本/图片占位、原子移动与删除、完整草稿撤销/重做、提交门槛与输入显示 |
-| `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx` | 命令/会话选择、同步 busy 门槛、Harness 事件投影、唯一终端宿主装配、Ink 显示与退出清理 |
+| `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx` | 命令／会话、busy 门槛、结构化 transcript／activeItems、管道文字投影、权限策略及唯一宿主装配 |
+| `src/tui/*` | ReplScreen 根界面、主题／焦点／通用原语、消息与工具卡、Markdown／Diff、输入外框、补全和审批 |
 | `src/config/byok.ts` | 加载 cwd 下的 `byok.json` 或显式路径 JSON，校验连接与模型目录、选择启动模型并独立读取凭据；JSON 是唯一模型配置来源，缺失或损坏均报错；dotenv 代码和两个 env 文件已删除，本机 JSON 被 Git 忽略 |
 | `src/cli/main.ts` | `runCli()` 先创建 Harness，再尝试应用 BYOK 配置；TTY 交互和非 TTY EOF 提交共用 REPL 逻辑，配置错误不阻止会话命令；导入不启动进程 |
 | `src/cli/byok-runtime.ts` | 保存待尝试选择、有效配置及诊断，加载校验后通过回调应用设置；提供模型键和可恢复结果，不管理 Harness 生命周期 |
@@ -209,25 +210,48 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 ## 4. 分层
 
-```
-输入层（宿主 → 分发 → 文本编辑 → 完整草稿；职责见 §3）
-   │ 提交草稿快照
-   ▼
-cli/main.ts + cli/repl/*（展开引用、命令与 Harness 事件；Ink 统一交互输出）
-   │
-   ▼
-harness/harness.ts
-   ├── harness/tools/*     开局挂上
-   ├── harness/prompt.ts
-   ├── harness/session.ts   读写 jsonl
-   ├── harness/context.ts   窗口 / 用量 / 该不该压
-   ├── harness/compaction.ts
-   ▼
-Agent / loop
-   └── llm/adapter.ts::streamModel → 协议实现（当前 openai-chat.ts）
+```text
+terminal-host → InputDispatcher + FocusStack → 草稿／菜单／审批控制器
+  │ 提交草稿与命令
+  ▼
+ReplController → Harness → Agent / loop → LLM 适配器与工具
+  ▲                 │
+  └── 结构化事件 ────┘
+  │ transcript / activeItems / display
+  ▼
+ThemeProvider → LocaleProvider → FocusStackProvider → ReplScreen
+  ├── TranscriptViewport：WelcomeHeader + 历史／活跃消息／工具／压缩边界
+  ├── 固定底部输入、Spinner、命令二级界面、补全、审批、状态栏
+  └── Markdown / HighlightedCode / MarkdownTable / StructuredDiff
 ```
 
-BYOK JSON 由 config/byok.ts 加载；原 env.ts 和 dotenv 启动链已删除。连接凭据与无凭据模型目录分开。
+CLI 负责装配，TUI 负责交互与展示；真实 stdin 始终只有一个宿主。交互界面使用主屏幕和单一 Ink 实例生成 ANSI 帧，`ScrollbackOutput` 增量输出，让聊天进入终端原生滚动历史；缩放时保留未滚入历史的行，并拒绝尺寸过时的动画帧。不启用备用屏幕、重放 Static 或重建宿主。滚轮／PgUp 回看与 Ctrl+O 展开共用 `TranscriptViewport`，按消息 ID／消息内行位置锚定，展开、流式追加和缩放保持阅读位置；Ctrl+End 返回最新并补齐期间生成的内容。原生投影收起，阅读视图独立展开，终端滚动条仍可查看已打印快照。管道继续使用文字投影。
+
+启动品牌使用 `WelcomeHeader → BrandMark → brand-art.ts`，固定 54×6 的完整阴影艺术字，青色立体闪电代表 I，方向为左上到右下；真彩下黄色／青色逐行明暗变化，闪电侧边单独变暗。画稿借鉴 Hermes 的阴影轮廓与明暗层次，字形自绘，不在运行时按字母表拼接。60／120 列使用同一份画稿；极窄时实际字符在进入 Ink 前按列数裁剪，各行固定一格高，窗口恢复后显示完整画稿。256／16 色与无色终端沿主题降级，没有终端图片协议依赖。
+
+### 4.1 TUI 组件与数据边界
+
+| 模块 | 当前职责 |
+|---|---|
+| `src/cli/repl/` | `ReplController` 将 Harness 事件投影为 `transcript`／`activeItems`／显示状态，保留非 TTY 的 `entries`／`liveText`；`terminal-repl.tsx` 装配生命周期与终端 |
+| `src/tui/layout/`、`messages/` | 根界面、启动头部、输入外框、状态／告警、叶子动画；结构化用户／正文／思考／通知／压缩边界与工具历史，不把 JSX 或展开状态写入模型消息 |
+| `src/tui/markdown/`、`diff/`、`tools/` | Markdown、代码高亮、窄屏表格、行号与词级 Diff；Read 分组、Edit／Write 预览、Bash 实时尾部／退出码／耗时。展示元数据放在工具 `details`，原 `content` 继续供模型读取 |
+| `src/tui/theme/`、`design-system/` | 主题 Provider、24／256／16 色及无色降级、符号；Divider／Pane／Dialog／Tabs／Select／MultiSelect／FuzzyPicker 等通用原语 |
+| `src/tui/focus/`、`suggestions/` | `FocusStack` 按 modal → suggestion → editor → global 分发，模态期间保留全局中断；组件不自行读取 stdin。异步文件索引排除生成目录且不跟随符号链接 |
+| `src/tui/commands/`、`src/config/config-profiles.ts` | picker／form／field 三类状态；配置发现、同文件新增模型、字段映射、校验、原子保存及应用失败回滚，真实设置交给 ByokRuntime／Harness |
+| `src/tui/permissions/`、`locale/` | 真实工具执行前审批、会话授权与取消清理；`UiLocale`／`LocaleProvider` 响应语言切换，文案集中在 `src/cli/locale.ts` |
+
+历史回看修复（No.2）：消息前的 Logo／空隙使用可为负数的消息内行位置，避免被钳到首条消息而反复跳动。宿主只提交同一 tick 的最新帧，使用同步更新序列包围单次输出，先覆盖行再清除尾部，减少可见空白和闪烁。
+
+### 4.2 交互、配置与权限
+
+- `npm start` 沿用 `byok.json`／`CLI_AGENT_CONFIG`；无配置也能操作界面和恢复会话。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
+- `/model`、`/effort`、`/thinking`、`/thinking-display`、`/resume`、`/config`、`/language` 使用二级界面；显式参数继续兼容。模型思考开关与思考正文展示分别控制请求和显示。
+- `/config` 的已有配置、添加、修改位于同一菜单；修改进入模型列表，可在同一文件新增模型。字段列表 Enter 进入独立编辑页，确认只改草稿，Esc 放弃该字段；最终保存项或 Ctrl+S 才校验、写盘和应用。共享连接独立复制，API Key 遮挡且留空保留，不进入消息或会话。
+- 配置发现范围为启动目录的 `byok.json`、当前配置所在目录的 BYOK 文档及 `.ant-trace/configs/`；新增配置默认保存在后者。中英文偏好保存在 `.ant-trace/preferences.json`，即时更新界面，用户文字、模型内容与工具原始输出保留原文；整个 `.ant-trace/` 被 Git 忽略。
+- 默认 `default` 模式直接读取，编辑与 Shell 先审批；`auto-edit` 自动允许编辑，Shell 仍审批；`yolo` 直接执行工具。启动可传 `--auto-edit`／`--yolo`，Shift+Tab 循环切换。审批支持本次允许、会话记住与拒绝建议；新会话清理会话授权。非 TTY 无法审批时直接拒绝，不等待输入。
+- 权限通过 `Harness.setBeforeToolCall()` 接入既有 Agent 钩子，保留原调用方的前置检查并支持卸载恢复。中断审批或生成时，为同批剩余工具补齐取消结果，不继续请求下一轮模型；最终 Review 仍须核对实际执行链路。
+- 滚轮／PgUp／PgDn 回看；Ctrl+O 在回看处原位展开／收起，在最新处定位最近工具；Ctrl+End 返回最新并收起。回看时新输出保持阅读位置，返回后补齐历史；Shift+拖动使用终端原生选字。
 
 ---
 
@@ -381,7 +405,7 @@ Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正
 
 ## 6. 接下来如何推进
 
-上下文容量与手动压缩已实现；本轮 BYOK 约定功能、九家厂商范围和本地验收完成，等待用户 review。真实地区账户、跨平台终端和公开试用准备继续按条件推进。v1.3 做完整 TUI，实施方案与分批路线见 [tui-build.md](./tui-build.md)。
+上下文容量与手动压缩已实现；BYOK 约定功能、九家厂商范围和本地验收完成，既有 review 尾项保留。整体 TUI 与反馈修复也已接入，后续按用户复试结果改进并完成最终 Review；权限模式执行链路是明确待审项。真实地区账户、跨平台终端和公开试用准备继续按条件推进，验证范围见 [progress.md](./progress.md)。
 
 下表区分实现、review 与真实环境验证。不要在新对话重复搭建已完成的设置、协议或会话链；后续只按新增需求扩充。功能完成后验证，保持类型检查与构建通过。
 

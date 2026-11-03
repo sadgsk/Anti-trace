@@ -8,6 +8,8 @@ import type { TerminalStreams } from "./ink/terminal-host.ts";
 import { createPromptDraft } from "./input/prompt-draft.ts";
 import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
 import { startTerminalRepl } from "./repl/terminal-repl.tsx";
+import type { PermissionMode } from "../tui/permissions/permission-policy.ts";
+import { UiLocale } from "./locale.ts";
 
 export interface CliStreams {
 	stdin: Readable & { isTTY?: boolean };
@@ -21,14 +23,15 @@ export interface RunCliOptions {
 	sessionsRoot?: string;
 	configPath?: string;
 	model?: string;
+	permissionMode?: PermissionMode;
 }
 
 /** TTY runs the editor; a pipe is one complete message, including all of its newlines. */
 export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	const streams = options.streams ?? { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr };
 	const cwd = options.cwd ?? process.cwd();
+	const locale = new UiLocale(cwd);
 	let harness = options.harness;
-	let modelName = "CLI Agent";
 	let byok: ByokRuntime | undefined;
 	let startupMessage: string | undefined;
 	let warnings: string[] = [];
@@ -43,25 +46,25 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 		const result = byok.reload();
 		startupMessage = result.message;
 		if (result.ok) warnings = result.warnings;
-		modelName = byok.modelName;
 	}
 	if (streams.stdin.isTTY && streams.stdout.isTTY) {
-		const terminal = startTerminalRepl({ harness, byok, startupMessage, streams: streams as unknown as TerminalStreams, banner: `${modelName} · ${cwd}` });
+		const terminal = startTerminalRepl({ harness, byok, cwd, permissionMode: options.permissionMode, startupMessage: byok?.hasConfig ? warnings.join("\n") || undefined : startupMessage,
+			streams: streams as unknown as TerminalStreams });
 		await terminal.done;
 		return 0;
 	}
 	if (streams.stdin.isTTY) {
-		streams.stderr.write("交互输入需要 TTY 输出；请在终端运行，或通过管道提供完整输入。\n");
+		streams.stderr.write(locale.t("交互输入需要 TTY 输出；请在终端运行，或通过管道提供完整输入。") + "\n");
 		return 1;
 	}
 	// A pipe may contain a session command; config diagnostics must not prevent its execution.
-	if (byok && !byok.hasConfig) streams.stderr.write(`${startupMessage}\n`);
-	for (const warning of warnings) streams.stderr.write(`${warning}\n`);
-	return runPipe(harness, streams, byok);
+	if (byok && !byok.hasConfig) streams.stderr.write(`${locale.t(startupMessage ?? "")}\n`);
+	for (const warning of warnings) streams.stderr.write(`${locale.t(warning)}\n`);
+	return runPipe(harness, streams, byok, options.permissionMode, cwd);
 }
 
-async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRuntime): Promise<number> {
-	const repl = new ReplController({ harness, byok });
+async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRuntime, permissionMode?: PermissionMode, cwd = process.cwd()): Promise<number> {
+	const repl = new ReplController({ harness, byok, permissionMode, cwd });
 	let printedEntries = 0;
 	let printedLive = 0;
 	let livePrefix = "";
@@ -113,7 +116,8 @@ async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRun
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-	void runCli().then(code => { process.exitCode = code; }).catch(error => {
+	const permissionMode: PermissionMode = process.argv.includes("--yolo") ? "yolo" : process.argv.includes("--auto-edit") ? "auto-edit" : "default";
+	void runCli({ permissionMode }).then(code => { process.exitCode = code; }).catch(error => {
 		process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
 		process.exitCode = 1;
 	});

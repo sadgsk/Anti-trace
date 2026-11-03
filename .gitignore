@@ -2,6 +2,7 @@ node_modules/
 dist/
 # 本机 BYOK 配置包含凭据，不进仓库
 /byok.json
+/.ant-trace/
 # 已退役的 BYOK 文档，避免本地副本重新进入仓库
 /docs/byok-build.md
 /docs/byok-providers.md

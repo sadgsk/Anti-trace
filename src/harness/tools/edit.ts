@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { type Static, Type } from "typebox";
 import type { AgentTool } from "../../types.ts";
 import { resolveCwdPath } from "./path-utils.ts";
+import { buildDiff, type DiffDetails } from "./diff.ts";
 
 const replaceEditSchema = Type.Object({
 	oldText: Type.String({
@@ -21,7 +22,7 @@ export const editSchema = Type.Object({
 
 export type EditToolInput = Static<typeof editSchema>;
 
-export interface EditToolDetails {
+export interface EditToolDetails extends DiffDetails {
 	path: string;
 	replacements: number;
 }
@@ -118,7 +119,7 @@ export function createEditTool(cwd: string): AgentTool<typeof editSchema, EditTo
 
 			return {
 				content: [{ type: "text", text: `Successfully replaced ${edits.length} block(s) in ${inputPath}.` }],
-				details: { path: absolutePath, replacements: edits.length },
+				details: { path: absolutePath, replacements: edits.length, ...buildDiff(absolutePath, original, next) },
 			};
 		},
 	};

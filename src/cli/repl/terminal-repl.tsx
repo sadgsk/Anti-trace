@@ -1,15 +1,18 @@
-import { useSyncExternalStore } from "react";
-import { Box, Static, Text } from "ink";
 import { startTerminalHost, type TerminalHost, type TerminalStreams } from "../ink/terminal-host.ts";
 import { InputDispatcher, type InputTarget } from "../input/input-dispatcher.ts";
 import { REPL_KEYBINDINGS, type Keybinding } from "../input/keybindings.ts";
-import { PromptInput } from "../input/prompt-input.tsx";
 import { PromptInputController } from "../input/prompt-input-controller.ts";
 import type { TextInputOptions } from "../input/text-input-controller.ts";
 import { ReplController, type ReplHarness } from "./repl-controller.ts";
 import type { ByokRuntime } from "../byok-runtime.ts";
-import { PromptSuggestions } from "../../tui/suggestions/PromptSuggestions.tsx";
 import { PromptSuggestionsController } from "../../tui/suggestions/prompt-suggestions-controller.ts";
+import { ReplScreen } from "../../tui/layout/ReplScreen.tsx";
+import { ThemeProvider } from "../../tui/theme/ThemeProvider.tsx";
+import { detectColorDepth } from "../../tui/theme/color.ts";
+import { FocusStack, FocusStackProvider } from "../../tui/focus/focus-stack.tsx";
+import type { PermissionMode } from "../../tui/permissions/permission-policy.ts";
+import { LocaleProvider } from "../../tui/locale/LocaleProvider.tsx";
+import { mouseWheelDirection } from "../ink/mouse-wheel.ts";
 
 export interface TerminalReplOptions {
 	harness: ReplHarness;
@@ -18,47 +21,26 @@ export interface TerminalReplOptions {
 	streams?: TerminalStreams;
 	pasteOptions?: TextInputOptions["pasteOptions"];
 	bindings?: readonly Keybinding[];
-	banner?: string;
 	onExit?: () => void;
-}
-
-function displayText(text: string): string {
-	return text.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, "�");
-}
-
-/** Ink owns both the streaming reply and draft display; no competing stdout writer. */
-export function ReplView({ repl, prompt, suggestions, availableSuggestionRows }: {
-	repl: ReplController;
-	prompt: PromptInputController;
-	suggestions: PromptSuggestionsController;
-	availableSuggestionRows?: number;
-}) {
-	const state = useSyncExternalStore(repl.subscribe, repl.getSnapshot, repl.getSnapshot);
-	return <Box flexDirection="column">
-		<Static items={[...state.entries]}>{entry => <Text key={entry.id} dimColor={entry.kind === "thinking"}>{displayText(entry.text)}</Text>}</Static>
-		{state.liveText ? <Text dimColor={state.liveKind === "thinking"}>{displayText(state.liveText)}</Text> : null}
-		{state.closed ? null : <Box flexDirection="column">
-			{state.modelStatus ? <Text dimColor>{displayText(state.modelStatus)}</Text> : null}
-			{state.busy ? <Text dimColor>处理中，Ctrl+C 中断</Text> : null}
-			<Text dimColor>{state.resumeChoices ? "会话序号（空行取消）" : "> · 输入 / 查看命令"}</Text>
-			<PromptInput controller={prompt} />
-			<PromptSuggestions controller={suggestions} availableRows={availableSuggestionRows} />
-		</Box>}
-	</Box>;
+	cwd?: string;
+	permissionMode?: PermissionMode;
 }
 
 /** One terminal host feeds draft actions and global REPL actions through one dispatcher. */
 export function startTerminalRepl(options: TerminalReplOptions) {
 	const streams = options.streams ?? { stdin: process.stdin, stdout: process.stdout };
 	const columns = () => Math.max(1, (streams.stdout.columns || 80) - 1);
+	const inputColumns = () => Math.max(1, columns() - 3);
+	const cwd = options.cwd ?? process.cwd();
 	let host: TerminalHost | undefined;
 	let active = true;
 	let resolveDone!: () => void;
 	const done = new Promise<void>(resolve => { resolveDone = resolve; });
 	let prompt!: PromptInputController;
-	const repl = new ReplController({ harness: options.harness, byok: options.byok, onAccept: () => prompt.reset(), onExit: () => stop() });
+	const repl = new ReplController({ harness: options.harness, byok: options.byok, cwd, interactive: true, permissionMode: options.permissionMode,
+		onAccept: () => prompt.reset(), onExit: () => stop() });
 	prompt = new PromptInputController({
-		availableColumns: columns(),
+		availableColumns: inputColumns(),
 		pasteOptions: options.pasteOptions,
 		canSubmit: () => repl.canSubmit(),
 		onSubmit: draft => { void repl.submit(draft); },
@@ -68,25 +50,53 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	const global: InputTarget = { id: Symbol("repl"), context: "Global", actions: {
 		"app:interrupt": () => {
 			if (repl.getSnapshot().busy) repl.interrupt();
+			else if (repl.dialogs.getSnapshot()) repl.dialogs.cancel();
 			else if (prompt.getDraft().text || prompt.textInput.pasteHandler.isPending()) prompt.reset();
 			else if (repl.getSnapshot().resumeChoices) { void repl.submit(prompt.getDraft()); }
 			else repl.exit();
 		},
 		"app:exit": () => repl.exit(),
+		"app:expand": () => repl.toggleExpanded(),
+		"app:permission-mode": () => repl.permissions.cycleMode(),
+		"app:scroll-up": () => { host?.invalidate(); repl.scroll(Math.max(1, (streams.stdout.rows || 24) - 6)); },
+		"app:scroll-down": () => { host?.invalidate(); repl.scroll(-Math.max(1, (streams.stdout.rows || 24) - 6)); },
+		"app:scroll-latest": () => repl.returnToLatest(),
 	} };
 	const inputTarget: InputTarget = { ...prompt.target, actions: {
 		...prompt.target.actions,
 		"app:exit": () => repl.exit(),
 	} };
-	const suggestions = new PromptSuggestionsController(prompt, repl);
-	const configureTargets = () => dispatcher.configure(suggestions.getSnapshot().open
-		? [suggestions.target, inputTarget, global] : [inputTarget, global], options.bindings ?? REPL_KEYBINDINGS);
+	const suggestions = new PromptSuggestionsController(prompt, repl, { cwd });
+	repl.permissions.feedback.setAvailableColumns(Math.max(1, columns() - 5));
+	const focus = new FocusStack(dispatcher, options.bindings ?? REPL_KEYBINDINGS);
+	focus.set("global", global); focus.set("editor", inputTarget);
+	let menuOpen = false;
+	const configureTargets = () => { const open = suggestions.getSnapshot().open; if (open !== menuOpen) { host?.invalidate(); menuOpen = open; } focus.set("suggestion", suggestions.target, open); };
 	const unsubscribeSuggestions = suggestions.subscribe(configureTargets);
+	const configurePermission = () => { host?.invalidate(); focus.set("modal", repl.permissions.target, Boolean(repl.permissions.getSnapshot().request)); };
+	const unsubscribePermission = repl.permissions.subscribe(configurePermission);
+	const configureDialog = () => { host?.invalidate(); focus.set("modal", repl.dialogs.target, Boolean(repl.dialogs.getSnapshot())); };
+	const unsubscribeDialog = repl.dialogs.subscribe(configureDialog);
+	repl.dialogs.setColumns(columns());
 	configureTargets();
-	const renderView = () => host?.rerender(<ReplView repl={repl} prompt={prompt} suggestions={suggestions}
-		availableSuggestionRows={Math.max(1, (streams.stdout.rows || 24) - 8)} />);
+	let epoch = repl.getSnapshot().renderEpoch;
+	let historyVersion = repl.getSnapshot().historyVersion;
+	let reviewing = repl.getSnapshot().viewingHistory;
+	const unsubscribeRepl = repl.subscribe(() => {
+		if (reviewing !== repl.getSnapshot().viewingHistory) { reviewing = repl.getSnapshot().viewingHistory; host?.invalidate(); }
+		if (repl.getSnapshot().historyVersion !== historyVersion) { historyVersion = repl.getSnapshot().historyVersion; queueMicrotask(() => { if (active) { host?.beginHistory(); renderView(); } }); }
+		if (repl.getSnapshot().renderEpoch !== epoch) { epoch = repl.getSnapshot().renderEpoch; host?.invalidate(); }
+	});
+	let layoutSize = { columns: columns(), rows: streams.stdout.rows || 24 };
+	const tree = () => { layoutSize = { columns: columns(), rows: streams.stdout.rows || 24 }; return <ThemeProvider depth={detectColorDepth(streams.stdout)}><LocaleProvider locale={repl.locale}><FocusStackProvider stack={focus}>
+		<ReplScreen repl={repl} prompt={prompt} suggestions={suggestions} cwd={cwd} columns={columns()} rows={streams.stdout.rows || 24} nativeScrollback />
+	</FocusStackProvider></LocaleProvider></ThemeProvider>; };
+	const renderView = () => host?.rerender(tree());
 	const resize = () => {
-		prompt.setAvailableColumns(columns());
+		host?.reflow();
+		prompt.setAvailableColumns(inputColumns());
+		repl.permissions.feedback.setAvailableColumns(Math.max(1, columns() - 5));
+		repl.dialogs.setColumns(columns());
 		renderView();
 	};
 	const cleanup = () => {
@@ -94,6 +104,9 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		active = false;
 		streams.stdout.off("resize", resize);
 		unsubscribeSuggestions();
+		unsubscribePermission();
+		unsubscribeDialog();
+		unsubscribeRepl();
 		suggestions.dispose();
 		prompt.dispose();
 		repl.dispose();
@@ -105,10 +118,18 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		finally { cleanup(); }
 	}
 	try {
-		if (options.banner) repl.write(options.banner);
 		if (options.startupMessage) repl.write(options.startupMessage);
 		repl.writeContext();
-		host = startTerminalHost(event => dispatcher.dispatch(event), streams, cleanup);
+		host = startTerminalHost(event => {
+			if (event.type === "mouse") {
+				const direction = mouseWheelDirection(event.raw);
+				if (direction && !repl.dialogs.getSnapshot() && !repl.permissions.getSnapshot().request && !suggestions.getSnapshot().open) { host?.invalidate(); repl.scroll(direction * 3); }
+				return;
+			}
+			dispatcher.dispatch(event);
+		}, streams, cleanup, { scrollback: true, mouseWheel: true,
+			layoutSize: () => layoutSize,
+			isConversation: () => !repl.dialogs.getSnapshot() && !repl.permissions.getSnapshot().request && !suggestions.getSnapshot().open && !repl.getSnapshot().viewingHistory && repl.getSnapshot().scrollOffset === 0 });
 		streams.stdout.on("resize", resize);
 		renderView();
 	} catch (error) {

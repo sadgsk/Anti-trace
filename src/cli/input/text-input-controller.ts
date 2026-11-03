@@ -124,6 +124,10 @@ export class TextInputController {
 	replaceText(text: string): void {
 		if (this.active) this.applyEdit({ start: 0, end: this.getState().text.length, text });
 	}
+	/** Completion edits a source range through the normal draft/undo boundary. */
+	replaceRange(start: number, end: number, text: string): void {
+		if (this.active) this.applyEdit({ start, end, text });
+	}
 
 	dispose(): void {
 		if (!this.active) return;
