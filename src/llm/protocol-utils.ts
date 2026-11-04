@@ -32,9 +32,9 @@ export function sameSource(left: ReasoningSource | undefined, right: ReasoningSo
 export function replayable(message: AssistantMessage): boolean {
 	return message.stopReason === "stop" || message.stopReason === "toolUse";
 }
-export function outputLimit(model: Model, options?: StreamOptions, required = false): number | undefined {
-	const limit = options?.maxTokens ?? model.maxOutputTokens;
-	if (limit === undefined && required) throw new Error("Anthropic Messages 需要明确设置 maxOutputTokens 或请求 maxTokens。");
+export function outputLimit(model: Model, options?: StreamOptions): number | undefined {
+	const limit = options?.maxTokens ?? model.maxOutputTokens
+		?? (model.api === "anthropic-messages" ? Math.min(32000, model.contextWindow) : undefined);
 	if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > model.contextWindow)) throw new Error("maxTokens 必须是正安全整数，且不能超过 contextWindow。");
 	return limit;
 }

@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import stringWidth from "string-width";
 import { Box, Text } from "ink";
 import type { HarnessDisplayState } from "../../harness/harness.ts";
-import type { PermissionMode } from "../permissions/permission-policy.ts";
+import type { PermissionMode } from "../../cli/permissions/permission-policy.ts";
 import { BrandMark } from "./BrandMark.tsx";
 import { ThemedText } from "../theme/ThemeProvider.tsx";
 import { formatTokens, truncateText } from "../utils/text.ts";

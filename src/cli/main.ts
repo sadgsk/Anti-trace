@@ -8,7 +8,7 @@ import type { TerminalStreams } from "./ink/terminal-host.ts";
 import { createPromptDraft } from "./input/prompt-draft.ts";
 import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
 import { startTerminalRepl } from "./repl/terminal-repl.tsx";
-import type { PermissionMode } from "../tui/permissions/permission-policy.ts";
+import type { PermissionMode } from "./permissions/permission-policy.ts";
 import { UiLocale } from "./locale.ts";
 
 export interface CliStreams {

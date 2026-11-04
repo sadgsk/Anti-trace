@@ -1,5 +1,5 @@
 import type { HarnessDisplayState } from "../../harness/harness.ts";
-import type { PermissionMode } from "../permissions/permission-policy.ts";
+import type { PermissionMode } from "../../cli/permissions/permission-policy.ts";
 import { ThemedText } from "../theme/ThemeProvider.tsx";
 import { truncateText } from "../utils/text.ts";
 import { useLocale } from "../locale/LocaleProvider.tsx";

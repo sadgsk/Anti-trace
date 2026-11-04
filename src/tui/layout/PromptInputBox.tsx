@@ -3,7 +3,7 @@ import { useSyncExternalStore } from "react";
 import type { PromptInputController } from "../../cli/input/prompt-input-controller.ts";
 import { BaseTextInput } from "../../cli/input/base-text-input.tsx";
 import { useTheme, ThemedText } from "../theme/ThemeProvider.tsx";
-import type { PermissionMode } from "../permissions/permission-policy.ts";
+import type { PermissionMode } from "../../cli/permissions/permission-policy.ts";
 import { truncateText } from "../utils/text.ts";
 import { useLocale } from "../locale/LocaleProvider.tsx";
 export function PromptInputBox({ controller, columns, maxRows, focus, mode, resume }: { controller: PromptInputController; columns: number; maxRows: number; focus: boolean; mode: PermissionMode; resume: boolean }) {

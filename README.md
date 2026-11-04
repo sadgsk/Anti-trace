@@ -58,7 +58,9 @@ Agent 会按任务需要读取文件、修改代码和执行命令。这些操�
 
 模型通过 `connection` 引用连接配置，`currentModel` 选择 `models` 中的模型键。连接可以直接填写 `apiKey`，也可以用 `apiKeyEnv` 引用进程环境变量。
 
-CLI 默认读取启动目录下的 `byok.json`，也可通过 `CLI_AGENT_CONFIG` 指定其他文件。不会读取 `.env` 文件。`byok.json` 已被 Git 忽略，请勿提交真实密钥。
+CLI 会记住当前项目最近成功使用的配置文件和模型，重启后自动恢复；首次启动默认读取启动目录下的 `byok.json`。如果没有选择记录且根目录没有 `byok.json`，会自动使用 `.ant-trace/configs/` 中唯一有效的配置；有多个时通过 `/config` 选择。`CLI_AGENT_CONFIG` 可指定其他文件，并优先于记住的配置。选择记录保存在 `.ant-trace/last-model.json`，仅包含配置路径和模型键。不会读取 `.env` 文件。`byok.json` 和 `.ant-trace/` 已被 Git 忽略，请勿提交真实密钥。
+
+Anthropic Messages 未填写 `maxOutputTokens` 时默认使用 `32000`；若配置的 `contextWindow` 更小，默认输出上限会降到窗口大小。显式填写的输出上限优先。
 
 `baseUrl` 应包含服务所需的版本前缀，例如 `/v1`。也可从 [厂商配置示例](byok.providers.example.json) 选取连接预设与模型，设置对应的环境变量密钥。示例覆盖九家厂商的 36 个连接选项；各协议、地区和模型的参数按明确规则适配。
 

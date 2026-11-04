@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { PermissionSnapshot, PermissionPolicy } from "./permission-policy.ts";
+import type { PermissionSnapshot, PermissionPolicy } from "../../cli/permissions/permission-policy.ts";
 import { BaseTextInput } from "../../cli/input/base-text-input.tsx";
 import { StructuredDiff } from "../diff/StructuredDiff.tsx";
 import { Pane } from "../design-system/Pane.tsx";

@@ -23,7 +23,7 @@ function prepareAnthropicRequest(model: Model, context: Context, options?: Strea
 	validateCapabilities(model, context);
 	const rules = resolveNativeRules(model);
 	const source = requestIdentity(model, "messages");
-	const maxTokens = outputLimit(model, options, true)!;
+	const maxTokens = outputLimit(model, options)!;
 	const thinking = encodeNativeThinking(model.api, rules, options?.thinking, maxTokens);
 	const messages: Array<{ role: "user" | "assistant"; content: WireObject[] }> = [];
 	const id = toolIdMap(context);

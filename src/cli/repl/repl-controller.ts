@@ -7,7 +7,7 @@ import { previewToolResult } from "../render.ts";
 import type { ByokRuntime } from "../byok-runtime.ts";
 import { ByokConfigError } from "../../config/errors.ts";
 import { SLASH_COMMANDS, commandUsage, parseSlashCommand, type SlashCommandDefinition } from "../commands/command-registry.ts";
-import { PermissionPolicy, type PermissionMode } from "../../tui/permissions/permission-policy.ts";
+import { PermissionPolicy, type PermissionMode } from "../permissions/permission-policy.ts";
 import { projectMessages, projectSessionHistory, type TranscriptItem, type AssistantTurnItem, type NoticeTone } from "../../tui/transcript.ts";
 import { CommandDialogController } from "../../tui/commands/command-dialog-controller.ts";
 import type { ProfileEdit } from "../../config/config-profiles.ts";
@@ -308,7 +308,7 @@ export class ReplController {
 		if (command === "model") {
 			const byok = this.options.byok;
 			if (!byok) throw new ByokConfigError("当前入口未提供模型配置。");
-			this.dialogs.openPicker({ title: "选择模型", description: "来自当前配置；确认后用于本次会话。", choices: byok.modelChoices.map(item => ({ ...item, literal: true, descriptionLiteral: true })),
+			this.dialogs.openPicker({ title: "选择模型", description: "来自当前配置；确认后使用并记住，下次启动自动恢复。", choices: byok.modelChoices.map(item => ({ ...item, literal: true, descriptionLiteral: true })),
 				onAccept: id => this.dialogAction(() => this.configureByok("model", id)) });
 			return true;
 		}
@@ -376,7 +376,7 @@ export class ReplController {
 		const byok = this.options.byok!;
 		this.dialogs.openForm({ title: edit?.adding ? "新增模型" : edit ? "修改配置文件" : "新增配置文件", description: "选择字段后 Enter 编辑；完成后保存并使用。",
 			fields: byok.profiles.fields(edit), onBack: () => edit ? this.openProfileModels(edit.path) : this.openConfigMenu(),
-			onSave: values => this.dialogAction(() => { byok.saveProfile(values, edit); this.write("配置已保存并生效，会话已保留。"); }) });
+			onSave: values => this.dialogAction(() => { const warnings = byok.saveProfile(values, edit); this.write("配置已保存并生效，会话已保留。"); for (const warning of warnings) this.write(warning); }) });
 	}
 
 	private configureByok(command: string, argument: string): void {

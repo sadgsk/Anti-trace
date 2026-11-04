@@ -58,7 +58,9 @@ Use BYOK JSON to configure your own model service:
 
 Models reference a connection through `connection`; `currentModel` selects a key in `models`. Set `apiKey` directly or use `apiKeyEnv` to reference a process environment variable.
 
-The CLI reads `byok.json` from the startup working directory by default. Set `CLI_AGENT_CONFIG` to use another file. `.env` files are not loaded. `byok.json` is ignored by Git; do not commit real credentials.
+The CLI remembers the last successfully used configuration and model for each project and restores them on restart. On first launch, it reads `byok.json` from the startup working directory. If there is neither a remembered selection nor a root `byok.json`, it automatically uses the sole valid configuration in `.ant-trace/configs/`; use `/config` to choose when there are several. `CLI_AGENT_CONFIG` overrides the remembered configuration. The selection is stored in `.ant-trace/last-model.json`, containing only the configuration path and model key. `.env` files are not loaded. `byok.json` and `.ant-trace/` are ignored by Git; do not commit real credentials.
+
+Anthropic Messages defaults to `32000` when `maxOutputTokens` is omitted, capped at the configured `contextWindow` if it is smaller. An explicit output limit takes precedence.
 
 Include any required version prefix in `baseUrl`, such as `/v1`. Alternatively, select connection presets and models from the [provider configuration example](byok.providers.example.json), then set the corresponding API key environment variables. The example includes 36 connection options across nine providers, with explicit rules for supported protocols, regions, and models.
 

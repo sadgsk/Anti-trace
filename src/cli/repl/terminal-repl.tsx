@@ -10,7 +10,7 @@ import { ReplScreen } from "../../tui/layout/ReplScreen.tsx";
 import { ThemeProvider } from "../../tui/theme/ThemeProvider.tsx";
 import { detectColorDepth } from "../../tui/theme/color.ts";
 import { FocusStack, FocusStackProvider } from "../../tui/focus/focus-stack.tsx";
-import type { PermissionMode } from "../../tui/permissions/permission-policy.ts";
+import type { PermissionMode } from "../permissions/permission-policy.ts";
 import { LocaleProvider } from "../../tui/locale/LocaleProvider.tsx";
 import { mouseWheelDirection } from "../ink/mouse-wheel.ts";
 

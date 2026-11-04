@@ -239,13 +239,14 @@ CLI 负责装配，TUI 负责交互与展示；真实 stdin 始终只有一个�
 | `src/tui/theme/`、`design-system/` | 主题 Provider、24／256／16 色及无色降级、符号；Divider／Pane／Dialog／Tabs／Select／MultiSelect／FuzzyPicker 等通用原语 |
 | `src/tui/focus/`、`suggestions/` | `FocusStack` 按 modal → suggestion → editor → global 分发，模态期间保留全局中断；组件不自行读取 stdin。异步文件索引排除生成目录且不跟随符号链接 |
 | `src/tui/commands/`、`src/config/config-profiles.ts` | picker／form／field 三类状态；配置发现、同文件新增模型、字段映射、校验、原子保存及应用失败回滚，真实设置交给 ByokRuntime／Harness |
-| `src/tui/permissions/`、`locale/` | 真实工具执行前审批、会话授权与取消清理；`UiLocale`／`LocaleProvider` 响应语言切换，文案集中在 `src/cli/locale.ts` |
+| `src/cli/permissions/` | 工具执行前审批控制、权限模式、会话授权、键盘与反馈输入、Diff 预览准备及取消清理，通过 Harness 的工具调用钩子接入 |
+| `src/tui/permissions/`、`locale/` | 审批弹窗渲染；`UiLocale`／`LocaleProvider` 响应语言切换，文案集中在 `src/cli/locale.ts` |
 
 历史回看修复（No.2）：消息前的 Logo／空隙使用可为负数的消息内行位置，避免被钳到首条消息而反复跳动。宿主只提交同一 tick 的最新帧，使用同步更新序列包围单次输出，先覆盖行再清除尾部，减少可见空白和闪烁。
 
 ### 4.2 交互、配置与权限
 
-- `npm start` 沿用 `byok.json`／`CLI_AGENT_CONFIG`；无配置也能操作界面和恢复会话。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
+- `npm start` 恢复当前项目 `.ant-trace/last-model.json` 中最近成功使用的配置路径和模型键；首次启动使用 `byok.json`，显式路径／`CLI_AGENT_CONFIG` 优先。无选择记录且根目录无 `byok.json` 时，自动加载 `.ant-trace/configs/` 中唯一有效的配置；多个配置仍需选择。选择记录不含模型配置和凭据，保存失败只提示、不阻止本次使用；无配置也能操作界面和恢复会话。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
 - `/model`、`/effort`、`/thinking`、`/thinking-display`、`/resume`、`/config`、`/language` 使用二级界面；显式参数继续兼容。模型思考开关与思考正文展示分别控制请求和显示。
 - `/config` 的已有配置、添加、修改位于同一菜单；修改进入模型列表，可在同一文件新增模型。字段列表 Enter 进入独立编辑页，确认只改草稿，Esc 放弃该字段；最终保存项或 Ctrl+S 才校验、写盘和应用。共享连接独立复制，API Key 遮挡且留空保留，不进入消息或会话。
 - 配置发现范围为启动目录的 `byok.json`、当前配置所在目录的 BYOK 文档及 `.ant-trace/configs/`；新增配置默认保存在后者。中英文偏好保存在 `.ant-trace/preferences.json`，即时更新界面，用户文字、模型内容与工具原始输出保留原文；整个 `.ant-trace/` 被 Git 忽略。

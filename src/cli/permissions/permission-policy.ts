@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { BeforeToolCallContext, BeforeToolCallResult } from "../../types.ts";
-import type { InputTarget } from "../../cli/input/input-dispatcher.ts";
-import { TextInputController } from "../../cli/input/text-input-controller.ts";
+import type { InputTarget } from "../input/input-dispatcher.ts";
+import { TextInputController } from "../input/text-input-controller.ts";
 import { buildDiff, type StructuredDiffHunk } from "../../harness/tools/diff.ts";
 
 export type PermissionMode = "default" | "auto-edit" | "yolo";
