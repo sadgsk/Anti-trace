@@ -369,3 +369,76 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 - 验证文件：本地 `test/byok-recovery.test.ts`。23 类加载／请求错误覆盖 TTY 保持运行、会话命令可用、主动退出和管道诊断；新增无配置恢复已有会话后加载模型、缺模型不写历史／图片、环境 key 在操作时解析、摘要缺 key 保留历史、忙碌时应用失败不提交候选。保留坏重载续聊、换配置／模型同会话、HTTP 401 修复等验证。本地 HTTP 使用假 key，未读取或改动真实 `byok.json`、未调用真实模型；测试按约定只留本地。
 - 最终检查：恢复、配置、Chat、请求设置、图文序列化、输入组件与终端宿主回归报告 **83 tests 全部通过**（图文文件内含 13 个断言场景，runner 将该文件计为一项）；另有 Harness 7 项、上下文／压缩 6 项探针通过，`npm run typecheck`、`npm run build`、`git diff --check` 通过。真实模型与原生终端仍未手测。
 - 后续约定已写入 [architecture.md §0.3](./architecture.md#03-文档只保留有效状态)：**配置错误可恢复；Harness／会话不依赖模型配置；保存／应用前校验候选，模型操作内部检查所需配置。新增入口须验证行为，不能只验证会抛异常。**
+
+---
+
+## No.6 — f9080f8 模型选择持久化评审：后端文案仍靠展示层手工翻译
+
+| 项 | 值 |
+|---|---|
+| 评审号 | No.6 |
+| 评审日期 | 2026-11-05 |
+| 评审模型 | deepseek-flash |
+| 平台 | macOS 26.6.2（本机 `darwin arm64`），Node `v24.15.0` |
+| 项目版本 | v1.2（`package.json` `0.1.0`） |
+| 仓库快照 | `main` `f9080f8`（`https://github.com/sadgsk/Anti-trace.git`），工作区干净 |
+| 评审范围 | `f9080f8` 的文案输出链路：`src/cli/locale.ts`、`src/cli/repl/repl-controller.ts`（`write` 出口）、`src/cli/main.ts`（stderr 出口）、`src/tui/commands/CommandDialog.tsx`（弹窗错误）；文案来源为 `src/cli/byok-runtime.ts`、`src/config/`、`src/llm/`、`src/harness/`、`src/agent/` |
+| 评审方式 | 通读源码；临时 tsx 脚本直接调用 `translate(text, "en")`，统计 `src/` 中静态中文 `throw new *Error("…")` 的翻译覆盖率（复现脚本 `test/i18n-coverage.ts`，按约定只留本地）；未启动英文 TUI 实测 |
+
+**总体判断**
+
+`f9080f8` 新增的「配置和模型选择保存失败」提示已同步英文词条（`src/cli/locale.ts:14`），本次提交没有引入翻译错误。问题在**机制**：后端仍输出已拼接好的中文句子，英文界面依赖展示层对中文原文做「精确词典 → 正则 → 碎片替换」的启发式匹配；三张表全部手工维护，匹配失败时静默保留中文，既无编译期约束，也没有覆盖率测试。
+
+**问题索引**
+
+| # | 问题 | 级别 |
+|---|---|---|
+| 1 | 后端错误／警告以本地化句子返回，英文 UI 依赖展示层启发式翻译，漏翻静默回退 | P2 |
+
+---
+
+### 问题1 — 后端错误／警告以本地化句子返回，英文 UI 依赖展示层启发式翻译，漏翻静默回退
+
+| 项 | 值 |
+|---|---|
+| 位置 | `src/cli/locale.ts:127-136`（`translate()`）；`src/cli/locale.ts:7`（精确词典）、`:86-111`（正则表）、`:112-125`（碎片表）；`src/cli/byok-runtime.ts:13`（`ByokReloadResult` 的 `message`／`reason`／`warnings` 都是已拼接句子）；后端文案来源遍布 `src/config/`、`src/llm/`、`src/harness/`、`src/agent/` |
+| 级别 | P2 |
+| 状态 | **覆盖率已实测**（`test/i18n-coverage.ts`）；英文 TUI 实际显示**未验证** |
+
+**现象**
+
+后端（配置、协议、Harness、Agent）产生的错误与警告都是最终中文句子，不带机器可识别的错误码或参数。CLI/TUI 只在展示时反推英文：`src/cli/repl/repl-controller.ts:199` 的 `write`、`src/cli/main.ts:61-62` 的 stderr、`src/tui/commands/CommandDialog.tsx:26` 的弹窗错误都调用 `translate(text, language)`。`translate()` 的匹配顺序是：
+
+1. 精确词典 `english`（`locale.ts:7`、`:129`）；
+2. 含换行时按行递归（`locale.ts:130`）；
+3. `错误：` 前缀剥离后递归（`locale.ts:131`）；
+4. 带参数消息用整句正则匹配（`locale.ts:86-111`、`:132`）；
+5. 最长优先的碎片替换（`locale.ts:112-125`、`:126`、`:133-134`）；
+6. 都不命中时**原样返回中文**（`locale.ts:135`），不告警、不记日志、不触发测试失败。
+
+因此英文界面的完整性取决于三张手工表是否收录了每条后端文案：新增提示忘加词条不会被任何机制发现；参数化消息的措辞或标点一旦改动，整句正则即失配；碎片替换还可能只翻一半，产出中英混排。
+
+**证据**
+
+- 覆盖率扫描（`test/i18n-coverage.ts`，只覆盖 `throw new *Error("…")` 的静态字面量，模板字符串未计入）：**143 条中文 throw 文案中，97 条 `translate(…, "en")` 后仍含中文**。示例：
+  - `src/llm/protocol-utils.ts:15`「流事件缺少有效 index。」——未收录
+  - `src/llm/protocol-utils.ts:20`「工具参数不是完整 JSON。」——未收录
+  - `src/llm/protocol-utils.ts:38`、`src/llm/openai-chat.ts:250`「maxTokens 必须是正安全整数，且不能超过 contextWindow。」——未收录
+  - `src/agent/agent.ts:232`「尚未配置模型，无法发起模型请求。」——未收录
+  - `src/llm/anthropic.ts:120`、`:128`、`:143` 等十余条协议／流错误（如「Anthropic 重复 message_start。」）——未收录
+- 已收录类：配置边界 `ByokConfigError` 文案基本有正则或词条覆盖（`locale.ts:86-111`、`:112-125`）；`f9080f8` 新增提示也有词条（`locale.ts:14`）。缺口集中在 `src/llm/` 的协议／流错误、部分 `src/agent/`、`src/harness/` 文案。
+- 语言协商只有持久化偏好与代码默认：`UiLocale` 构造时只读 `.ant-trace/preferences.json`（`locale.ts:139-146`），默认 `zh`（`locale.ts:140`）；`src/` 内无 `LANG`／`LC_ALL` 读取（grep 0 命中），CLI 仅解析 `--yolo`／`--auto-edit`（`main.ts:118-119`），没有 `--lang`。管道／CI 无法从外部选择英文输出。
+- 翻译发生在 `write()` 生成 transcript 条目时，已显示的历史行不随语言切换重翻（`repl-controller.ts:194-199`）——与「切换即时生效」的直觉不同，是否保留属产品取舍，当前无文档说明。
+- **未验证**：未启动英文 TUI 观察上述消息的实际显示；扫描未覆盖模板字符串、`new ByokConfigError(…)` 动态文案与 `warnings` 数组，实际缺口应大于 97 条。
+
+**建议方向**
+
+- 后端错误与警告改为结构化出口：`{ code, params }`（或带 `code` 的错误类型），展示层按 locale 统一渲染，日志／遥测只记 `code` 与参数；后端不再持有本地化文案，语言也不影响程序判断与聚合。
+- 普通 UI 文案用 key-based 词典 + 参数插值替代整句正则；key 类型化（如 `keyof typeof en`），缺失 key 在编译期或覆盖率测试中失败。
+- 增加覆盖率测试：扫描 `throw new ...Error("中文…")`、`write("…")`、`warnings` 字面量，断言 `translate(…, "en")` 不含 CJK；或加伪本地化冒烟。新增文案忘记同步词条时应让检查失败。
+- 补齐语言协商：`--lang` → `LANG`／`LC_ALL` → `.ant-trace/preferences.json` → 默认。源语言的选择（当前以中文原文为 key，开源场景通常以英文为源语言）在迁移时一并确定。
+- 保持「内容不翻」不变式：模型输出、工具输出、diff、路径、模型名／ID 继续原样（现有 `literal` 标记机制正确）；审批／权限等安全相关文案优先精确性，宁可用英文原文。
+
+**本次明确不建议做的事**
+
+不做全量迁移；先把「新增文案必须被覆盖」变成可自动检查的测试，再决定是否把错误改成 code 结构。翻译表的三层结构（词典／正则／碎片）本身可以保留，问题在于它没有强制同步机制。
