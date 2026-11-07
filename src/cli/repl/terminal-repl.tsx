@@ -13,6 +13,8 @@ import { FocusStack, FocusStackProvider } from "../../tui/focus/focus-stack.tsx"
 import type { PermissionMode } from "../permissions/permission-policy.ts";
 import { LocaleProvider } from "../../tui/locale/LocaleProvider.tsx";
 import { mouseWheelDirection } from "../ink/mouse-wheel.ts";
+import type { TranscriptFrame } from "../../tui/layout/TranscriptViewport.tsx";
+import { ArrayRows, appendRows, overlayTail } from "../../tui/layout/terminal-rows.ts";
 
 export interface TerminalReplOptions {
 	harness: ReplHarness;
@@ -88,8 +90,11 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		if (repl.getSnapshot().renderEpoch !== epoch) { epoch = repl.getSnapshot().renderEpoch; host?.invalidate(); }
 	});
 	let layoutSize = { columns: columns(), rows: streams.stdout.rows || 24 };
+	let transcriptFrame: TranscriptFrame | undefined;
+	const onTranscriptFrame = (frame?: TranscriptFrame) => { transcriptFrame = frame; };
+	const isConversation = () => !repl.dialogs.getSnapshot() && !repl.permissions.getSnapshot().request && !suggestions.getSnapshot().open && !repl.getSnapshot().viewingHistory && repl.getSnapshot().scrollOffset === 0;
 	const tree = () => { layoutSize = { columns: columns(), rows: streams.stdout.rows || 24 }; return <ThemeProvider depth={detectColorDepth(streams.stdout)}><LocaleProvider locale={repl.locale}><FocusStackProvider stack={focus}>
-		<ReplScreen repl={repl} prompt={prompt} suggestions={suggestions} cwd={cwd} columns={columns()} rows={streams.stdout.rows || 24} nativeScrollback />
+		<ReplScreen repl={repl} prompt={prompt} suggestions={suggestions} cwd={cwd} columns={columns()} rows={streams.stdout.rows || 24} nativeScrollback onTranscriptFrame={onTranscriptFrame} />
 	</FocusStackProvider></LocaleProvider></ThemeProvider>; };
 	const renderView = () => host?.rerender(tree());
 	const resize = () => {
@@ -129,7 +134,16 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 			dispatcher.dispatch(event);
 		}, streams, cleanup, { scrollback: true, mouseWheel: true,
 			layoutSize: () => layoutSize,
-			isConversation: () => !repl.dialogs.getSnapshot() && !repl.permissions.getSnapshot().request && !suggestions.getSnapshot().open && !repl.getSnapshot().viewingHistory && repl.getSnapshot().scrollOffset === 0 });
+			frameRows: frame => {
+				const rows = frame.replace(/\n$/, "").split("\n");
+				if (repl.dialogs.getSnapshot() || repl.permissions.getSnapshot().request) return new ArrayRows(rows);
+				if (!transcriptFrame || transcriptFrame.columns !== columns() || transcriptFrame.native !== isConversation() || transcriptFrame.historyVersion !== repl.getSnapshot().historyVersion) return undefined;
+				if (!transcriptFrame.native) return new ArrayRows(rows);
+				const { rows: history, viewportRows } = transcriptFrame;
+				return appendRows(overlayTail(history, rows.slice(0, viewportRows)), [...Array<string>(Math.max(0, viewportRows - history.length)).fill(""), ...rows.slice(viewportRows)]);
+			},
+			onFrameWritten: () => { if (isConversation()) transcriptFrame?.onWrite(); },
+			isConversation });
 		streams.stdout.on("resize", resize);
 		renderView();
 	} catch (error) {

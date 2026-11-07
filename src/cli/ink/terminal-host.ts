@@ -3,6 +3,7 @@ import { createElement, type ReactNode } from "react";
 import { render, Text } from "ink";
 import { TerminalInputParser, type TerminalInputEvent } from "./terminal-input.ts";
 import { ScrollbackOutput } from "./scrollback-output.ts";
+import type { TerminalRows } from "../../tui/layout/terminal-rows.ts";
 
 const ENABLE_BRACKETED_PASTE = "\x1b[?2004h";
 const DISABLE_BRACKETED_PASTE = "\x1b[?2004l";
@@ -25,7 +26,7 @@ export function startTerminalHost(
 	onEvent: (event: TerminalInputEvent) => void,
 	streams: TerminalStreams = { stdin: process.stdin, stdout: process.stdout },
 	onStop?: () => void,
-	options: { fullScreen?: boolean; scrollback?: boolean; mouseWheel?: boolean; isConversation?: () => boolean; layoutSize?: () => { columns: number; rows: number } } = {},
+	options: { fullScreen?: boolean; scrollback?: boolean; mouseWheel?: boolean; isConversation?: () => boolean; layoutSize?: () => { columns: number; rows: number }; frameRows?: (frame: string) => TerminalRows | undefined; onFrameWritten?: () => void } = {},
 ): TerminalHost {
 	const { stdin, stdout } = streams;
 	if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== "function") {
@@ -47,7 +48,10 @@ export function startTerminalHost(
 		flushTimer = undefined;
 		const frame = pendingFrame;
 		pendingFrame = undefined;
-		if (frame !== undefined) output?.write(frame);
+		if (frame !== undefined) {
+			const rows = options.frameRows ? options.frameRows(frame) : frame;
+			if (rows !== undefined) { output?.write(rows); options.onFrameWritten?.(); }
+		}
 	};
 	const inkStdout = output ? Object.defineProperties(new Writable({ write(chunk, _encoding, done) {
 		const layout = options.layoutSize?.(), frame = chunk.toString();
@@ -67,6 +71,8 @@ export function startTerminalHost(
 	let escapeTimer: NodeJS.Timeout | undefined;
 	let active = false;
 	let ink: ReturnType<typeof render> | undefined;
+	let renderTimer: NodeJS.Immediate | undefined;
+	let pendingTree: ReactNode;
 	const emitEvents = (events: readonly TerminalInputEvent[]): void => {
 		try {
 			for (const event of events) {
@@ -100,6 +106,8 @@ export function startTerminalHost(
 		if (!active) return;
 		active = false;
 		if (escapeTimer) clearTimeout(escapeTimer);
+		if (renderTimer) clearImmediate(renderTimer);
+		renderTimer = undefined; pendingTree = undefined;
 		escapeTimer = undefined;
 		process.off("SIGINT", onSigint);
 		process.off("SIGTERM", onSigterm);
@@ -165,7 +173,8 @@ export function startTerminalHost(
 	}
 
 	return {
-		rerender: tree => { if (active) ink?.rerender(tree); },
+		// Merge root requests before reconciliation/layout, rather than merely discarding their output.
+		rerender: tree => { if (active) { pendingTree = tree; renderTimer ??= setImmediate(() => { renderTimer = undefined; if (active) ink?.rerender(pendingTree); pendingTree = undefined; }); } },
 		invalidate: () => output?.invalidate(),
 		beginHistory: () => output?.beginHistory(),
 		reflow: () => output?.reflow(),

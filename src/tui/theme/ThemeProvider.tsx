@@ -4,6 +4,7 @@ import { resolveTheme, type ColorDepth } from "./color.ts";
 import { theme, type TerminalTheme, type ThemeColorKey } from "./theme.ts";
 
 const ThemeContext = createContext<TerminalTheme>(theme);
+export const ThemeSnapshotProvider = ThemeContext.Provider;
 export function ThemeProvider({ depth = 24, children }: { depth?: ColorDepth; children: ReactNode }) {
 	const value = useMemo(() => resolveTheme(depth), [depth]);
 	return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

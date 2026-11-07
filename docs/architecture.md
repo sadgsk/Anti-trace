@@ -220,12 +220,17 @@ ReplController → Harness → Agent / loop → LLM 适配器与工具
   │ transcript / activeItems / display
   ▼
 ThemeProvider → LocaleProvider → FocusStackProvider → ReplScreen
-  ├── TranscriptViewport：WelcomeHeader + 历史／活跃消息／工具／压缩边界
+  ├── TranscriptViewport：当前可见终端行，前后各 8 行缓存预取
+  │     └── TranscriptLayoutCache → RowIndex → RowRenderer（仅内存排版）
   ├── 固定底部输入、Spinner、命令二级界面、补全、审批、状态栏
   └── Markdown / HighlightedCode / MarkdownTable / StructuredDiff
 ```
 
-CLI 负责装配，TUI 负责交互与展示；真实 stdin 始终只有一个宿主。交互界面使用主屏幕和单一 Ink 实例生成 ANSI 帧，`ScrollbackOutput` 增量输出，让聊天进入终端原生滚动历史；缩放时保留未滚入历史的行，并拒绝尺寸过时的动画帧。不启用备用屏幕、重放 Static 或重建宿主。滚轮／PgUp 回看与 Ctrl+O 展开共用 `TranscriptViewport`，按消息 ID／消息内行位置锚定，展开、流式追加和缩放保持阅读位置；Ctrl+End 返回最新并补齐期间生成的内容。原生投影收起，阅读视图独立展开，终端滚动条仍可查看已打印快照。管道继续使用文字投影。
+CLI 负责装配，TUI 负责交互与展示；真实 stdin 和终端输出始终只有一个宿主。主 Ink 实例只生成一屏 ANSI 帧，`RowRenderer` 复用另一个仅写内存流的 Ink 根，将现有消息组件排版为可缓存的终端行；该根不读真实输入、不运行动画。`ScrollbackOutput` 接收按范围取行的数据源与当前视窗／页脚，保存屏幕尾部检查点，增量输出到主屏幕的原生滚动历史；不再逐帧拼接、拆分或保留完整历史字符串。缩放时保留未滚入历史的行，并拒绝尺寸、会话版本或阅读模式过时的帧。不启用备用屏幕、重放 Static 或重建终端宿主。滚轮／PgUp 回看与 Ctrl+O 展开按消息 ID／消息内行位置锚定，Ctrl+End 返回最新并补齐期间生成的内容。原生投影收起，阅读视图独立展开，终端滚动条仍可查看已打印快照。管道继续使用文字投影。
+
+历史缓存与每帧绘制分开：`TranscriptLayoutCache` 保留消息／分段的高度元数据，终端行采用最多 8 MiB、2048 个条目的 LRU 缓存；宽度、展开、思考展示和语言最多保留四种排版变体，主题或会话内容替换时失效。`RowIndex` 用 Fenwick 高度索引定位可见范围与更新实测高度，滚动不扫描和测量全部消息；未访问区域沿用已知高度或估计值，访问时才排版并校正。Markdown 按顶层块缓存，代码每 64 个源行、思考每 64 个显示行分段，代码高亮保留整块词法上下文。主界面只挂载可见行，工具指示灯和底部 Spinner 的动画不触发历史排版。打开对话框保留缓存，关闭后复用；首次恢复会话写入原生历史仍需输出完整内容一次。
+
+`useFrameSnapshot` 将 TUI 的连续 REPL 通知在 16ms 窗口内合并，控制器和非 TTY 订阅保持同步；宿主也在 React 重排前合并根刷新请求。视窗准备在 React 提交之外执行，之后只提交与该排版请求匹配的帧。返回测量结果时校验对应的滚动偏移，避免较早的一帧覆盖新的滚轮输入。
 
 启动品牌使用 `WelcomeHeader → BrandMark → brand-art.ts`，固定 54×6 的完整阴影艺术字，青色立体闪电代表 I，方向为左上到右下；真彩下黄色／青色逐行明暗变化，闪电侧边单独变暗。画稿借鉴 Hermes 的阴影轮廓与明暗层次，字形自绘，不在运行时按字母表拼接。60／120 列使用同一份画稿；极窄时实际字符在进入 Ink 前按列数裁剪，各行固定一格高，窗口恢复后显示完整画稿。256／16 色与无色终端沿主题降级，没有终端图片协议依赖。
 

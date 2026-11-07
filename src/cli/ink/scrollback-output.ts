@@ -1,7 +1,9 @@
+import { ArrayRows, tailRows, type TerminalRows } from "../../tui/layout/terminal-rows.ts";
 /** Find the old visible text after rewrapping, excluding borders and the temporary footer. */
-function continuationLine(source: readonly string[], next: readonly string[], start: number): number | undefined {
+function continuationLine(source: TerminalRows, next: TerminalRows, start: number): number | undefined {
 	const text = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "").replace(/[\s│╭╮╰╯─]/g, "");
-	const lengths = next.map(line => text(line).length), content = next.map(text).join("");
+	const anchor = source.anchor?.(start), base = anchor ? next.resolve?.({ id: anchor.id, row: 0 }) ?? 0 : 0;
+	const lines = next.slice(base), lengths = lines.map(line => text(line).length), content = lines.map(text).join("");
 	for (let row = start; row < source.length - 4; row++) {
 		const key = source.slice(row, Math.min(row + 3, source.length - 4)).map(text).join("");
 		if (key.length < 8) continue;
@@ -9,7 +11,7 @@ function continuationLine(source: readonly string[], next: readonly string[], st
 		if (position < 0) continue;
 		let offset = 0, line = 0;
 		while (line < lengths.length && offset + lengths[line]! <= position) offset += lengths[line++]!;
-		return line;
+		return base + line;
 	}
 	return undefined;
 }
@@ -22,15 +24,15 @@ function repaint(up: number, lines: readonly string[]): string {
 	return `${up ? `\x1b[${up}A` : ""}\r${lines.join("\x1b[K\r\n")}\x1b[K\x1b[J`;
 }
 
-/** Ink supplies complete ANSI frames; this writer updates the visible suffix in the main buffer.
+/** The viewport supplies a random-access row source plus a bounded Ink footer.
  * New lines become real terminal scrollback. No Static replay, alternate screen or scrollback erasure.
  */
 export class ScrollbackOutput {
-	private previous: string[] = [];
+	private previous: TerminalRows = new ArrayRows([]);
 	private redraw = false;
 	private replay = false;
 	private reflowing = false;
-	private conversation: string[] = [];
+	private conversation: TerminalRows = new ArrayRows([]);
 	private conversationBudget = 1;
 	private columns = 0;
 	private rows = 0;
@@ -39,10 +41,11 @@ export class ScrollbackOutput {
 	invalidate(): void { this.redraw = true; }
 	reflow(): void { if (this.columns !== this.stdout.columns || this.rows !== this.stdout.rows) this.reflowing = true; this.redraw = true; }
 	beginHistory(): void { this.replay = true; }
-	write(frame: string): void {
-		if (/^\x1b\[\?25[hl]$/.test(frame)) return;
+	write(frame: string | TerminalRows): void {
+		if (typeof frame === "string" && /^\x1b\[\?25[hl]$/.test(frame)) return;
 		if (!frame) return;
-		const next = frame.replace(/\n$/, "").split("\n"), old = this.previous;
+		const next = typeof frame === "string" ? new ArrayRows(frame.replace(/\n$/, "").split("\n")) : frame, old = this.previous;
+		if (!next.length) return;
 		if (old.length && (this.columns !== this.stdout.columns || this.rows !== this.stdout.rows)) this.reflowing = true;
 		// This writer leaves the cursor on the last line (no trailing newline), so all rows are visible.
 		const budget = Math.max(1, this.stdout.rows || 24);
@@ -50,7 +53,7 @@ export class ScrollbackOutput {
 		// Explicit CRLF makes every logical row start in column zero, independent of terminal newline mode.
 		// Every frame is one write inside a synchronized update, so terminals that support it never show a partial frame.
 		let out = "";
-		if (!old.length || this.replay) { out = `${old.length ? "\r\n" : ""}\x1b[?25l\r${next.join("\r\n")}`; }
+		if (!old.length || this.replay) { out = `${old.length ? "\r\n" : ""}\x1b[?25l\r${next.slice(0).join("\r\n")}`; }
 		else if (this.reflowing && conversation) {
 			// Preserve rows that the new wrapping would move above the visible tail.
 			// They have not reached native scrollback yet, so erasing the screen would lose them.
@@ -59,10 +62,10 @@ export class ScrollbackOutput {
 			const start = Math.max(0, source.length - Math.min(this.conversationBudget, budget)), tailStart = Math.max(0, next.length - budget);
 			const canonical = (line: string) => line.replace(/\x1b\[[0-9;]*m/g, "").replace(/\s/g, "");
 			const key = next.slice(tailStart, tailStart + 3).map(canonical).join("");
-			const lengths = source.map(line => canonical(line).length), content = source.map(canonical).join("");
+			const retained = source.slice(start), lengths = retained.map(line => canonical(line).length), content = retained.map(canonical).join("");
 			const position = key ? content.lastIndexOf(key) : -1;
 			let end = source.length;
-			if (position >= 0) { let offset = 0; end = 0; while (end < lengths.length && offset + lengths[end]! <= position) offset += lengths[end++]!; if (offset < position) end++; }
+			if (position >= 0) { let offset = 0; end = 0; while (end < lengths.length && offset + lengths[end]! <= position) offset += lengths[end++]!; if (offset < position) end++; end += start; }
 			const prefix = tailStart ? source.slice(start, Math.max(start, end)) : [];
 			const up = Math.min(old.length - 1, budget - 1);
 			// Returning from a resized reading view must also commit the output generated in between.
@@ -77,7 +80,7 @@ export class ScrollbackOutput {
 			const checkpoint = this.conversation, up = Math.min(old.length - 1, budget - 1);
 			out = repaint(up, checkpoint.slice(-budget));
 			let from = Math.max(0, checkpoint.length - budget);
-			while (from < checkpoint.length && checkpoint[from] === next[from]) from++;
+			while (from < checkpoint.length && checkpoint.slice(from, from + 1)[0] === next.slice(from, from + 1)[0]) from++;
 			if (from < next.length) {
 				from = Math.min(from, checkpoint.length - 1);
 				const rewind = checkpoint.length - 1 - from;
@@ -90,7 +93,7 @@ export class ScrollbackOutput {
 		} else {
 			// Header metadata may change off screen. It must not cause history to be emitted again.
 			let from = Math.max(0, old.length - budget);
-			while (from < old.length && old[from] === next[from]) from++;
+			while (from < old.length && old.slice(from, from + 1)[0] === next.slice(from, from + 1)[0]) from++;
 			if (from < next.length || from < old.length) {
 				from = Math.min(from, old.length - 1, next.length - 1);
 				const up = old.length - 1 - from;
@@ -98,9 +101,9 @@ export class ScrollbackOutput {
 			}
 		}
 		if (out) this.stdout.write(`${SYNC_BEGIN}${out}${SYNC_END}`);
-		this.previous = next; this.redraw = false; this.replay = false;
+		this.previous = tailRows(next, budget); this.redraw = false; this.replay = false;
 		this.columns = this.stdout.columns; this.rows = this.stdout.rows;
-		if (conversation) { this.conversation = next; this.conversationBudget = budget; }
+		if (conversation) { this.conversation = this.previous; this.conversationBudget = budget; }
 		this.wasConversation = conversation;
 	}
 	finish(): void { this.stdout.write("\x1b[?25h\r\n"); }

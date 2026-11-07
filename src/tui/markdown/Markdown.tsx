@@ -45,5 +45,9 @@ function blocks(tokens: readonly Token[], columns: number, depth = 0): ReactNode
 }
 export const Markdown = memo(function Markdown({ text, columns = 80 }: { text: string; columns?: number }) {
 	const tokens = useMemo(() => Lexer.lex(displayText(text), { gfm: true }), [text]);
-	return <Box flexDirection="column" gap={1} width={Math.max(1, columns)}>{blocks(tokens, Math.max(1, columns))}</Box>;
+	return <MarkdownTokens tokens={tokens} columns={columns} />;
 });
+/** Also used by the transcript layout cache, which lays out independent Markdown blocks. */
+export function MarkdownTokens({ tokens, columns }: { tokens: readonly Token[]; columns: number }) {
+	return <Box flexDirection="column" gap={1} width={Math.max(1, columns)}>{blocks(tokens, Math.max(1, columns))}</Box>;
+}

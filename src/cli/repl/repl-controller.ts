@@ -162,7 +162,9 @@ export class ReplController {
 	setScrollLimit = (limit: number): void => { this.scrollLimit = limit; if (this.snapshot.scrollOffset > limit) this.update({ scrollOffset: limit }); };
 	setViewportMetrics = (metrics: ViewportMetrics): void => {
 		this.scrollLimit = metrics.limit; this.viewportAnchor = metrics.anchor; this.lastToolAnchor = metrics.lastTool;
-		if (this.snapshot.viewingHistory && this.snapshot.scrollOffset !== metrics.offset) this.update({ scrollOffset: metrics.offset });
+		// A scheduled layout may finish after another wheel event. Never overwrite newer user input.
+		if (this.snapshot.viewingHistory && this.snapshot.scrollOffset !== metrics.offset
+			&& (metrics.requestedOffset === undefined || metrics.requestedOffset === this.snapshot.scrollOffset)) this.update({ scrollOffset: metrics.offset });
 	};
 	private readDisplay(): HarnessDisplayState {
 		const usage = this.harness.contextUsage();
