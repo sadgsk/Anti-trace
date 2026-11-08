@@ -10,6 +10,7 @@ import { Harness } from "../../src/harness/harness.ts";
 import { startTerminalRepl } from "../../src/cli/repl/terminal-repl.tsx";
 import { ReplScreen } from "../../src/tui/layout/ReplScreen.tsx";
 import { createFakeStreamFn } from "../support/fake-stream.ts";
+import { waitFor } from "../support/fixtures.ts";
 import { mouseWheelDirection } from "../../src/cli/ink/mouse-wheel.ts";
 import type { TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
 class Input extends PassThrough { isTTY = true; isRaw = false; setRawMode(value: boolean) { this.isRaw = value; return this; } }
@@ -25,17 +26,18 @@ function fixture() {
 	const app = startTerminalRepl({harness:h,cwd:root,permissionMode:"yolo",streams:{stdin,stdout} as unknown as TerminalStreams});
 	return {root,stdin,stdout,app,output:()=>output,close(){app.stop();stdin.destroy();stdout.destroy();assert.equal(dirname(root),resolve(tmpdir()));assert.match(basename(root),/^expand-history-/);rmSync(root,{recursive:true,force:true});}};
 }
-async function snapshot(f:ReturnType<typeof fixture>) {
+async function snapshot(f:ReturnType<typeof fixture>, expected:RegExp) {
 	const frames:string[]=[],stdin=new PassThrough(),stdout=new Writable({write(chunk,_enc,done){frames.push(chunk.toString());done();}});
 	Object.assign(stdout,{columns:99,rows:30,isTTY:false});
 	const app=render(createElement(ReplScreen,{repl:f.app.repl,prompt:f.app.prompt,suggestions:f.app.suggestions,cwd:f.root,columns:99,rows:30}),{stdin:stdin as any,stdout:stdout as any,debug:true,patchConsole:false,exitOnCtrlC:false});
-	try{await pause();return (frames.at(-1)??"").replace(/\x1b\[[0-9;]*m/g,"");}finally{app.unmount();app.cleanup();stdin.destroy();stdout.destroy();}
+	const frame=()=>(frames.at(-1)??"").replace(/\x1b\[[0-9;]*m/g,"");
+	try{await waitFor(()=>expected.test(frame()),`history viewport matching ${expected}`);return frame();}finally{app.unmount();app.cleanup();stdin.destroy();stdout.destroy();}
 }
 test("Ctrl+O immediately shows expanded tool content instead of the final reply at the bottom",async()=>{
 	const f=fixture();
 	try{f.stdin.write("run\r");await until(()=>!f.app.repl.getSnapshot().busy&&f.app.repl.getSnapshot().transcript.some(item=>item.kind==="tool"));await pause();
 		f.stdin.write("\x0f");await pause();const state=f.app.repl.getSnapshot();assert.equal(state.expanded,true);assert.equal(state.viewingHistory,true);assert.ok(state.scrollOffset>0);
-		const frame=await snapshot(f);assert.match(frame,/NEWER_06/);assert.doesNotMatch(frame,/REPLY_79/);
+		const frame=await snapshot(f,/NEWER_06/);assert.match(frame,/NEWER_06/);assert.doesNotMatch(frame,/REPLY_79/);
 		f.stdin.write("\x1b[1;5F");await pause();assert.equal(f.app.repl.getSnapshot().viewingHistory,false);assert.equal(f.app.repl.getSnapshot().scrollOffset,0);
 	}finally{f.close();}
 });
@@ -45,8 +47,8 @@ test("wheel review and Ctrl+O retain the older tool, with collapse and resize pr
 		f.stdin.write("\x1b[<64;5;5M".repeat(100));await pause();f.stdin.write("\x1b[<65;5;5M".repeat(4));await pause();
 		const older=f.app.repl.getSnapshot().transcript.find(item=>item.kind==="tool")!;
 		assert.equal(f.app.repl.getSnapshot().viewingHistory,true);f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);
-		assert.match(await snapshot(f),/OLDER_06/);
-		f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);const collapsed=await snapshot(f);assert.match(collapsed,/OLDER_00/);assert.doesNotMatch(collapsed,/OLDER_06/);
+		assert.match(await snapshot(f,/OLDER_06/),/OLDER_06/);
+		f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);const collapsed=await snapshot(f,/OLDER_00/);assert.match(collapsed,/OLDER_00/);assert.doesNotMatch(collapsed,/OLDER_06/);
 		f.stdout.columns=75;f.stdout.emit("resize");await pause();f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);
 		assert.equal(f.app.prompt.getDraft().text,"");
 	}finally{f.close();}
