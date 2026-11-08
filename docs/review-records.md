@@ -1,6 +1,8 @@
 # Review records
 
-**2026-11-01 修复更新：** TUI 整体实现已修复 No.1 问题1 的批次中断配对：剩余工具生成取消结果，不再请求下一轮模型；新增本地 test/tui-full.test.tsx 验证审批中断后两条调用均配对、文件不写入。原评审记录保留当时证据，修复待最终 Review。
+**2026-11-08 修复更新：** No.1 问题2 已实现 bash 输出截断与完整日志保存。返回内容包含截断状态、原始总字节数、已返回原始字节数及范围、日志绝对路径和执行状态；现有 `read` 可补读日志，未修改 `read`。
+
+**2026-11-01 修复更新（2026-11-08 复核通过）：** No.1 问题1 的批次中断配对已修复：剩余工具生成取消结果，不再请求下一轮模型。正式回归 `tests/regressions/abort-tool-result-pairing.test.ts` 与 `tests/tui/tui-full.test.tsx` 已验证中断配对、后续继续输入和审批中断不写文件。原评审记录保留当时证据。
 
 代码评审记录。`No.1`、`No.2`… 一个 `No.` 记一次评审，问题写在这次评审里面，从 `问题1` 往后排。
 
@@ -32,14 +34,14 @@
 
 分层本身是干净的：`types` → `agent/loop` → `agent` → `harness` → `cli` 依赖单向，loop 不认识 readline，harness 不认识 HTTP，工具各管一件事。`tsc --noEmit` 全过，下面没有类型错误。
 
-当前会踩的只有两处：中断一批多个 tool call 会留下配对不齐的 transcript，下一句用户输入才会把协议打爆；bash 输出没有上限，和 read 的截断策略不对称。
+评审当时会踩的只有两处：中断一批多个 tool call 会留下配对不齐的 transcript，下一句用户输入才会把协议打爆；bash 输出没有上限，和 read 的截断策略不对称。**这两项均已修复，当前状态见下表；以下现象与原始证据保留评审时的快照。**
 
 **问题索引**（按严重度排序，P0 会让会话直接不可用，P1 每天用会疼）
 
-| # | 问题 | 级别 |
-|---|---|---|
-| 1 | 中断后 tool call 配对缺失，下一轮用户输入会变成协议非法 | P0 |
-| 2 | bash 工具输出没有上限 | P1 |
+| # | 问题 | 级别 | 当前状态 |
+|---|---|---|---|
+| 1 | 中断后 tool call 配对缺失，下一轮用户输入会变成协议非法 | P0 | 已修复（2026-11-01；2026-11-08 复核通过） |
+| 2 | bash 工具输出没有上限 | P1 | 已修复（2026-11-08） |
 
 ---
 
@@ -49,7 +51,7 @@
 |---|---|
 | 位置 | `src/agent/loop.ts:298-301`（`if (signal?.aborted) break;`） |
 | 级别 | P0 |
-| 状态 | **已实测复现**（`test/probe-abort-pairing.ts`） |
+| 状态 | **已修复（2026-11-01；2026-11-08 正式回归复核通过）**；下方为修复前的复现证据 |
 
 **现象**
 
@@ -72,6 +74,10 @@ UNMATCHED tool calls     : c2,c3
 
 abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，照 `failToolCallsFromTruncatedMessage` 的形状抄；同时该 batch 之后不应再进入下一轮 LLM 调用。
 
+**修复复核（2026-11-08）**
+
+`executeToolCallsSequential()` 已保留整批遍历，`prepareToolCall()` 为中断后未执行的调用生成错误结果，`runLoop()` 在中断后结束、不再调用模型。正式回归验证一批三个调用在第一个执行时中断，三个调用均有对应错误结果、只有第一个工具实际执行、模型只请求一次，随后新 prompt 可以正常完成；TUI 回归验证审批中断后配对完整且文件未写入。
+
 ---
 
 ### 问题2 — bash 工具输出没有上限
@@ -80,6 +86,7 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 |---|---|
 | 位置 | `src/harness/tools/bash.ts:40`（`const chunks: Buffer[] = []`）、`bash.ts:62-63`（stdout/stderr 无条件 `push`） |
 | 级别 | P1 |
+| 状态 | **已修复（2026-11-08）；Windows 本地离线验证，详见下方修复记录** |
 
 **现象**
 
@@ -90,6 +97,17 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 **建议方向**
 
 边读边截断：保留头尾各 N KB、中间插省略标记，真实字节数和是否截断放进 `details`，让模型知道"被截了、怎么拿剩下的"——`read.ts:96-111` 那套提示文案已经是现成的写法。
+
+**修复记录（2026-11-08）**
+
+- `src/harness/tools/bash-output.ts` 将原始输出预览限制为 32 KiB（头部 8 KiB、尾部 24 KiB，UTF-8 边界处向内调整）；元信息和省略标记另有少量开销。小输出完整返回，超过阈值时把此前及后续原始输出写入 `<cwd>/.ant-trace/tool-results/<uuid>.log`，文件不按预览阈值截断。
+- stdout/stderr 按接收顺序合并。共享 Writable 串行写盘并向两条输入流施加背压，避免将无限输出改成无限写盘队列。命令关闭后等待已接收输出全部写入并关闭日志，再返回路径；保存失败明确报错并清理不完整日志。Windows 超时／中断／写盘失败时使用 `taskkill /T /F` 终止命令树，避免仅终止 cmd.exe 后子进程继续占用输出管道和工作目录。
+- `content` 内的 `[bash_result]` JSON 和正常完成结果的 `details` 包含 `truncated`、`totalBytes`、`returnedBytes`、`returnedByteRanges`、`outputPath`、`totalLines`、`exitCode`、`timedOut`、`interrupted`、`durationMs`。字节范围从 0 开始，左闭右开，以原始日志为准；返回字节数不含元信息和省略标记。中断继续采用错误结果契约，错误正文保留预览、日志路径和元信息。
+- `read` 保留原有实现。截断提示给出尾部起始行，工具说明明确可用 `read(path, offset, limit)` 按行补读；三种协议适配器和 Agent 循环沿用现有 `content` 传递，无需改动。
+- 正式测试：`tests/integration/shell-tool.test.ts` 覆盖空／小输出、阈值边界、完整日志、UTF-8、双流、非零退出、超时／中断、保存失败（含已写入部分日志后异步 EIO）和并发隔离；`tests/regressions/bash-output-truncation.test.ts` 分别截获 Chat、Responses、Anthropic 的真实本地 HTTP 请求，确认截断元信息已发送，并用现有 `read` 完成中间行补读。相关 18 项用例通过。
+- 独立进程压力验收：16 MiB、128 MiB 分块输出均完整保存并通过 SHA-256 校验，回传原始输出均为 32 KiB；每 5ms 采样得到的 RSS 相对起点增量分别约 14.8 MiB、13.8 MiB。该观测不作为固定内存 CI 阈值。压力脚本留在忽略的 `.test-results/bash-output-stress.mts`，临时日志验收后清理。
+- 最终验证：约定的 9 类自动化验收及 1 项压力验收均已覆盖；`npm run check` 通过（源码类型、测试类型、全量离线测试、构建），全量 **406 项：404 通过、2 跳过、0 失败**。最终检查日志保存在忽略的 `.test-results/bash-output-check.log`。
+- 验证范围为本机 Windows 和本地 HTTP 模型替身；未调用真实模型，其他平台以 CI 执行结果为准。日志保留用于后续补读，本轮未增加磁盘容量上限或自动过期清理。
 
 ---
 
