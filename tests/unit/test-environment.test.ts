@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import net from "node:net";
 import { homedir } from "node:os";
 import { isAbsolute, relative } from "node:path";
@@ -7,11 +8,13 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 test("default tests use an isolated home and working directory without BYOK settings", () => {
-	const root = process.env.CLI_AGENT_TEST_ROOT;
-	assert.ok(root);
+	const configuredRoot = process.env.CLI_AGENT_TEST_ROOT;
+	assert.ok(configuredRoot);
+	// macOS resolves cwd through /private even when TMPDIR uses the /var alias.
+	const root = realpathSync(configuredRoot);
 	for (const path of [homedir(), process.cwd()]) {
-		const child = relative(root, path);
-		assert.ok(child && !child.startsWith("..") && !isAbsolute(child));
+		const child = relative(root, realpathSync(path));
+		assert.ok(child && !child.startsWith("..") && !isAbsolute(child), `${path} must remain inside ${root}`);
 	}
 	assert.equal(process.env.CLI_AGENT_CONFIG, undefined);
 	assert.equal(process.env.NODE_OPTIONS, undefined);

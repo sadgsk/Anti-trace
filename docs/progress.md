@@ -6,7 +6,7 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **正式测试框架已建立（2026-11-08）：34 个离线测试文件，Windows 的 Node 22／24 均为 389 项通过、2 项平台跳过、0 失败；行覆盖率 89.44%、分支 86.40%、函数 91.07%。GitHub Actions 配置 Windows／Linux／macOS × Node 22／24，远程结果待推送后执行。既有最终 Review 尾项保留。** |
+| 阶段 | **正式测试框架已建立并推送 GitHub（2026-11-08）：34 个离线测试文件，Windows 的 Node 22／24 均为 389 项通过、2 项平台跳过、0 失败；本机行覆盖率 89.44%、分支 86.40%、函数 91.07%。GitHub Actions 配置 Windows／Linux／macOS × Node 22／24，实际远程结果见 [CI 运行记录](https://github.com/sadgsk/Anti-trace/actions/workflows/ci.yml)。既有最终 Review 尾项保留。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | TUI 架构与交互 | [架构书 §4](./architecture.md#4-分层)；反馈结果与验证统一记录在本页 |
 | 最终 Review 提醒 | RV-001：检查 Shift+Tab、三种权限模式、工具执行前判断、审批与会话授权记忆的真实执行链路 |
@@ -26,7 +26,7 @@
 
 **可复现安装验证：** 仅从 Git 索引导出独立副本，不含旧 `test/`、个人 BYOK、原有 node_modules 或构建产物；`npm ci --ignore-scripts` 后执行完整 `npm run check`，389 通过、2 平台跳过，类型检查与构建均通过。已验证 watch 启动／退出、文件＋名称筛选，以及注入合成 API key／配置路径／NODE_OPTIONS 时子测试仍保持隔离。清理验证副本的操作被工具策略以 `blocked by policy` 拦截，副本保留于 `C:\Users\gsk\AppData\Local\Temp\cli-agent-clean-1cbaaf3b54504f7ea7749ea8c09e38d4`，不在项目 Git 中。
 
-**提交准备（2026-11-08）：** 用户明确授权清理旧测试并提交 GitHub。旧 `test/` 共 1039 个文件（约 34 MB），已核对仅位于项目旧目录、无链接。永久递归删除被自动审批以 `blocked by policy` 拒绝，改为可恢复地移至项目外 `E:\pi-harness\cli-agent-test-archive-20261108`；项目仅保留正式 `tests/`。本轮框架、回归修复和文档随本次提交一起分发，远程三端 CI 结果在推送后核对。
+**提交与平台校验（2026-11-08）：** 用户明确授权清理旧测试并提交 GitHub。旧 `test/` 共 1039 个文件（约 34 MB），已核对仅位于项目旧目录、无链接。永久递归删除被自动审批以 `blocked by policy` 拒绝，改为可恢复地移至项目外 `E:\pi-harness\cli-agent-test-archive-20261108`；项目仅保留正式 `tests/`。框架、回归修复和文档已由提交 `0edd51d` 推送 main。首次三端 CI 发现 macOS 的临时目录别名与物理 cwd 使隔离断言误判，检查改用 `realpathSync` 后核对真实路径，仍要求 HOME 与 cwd 位于隔离根目录内；本机对应三项用例和测试类型检查通过，远程完整复验见 CI 运行记录。
 
 **本轮长历史性能修复（2026-11-07）：** 原因是完整历史一直挂在 Ink 树内，隐藏区域仍参与排版／字符宽度计算；回看时逐条测高，输出器收到整份历史字符串后才合帧。现改为结构化消息、排版行缓存和可见画面分离：主 Ink 只绘制视窗，内存排版根复用既有消息组件；高度索引按消息／分段定位，宽度或展开改变时延迟测量可见区域。Markdown 代码与思考按 64 行分段，缓存最多 8 MiB／2048 个行条目，保留四种排版变体。输出器按需读取历史行，只保存可覆盖的屏幕尾部；连续 REPL 通知在绘制前合并。修复异步测量覆盖新滚轮输入的竞态，保留原生历史、Ctrl+O 锚点、Ctrl+End 补齐、菜单往返与可见工具动画。用户终端复试确认正常，并要求提交与推送。当前设计见架构书 §4。
 
