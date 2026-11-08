@@ -1,6 +1,6 @@
 import { Agent } from "../agent/agent.ts";
 import { ByokConfigError } from "../config/errors.ts";
-import type { AgentEvent, AgentMessage, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
+import type { AgentContext, AgentEvent, AgentMessage, AssistantMessage, BeforeModelRequestContext, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { validateModelThinking } from "../llm/adapter.ts";
 import {
@@ -11,7 +11,7 @@ import {
 	shouldCompact,
 	summarizeConversation,
 } from "./compaction.ts";
-import { estimateMessagesTokens } from "./context.ts";
+import { estimateContextTokens, estimateMessagesTokens } from "./context.ts";
 import { buildSystemPrompt } from "./prompt.ts";
 import {
 	appendEntry,
@@ -46,7 +46,10 @@ export interface HarnessOptions extends Partial<HarnessModelSettings> {
 	resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 }
 
+export type PromptResult = { status: "success" } | { status: "error"; message: string } | { status: "aborted"; message: string };
+
 export type HarnessEvent = AgentEvent
+	| { type: "prompt_end"; result: PromptResult }
 	| { type: "compaction_start"; tokensBefore: number }
 	| { type: "compaction_end"; tokensBefore: number; tokensAfter: number; summary: string }
 	| { type: "compaction_error"; message: string };
@@ -66,6 +69,12 @@ export class Harness {
 	private modelRef?: ModelReference;
 	private readonly resolveModel?: HarnessOptions["resolveModel"];
 	private restoreWarning?: string;
+	private activeUserMessage?: AgentMessage;
+	private preparationFailed = false;
+	private requestKey?: string;
+	private requestSettings?: ModelRequestSettings;
+	private usageBaseline?: { message: AssistantMessage; key: string };
+	private justCompacted?: AgentMessage[];
 	private readonly displayListeners = new Set<(event: HarnessEvent, signal: AbortSignal) => Promise<void> | void>();
 
 	constructor(options: HarnessOptions) {
@@ -83,6 +92,7 @@ export class Harness {
 		this.agent = new Agent({
 			streamFn: options.streamFn,
 			apiKey: options.apiKey,
+			beforeModelRequest: (request, signal) => this.prepareModelRequest(request, signal),
 			initialState: {
 				systemPrompt: buildSystemPrompt({
 					cwd: options.cwd,
@@ -100,16 +110,24 @@ export class Harness {
 				return;
 			}
 			appendEntry(this.session, { type: "message", message: event.message });
+			if (event.message.role === "assistant") {
+				this.usageBaseline = event.message.usage && this.requestKey ? { message: event.message, key: this.requestKey } : undefined;
+				this.usedTokens = event.message.usage ? event.message.usage.input + event.message.usage.output : estimateContextTokens(this.liveContext());
+			}
 		});
 	}
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
 		this.assertIdle();
-		const settings = this.createRequestSettings();
 		// Own the entire prompt, including the gap between an agent turn and its summary/retry.
 		const controller = new AbortController();
 		this.promptController = controller;
+		this.activeUserMessage = undefined;
+		this.preparationFailed = false;
+		this.requestSettings = undefined;
+		let result: PromptResult = { status: "error", message: "请求失败。" };
 		try {
+			const settings = this.createRequestSettings();
 			// Resolve before transcript/image side effects, then consume this key on the first
 			// request. Tool continuations and summary retries resolve again.
 			const resolver = settings.getApiKey!;
@@ -127,13 +145,21 @@ export class Harness {
 			// A restored session may have fallen back to the active catalog. Persist the
 			// effective settings before new messages, without rewriting its earlier history.
 			this.recordSettings(this.settings);
-			await this.runPrompt(text, images, controller.signal, settings);
+			result = await this.runPrompt(text, images, controller.signal, settings);
+		} catch (error) {
+			result = { status: controller.signal.aborted ? "aborted" : "error", message: error instanceof Error ? error.message : String(error) };
+			throw error;
 		} finally {
-			this.promptController = undefined;
+			try {
+				await this.emitDisplay({ type: "prompt_end", result }, controller.signal);
+			} finally {
+				this.promptController = undefined;
+				this.activeUserMessage = undefined;
+			}
 		}
 	}
 
-	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal, settings: ModelRequestSettings): Promise<void> {
+	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal, settings: ModelRequestSettings): Promise<PromptResult> {
 		// Images stay in context as real blocks (so the model sees them right away) and are also
 		// written next to the session jsonl, so the model can `read` one back after compaction
 		// replaces that part of the history with a summary.
@@ -144,57 +170,76 @@ export class Harness {
 			promptText = promptText.length > 0 ? `${promptText}\n\n${note}` : note;
 		}
 		await this.agent.prompt(promptText, images, settings);
-		// Provider-reported usage is authoritative; fall back to the character estimate when the
-		// gateway does not send it (or when the stream was aborted before the usage chunk).
-		this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
-		if (signal.aborted) return;
+		const effectiveSettings = this.requestSettings ?? settings;
+		if (signal.aborted) return { status: "aborted", message: "已中断。" };
 		const lastMessage = this.agent.state.messages.at(-1);
-		if (lastMessage?.role !== "assistant") {
-			return;
-		}
-		const window = settings.model.contextWindow;
+		if (lastMessage?.role !== "assistant" || this.preparationFailed) return this.promptResult(signal, effectiveSettings.model.contextWindow);
+		const window = effectiveSettings.model.contextWindow;
 		const overflow = isContextOverflow(lastMessage, window);
 		if (overflow && (lastMessage.stopReason === "error" || lastMessage.stopReason === "length")) {
 			const originalMessages = this.agent.state.messages;
 			this.agent.state.messages = originalMessages.slice(0, -1);
 			let compacted: boolean;
 			try {
-				compacted = await this.compactWithSignal(undefined, signal, settings);
+				compacted = Boolean(await this.compactContext(this.liveContext(), signal, effectiveSettings, { replacesError: true }));
 			} catch (error) {
 				this.agent.state.messages = originalMessages;
 				throw error;
 			}
 			if (!compacted) {
 				this.agent.state.messages = originalMessages;
-				return;
+				return this.promptResult(signal, window);
 			}
-			if (signal.aborted) return;
-			await this.agent.continueFromContext(settings);
-			this.usedTokens = this.usageFromLastAssistant() ?? estimateMessagesTokens(this.agent.state.messages);
-			return;
+			if (signal.aborted) return { status: "aborted", message: "已中断。" };
+			await this.agent.continueFromContext(effectiveSettings);
 		}
-		if (
-			lastMessage.stopReason === "stop" &&
-			(overflow || shouldCompact(this.usedTokens, window, DEFAULT_COMPACTION_SETTINGS))
-		) {
-			await this.compactWithSignal(undefined, signal, settings);
-		}
+		return this.promptResult(signal, this.requestSettings?.model.contextWindow ?? window);
 	}
 
-	/** input + output of the final assistant turn: what the next request would resend. */
-	private usageFromLastAssistant(): number | undefined {
-		const messages = this.agent.state.messages;
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const message = messages[index];
-			if (message?.role !== "assistant") {
-				continue;
-			}
-			if (!message.usage) {
-				return undefined;
-			}
-			return message.usage.input + message.usage.output;
+	private promptResult(signal: AbortSignal, window: number): PromptResult {
+		if (signal.aborted) return { status: "aborted", message: "已中断。" };
+		const message = [...this.agent.state.messages].reverse().find(message => message.role === "assistant");
+		if (!message) return { status: "error", message: "未获得模型执行结果。" };
+		if (message.stopReason === "aborted") return { status: "aborted", message: message.errorMessage ?? "已中断。" };
+		if (message.errorMessage || message.stopReason === "error") return { status: "error", message: message.errorMessage || "请求失败。" };
+		if (message.stopReason === "length" && isContextOverflow(message, window)) return { status: "error", message: "上下文超限，请求未恢复。" };
+		return { status: "success" };
+	}
+
+	private liveContext(): AgentContext {
+		return { systemPrompt: this.agent.state.systemPrompt, messages: this.agent.state.messages, tools: this.agent.state.tools };
+	}
+
+	private estimateRequestUsage(context: AgentContext, key: string): number {
+		const baseline = this.usageBaseline;
+		const index = baseline?.key === key ? context.messages.indexOf(baseline.message) : -1;
+		if (baseline && index >= 0 && baseline.message.usage) {
+			return baseline.message.usage.input + baseline.message.usage.output + estimateMessagesTokens(context.messages.slice(index + 1));
 		}
-		return undefined;
+		return estimateContextTokens(context);
+	}
+
+	private async prepareModelRequest(request: BeforeModelRequestContext, agentSignal?: AbortSignal): Promise<AgentContext | undefined> {
+		if (!this.promptController) return undefined;
+		const signal = agentSignal ? AbortSignal.any([this.promptController.signal, agentSignal]) : this.promptController.signal;
+		signal.throwIfAborted();
+		this.activeUserMessage ??= [...request.context.messages].reverse().find(message => message.role === "user");
+		const key = JSON.stringify([request.model, request.context.systemPrompt,
+			request.context.tools?.map(({ name, description, parameters }) => ({ name, description, parameters }))]);
+		this.requestKey = key;
+		this.requestSettings = { model: request.model, thinking: request.thinking ?? { effort: "medium" }, apiKey: request.apiKey, getApiKey: request.getApiKey };
+		this.usedTokens = this.estimateRequestUsage(request.context, key);
+		// A forced recovery already compacted this exact history; don't summarize it again
+		// before giving the model a chance to produce a new response.
+		if (this.justCompacted?.length === request.context.messages.length && this.justCompacted.every((message, index) => message === request.context.messages[index])) return undefined;
+		if (!shouldCompact(this.usedTokens, request.model.contextWindow, DEFAULT_COMPACTION_SETTINGS)) return undefined;
+		try {
+			const messages = await this.compactContext(request.context, signal, this.requestSettings);
+			return messages ? { ...request.context, messages } : undefined;
+		} catch (error) {
+			this.preparationFailed = true;
+			throw error;
+		}
 	}
 
 	abort(): void {
@@ -232,6 +277,8 @@ export class Harness {
 		this.assertIdle();
 		this.agent.reset();
 		this.usedTokens = 0;
+		this.usageBaseline = undefined;
+		this.justCompacted = undefined;
 		this.session = createSessionFile(this.cwd, this.sessionsRoot);
 		this.restoreWarning = undefined;
 		this.recordSettings(this.settings);
@@ -272,6 +319,8 @@ export class Harness {
 			flushed: true,
 		};
 		this.usedTokens = estimateMessagesTokens(loaded.messages);
+		this.usageBaseline = undefined;
+		this.justCompacted = undefined;
 		if (restored) this.applyModel(restored);
 		if (loaded.settings) this.agent.state.thinking = { ...loaded.settings.thinking };
 		this.restoreWarning = warning;
@@ -317,6 +366,7 @@ export class Harness {
 	}
 
 	private applyModel(settings: HarnessModelSettings): void {
+		this.usageBaseline = undefined;
 		this.agent.state.model = structuredClone(settings.model);
 		this.modelRef = settings.modelRef ? { ...settings.modelRef } : undefined;
 		if (settings.thinking) this.agent.state.thinking = { ...settings.thinking };
@@ -396,26 +446,42 @@ export class Harness {
 	}
 
 	async compact(customInstructions?: string): Promise<boolean> {
-		if (this.promptController) {
+		if (this.promptController || this.agent.state.isStreaming || this.compactionController) {
 			throw new Error("Cannot compact while the agent is processing");
 		}
-		return this.compactWithSignal(customInstructions);
+		return Boolean(await this.compactContext(this.liveContext(), undefined, this.createRequestSettings(false), { customInstructions }));
 	}
 
-	private async compactWithSignal(customInstructions?: string, parentSignal?: AbortSignal, settings?: ModelRequestSettings): Promise<boolean> {
-		if (this.agent.state.isStreaming || this.compactionController) {
-			throw new Error("Cannot compact while the agent is processing");
-		}
-		this.requireModel();
-		const messages = this.agent.state.messages;
-		const cutIndex = findCutIndex(messages, DEFAULT_COMPACTION_SETTINGS.keepRecentTokens);
+	/** Called only while idle or at the loop's request boundary, after a complete tool batch. */
+	private async compactContext(context: AgentContext, parentSignal: AbortSignal | undefined, request: ModelRequestSettings,
+		options: { customInstructions?: string; replacesError?: boolean } = {}): Promise<AgentMessage[] | undefined> {
+		if (this.compactionController) throw new Error("Cannot compact while compaction is processing");
+		const messages = context.messages;
+		const retainedBudget = Math.max(0, Math.floor((request.model.contextWindow - DEFAULT_COMPACTION_SETTINGS.reserveTokens) / 2));
+		let cutIndex = findCutIndex(messages, Math.min(DEFAULT_COMPACTION_SETTINGS.keepRecentTokens, retainedBudget));
 		if (cutIndex === 0) {
-			return false;
+			return undefined;
 		}
-		const request = settings ?? this.createRequestSettings(false);
+		// Keep this submission verbatim even when earlier tool rounds in the same task
+		// are summarized. This is the original user message, never a previous summary.
+		const task = this.activeUserMessage;
+		const retained = (index: number) => {
+			const tail = messages.slice(index);
+			return task && messages.includes(task) && !tail.includes(task) ? [task, ...tail] : tail;
+		};
+		let keptMessages = retained(cutIndex);
+		const originalTokens = estimateMessagesTokens(messages);
+		if (estimateMessagesTokens(keptMessages) >= originalTokens || estimateMessagesTokens(keptMessages) > retainedBudget) {
+			// One large completed tool round may itself exceed the tail budget. Summarize
+			// the whole round rather than leaving orphaned calls or dropping half a batch.
+			cutIndex = messages.length;
+			keptMessages = retained(cutIndex);
+		}
+		if (estimateMessagesTokens(keptMessages) >= originalTokens) return undefined;
 		const controller = new AbortController();
 		const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
 		this.compactionController = controller;
+		this.usedTokens = this.estimateRequestUsage(context, this.requestKey ?? "");
 		const tokensBefore = this.usedTokens;
 		try {
 			signal.throwIfAborted();
@@ -426,42 +492,53 @@ export class Harness {
 				streamFn: this.agent.streamFunction,
 				model: request.model,
 				context: {
-					systemPrompt: this.agent.state.systemPrompt,
+					systemPrompt: context.systemPrompt,
 					messages: converted,
-					tools: this.agent.state.tools,
+					tools: context.tools,
 				},
 				getApiKey: request.getApiKey,
 				thinking: request.thinking,
 				reserveTokens: DEFAULT_COMPACTION_SETTINGS.reserveTokens,
-				customInstructions,
+				customInstructions: options.customInstructions,
 				signal,
 			});
 			// Even an injected provider that ignores cancellation must not commit an aborted summary.
 			signal.throwIfAborted();
-			const keptMessages = messages.slice(cutIndex);
-			const wrappedSummary = buildCompactSummaryMessage(summary, {
-				transcriptPath: this.session.path,
-				recentMessagesPreserved: keptMessages.length > 0,
-			});
 			const headerTime = Date.parse(this.session.header.timestamp);
-			const compactedMessages = [
-				{
+			const replacement = (kept: AgentMessage[]) => {
+				const wrappedSummary = buildCompactSummaryMessage(summary, {
+					transcriptPath: this.session.path, recentMessagesPreserved: kept.length > 0,
+					suppressFollowup: Boolean(this.promptController),
+				});
+				const compactedMessages: AgentMessage[] = [{
 					role: "user" as const,
 					content: [{ type: "text" as const, text: wrappedSummary }],
 					timestamp: Number.isNaN(headerTime) ? 0 : headerTime,
-				},
-				...keptMessages,
-			];
+				}, ...kept];
+				return { wrappedSummary, compactedMessages };
+			};
+			let next = replacement(keptMessages);
+			if (estimateMessagesTokens(next.compactedMessages) >= originalTokens) {
+				// The summary covers the full history; include complete retained groups
+				// in it too when the tail would otherwise prevent any token saving.
+				keptMessages = retained(messages.length);
+				next = replacement(keptMessages);
+			}
+			const { wrappedSummary, compactedMessages } = next;
+			if (estimateMessagesTokens(compactedMessages) >= originalTokens) throw new Error("Compaction did not reduce the context.");
 			appendEntry(this.session, {
 				type: "compaction",
 				summary: wrappedSummary,
 				keptMessages,
 				tokensBefore: this.usedTokens,
+				...(options.replacesError ? { replacesError: true } : {}),
 			});
 			this.agent.state.messages = compactedMessages;
+			this.usageBaseline = undefined;
+			this.justCompacted = compactedMessages;
 			this.usedTokens = estimateMessagesTokens(compactedMessages);
 			await this.emitDisplay({ type: "compaction_end", tokensBefore, tokensAfter: this.usedTokens, summary: wrappedSummary }, signal);
-			return true;
+			return compactedMessages;
 		} catch (error) {
 			await this.emitDisplay({ type: "compaction_error", message: error instanceof Error ? error.message : String(error) }, signal);
 			throw error;

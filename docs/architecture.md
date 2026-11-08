@@ -313,7 +313,7 @@ export class Harness {
 }
 ```
 
-**现有框架：** 构造时创建四个工具、系统提示和 Agent，允许模型未配置。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；压缩也在内部检查。`abort` / `subscribe` 转给 Agent。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`prompt` 优先用接口 usage 更新 `usedTokens`，取不到则估算；自动压缩与 `compact()` 已接通。`manualCompact()` 检查模型、手动用量门槛和压后是否有新消息，再调用同一个 `compact()`。思考 setters 校验并记录设置；prompt 快照贯穿生成、自动摘要和溢出重试，工具续接／摘要重试重新取 Key。
+**现有框架：** 构造时创建四个工具、系统提示和 Agent，允许模型未配置。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；通过 `beforeModelRequest` 在首次请求和每次工具续接前检查压缩。`subscribe` 同时订阅 Agent 原始事件及 Harness 的压缩、最终结果事件；`prompt_end` 每次接受的 prompt 调用只发一次，确认全部恢复后的成败。`prompt()` 保持 `Promise<void>`；异常仍向调用方抛出，同时通过最终事件提供结果，REPL 避免重复报告。`abort` 取消本次 prompt、Agent 和摘要。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`manualCompact()` 保留空闲、用量门槛和压后无新消息的检查。思考 setters 校验并记录设置；请求前回调使用当次模型、思考和凭据快照，工具续接／摘要重试重新取 Key。
 
 **对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
 
@@ -351,33 +351,35 @@ export class Harness {
 
 - `AssistantMessage` 增加可选 `usage?: { input: number; output: number; totalTokens?: number }`。
 - `openai-chat.ts`：默认请求带 `stream_options: { include_usage: true }`，可由 adapter.includeUsage 关闭。usage 在 choice 之前解析，可出现在独立尾块或 finish_reason 同块；字段映射 prompt_tokens→input、completion_tokens→output，input 不扣缓存。未返回 usage 时不写此字段。
-- 用量取最后一条 assistant 的 `input + output`（下次请求要重发的量）。取不到则 harness 通过现有 `estimateTokens` 估算整段 messages，文字按字符/4，图片按固定开销估。
-- 每次 `prompt` 结束后更新 `usedTokens`。session 不必为每一轮单开 usage 行；压缩发生时 `compaction` 行可带 `tokensBefore`。
+- 每次主模型请求前，优先使用同一模型、系统提示和工具配置下最新 assistant 的 `input + output`，再加之后新增的用户消息、工具结果等估算。无可用 usage 时估算整段消息、系统提示和工具定义；文字按字符/4，图片按固定开销估。
+- 主模型消息完成和下一次请求前都会更新 `usedTokens`。压缩后废弃被保留旧消息中的 usage 基准，重新估算，避免旧用量立即再次触发压缩。session 不必单开 usage 行；压缩记录可带 `tokensBefore`。
 
 **显示（CLI，不是网页）**
 
 - 对外只有 `used` 和 `window`。`contextUsage()` 返回这一对。REPL 例如打 `ctx 12345/256000`，`/context` 无参数打印同一对。启动、`/context <n>` 之后和每轮结束都用同一种形状 `ctx <used>/<window>`，不另打只含窗口的格式。
 - 不在屏幕上拆 input、output、cache，也不打距离压缩阈值还剩多少。
-- 本版不做进度条、主题色、TUI footer。以后增加 TUI 时复用 `contextUsage()`。
+- `compaction_start` 立即切换 TUI 的压缩进度，`compaction_end` 立即显示摘要入口和压缩前后用量，并恢复请求中的状态；无需等待本轮回复结束。管道也收到压缩完成提示。
+- `agent_end` 只表示一次 Agent 执行结束。REPL 用 `prompt_end.result` 确认整次任务成功、失败或中断，再更新错误状态；恢复成功不显示中间超限错误，管道成功返回 0、最终失败返回 1。已通过事件报告的异常不会由外层 catch 重复打印。
 
 **发给模型的前缀（缓存）**
 
 - 正常对话每轮在末尾追加本轮的 user / assistant / toolResult。已经发过的系统提示、工具列表和更早的消息保持字节不变，以便复用服务端的前缀缓存。
 - 流式生成只替换当前这一条还没写完的 assistant。不回头改旧消息的正文，不往系统提示或旧消息里写时间、用量。
 - 思考块与完成后附加的 replay 留在本地记录里；Chat 按 omit／same-source／required 策略在请求副本中处理历史思考，不改原 session。文字、图片和工具按角色转换，保持相同历史转换的一致性。
-- 在当前正常追加与压缩流程中，压缩会整体替换前缀：成功后消息变成「摘要一条 + 切点之后的原文」。留下的尾部逐条原样复制，不改写。这次前缀会变一次，之后再次保持只追加，直到下一次压缩。
+- 压缩成功后消息变成「摘要一条 + 本次用户任务（若已不在尾部）+ 完整保留尾部」。本次任务只保留一次，工具配对、思考及 replay 原样保留。这次前缀会变一次，之后再次保持只追加，直到下一次压缩。
 
 **压缩**
 
-- `shouldCompact(used, window, settings)`：`used > window - reserveTokens`。一句 `prompt` 正常结束且为真时压缩，不重试。
+- `shouldCompact(used, window, settings)`：`used > window - reserveTokens`。每次主对话请求发送前检查，包含首次请求和工具批次完成后的续接；摘要请求不递归进入此检查。正常回复结束后不再额外执行阈值压缩。
 - `stopReason === "error"` 且 `errorMessage` 表示上下文满了：丢掉这条报错的 assistant，压缩，再用当前 messages 重跑一轮。只试一次。
-- `stopReason === "stop"` 且 `usage.input > window`：压缩，不重试，回复留下。
+- 成功回复保留；新增内容在下一次请求前计入预算并检查。
 - `stopReason === "length"` 且 `usage.output === 0` 且 `usage.input >= window * 0.99`：丢掉这条空 assistant，压缩，重跑一轮。只试一次。
 - 默认 `enabled: true`，`reserveTokens: 16384`，`keepRecentTokens: 20000`。
-- 切点只放在一条 user 之前。从最新往回按字符/4 累加，够 `keepRecentTokens` 就在那条 user 处切开：它前面的整轮进摘要，它和后面的整轮留下。不在 assistant 或 `toolResult` 上切。最新一轮本身超过 `keepRecentTokens` 时仍从这一轮开始保留；若它就是唯一一轮，则没有可压缩的旧历史。
-- 摘要走现有 `streamFn`，原样发送完整上下文和 tools，在末尾加摘要指令以复用前缀缓存；若模型返回工具调用，忽略该次回复并重试，不执行工具。当前摘要请求不带 reasoning。输出上限为 `floor(0.8 * reserveTokens)`，经 `StreamOptions.maxTokens` 传给请求。已有旧摘要时放进这次输入，并在提示里要求保留。摘要正文开头标明这是压缩出来的上文。
-- 摘要调用失败则不改 `agent.state.messages`。成功才写回摘要 + kept，jsonl 追加 `compaction`，并用摘要加尾部重新估计 `usedTokens`。
-- 上面几处走同一套切点和摘要。自动路径直接调用 `Harness.compact()`；REPL `/compact` 通过 `manualCompact()` 判断 `used > window / 4` 后复用它。没有 `usage` 时，`stop` 超窗和空 `length` 两条不触发。
+- 合法切点包括 user 之前，以及一个完整 assistant 工具调用组之前；按调用 ID 确认全部工具结果配齐，未完成或不合法的组不切。保留尾部的目标为 `min(20000, floor((window - reserveTokens) / 2))`，并将当前用户任务原文保留一次。单组过大或尾部使压缩无法缩小时，将完整组一起纳入摘要。
+- 摘要走现有 `streamFn`，原样发送完整上下文和 tools，在末尾加摘要指令以复用前缀缓存；模型若返回工具调用，忽略并重试一次，不执行工具。使用当次模型、思考偏好和动态凭据；输出上限为 `min(floor(0.8 * reserveTokens), model.maxOutputTokens, model.contextWindow)`。已有旧摘要时一并传入，包装说明最近原文和原日志路径，并要求自动路径继续当前任务。
+- 摘要调用失败、取消或无法减少消息用量时不提交替换。成功才写回摘要和保留内容，追加 `compaction`，同时更新 Agent 状态与 loop 实际发送的消息。原始历史仍在 JSONL 中。
+- 超限恢复产生的压缩记录带可选 `replacesError: true`；恢复会话时界面隐藏其紧邻的中间失败，原始错误仍保存在日志中。手动压缩及旧记录不隐藏此前真正失败的消息。
+- 手动与自动路径复用内部压缩过程。手动入口保留 Agent/prompt 忙碌保护，内部路径只在请求前安全点运行。REPL `/compact` 仍检查 `used > window / 4`；取消后的摘要不会延迟写回，无法压缩或重试仍失败时报告最终错误。
 
 手动 `/compact` 只在用量过 1/4 时运行现有摘要；无旧历史或刚压完没有新消息时提示。成功追加 compaction，内存换成摘要＋保留尾部；失败不换历史。分支摘要、文件列表元数据和宽 length 恢复不在本版。三协议思考链已接通，摘要传入当前思考偏好，逐请求动态凭据与预算重新校验均已接通；摘要只收普通正文。
 

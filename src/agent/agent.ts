@@ -15,6 +15,7 @@ import type {
 	AgentMessage,
 	AgentState,
 	AgentTool,
+	BeforeModelRequestContext,
 	BeforeToolCallContext,
 	BeforeToolCallResult,
 	ImageContent,
@@ -79,6 +80,7 @@ export interface AgentOptions {
 	streamFn: StreamFn;
 	convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+	beforeModelRequest?: (request: BeforeModelRequestContext, signal?: AbortSignal) => Promise<AgentContext | undefined>;
 	apiKey?: string;
 	getApiKey?: ApiKeyResolver;
 	beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>;
@@ -103,6 +105,7 @@ export class Agent {
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
+	public beforeModelRequest?: AgentOptions["beforeModelRequest"];
 	public streamFunction: StreamFn;
 	public apiKey?: string;
 	public getApiKey?: ApiKeyResolver;
@@ -124,6 +127,7 @@ export class Agent {
 		this._state = createMutableAgentState(options.initialState);
 		this.convertToLlm = options.convertToLlm ?? defaultConvertToLlm;
 		this.transformContext = options.transformContext;
+		this.beforeModelRequest = options.beforeModelRequest;
 		this.streamFunction = options.streamFn;
 		this.apiKey = options.apiKey;
 		this.getApiKey = options.getApiKey;
@@ -230,12 +234,19 @@ export class Agent {
 	private createLoopConfig(settings?: ModelRequestSettings): AgentLoopConfig {
 		const model = settings?.model ?? this._state.model;
 		if (!model) throw new Error("尚未配置模型，无法发起模型请求。");
+		const beforeModelRequest = this.beforeModelRequest;
 		return {
 			// Detach request settings from state so tools and subscribers cannot change this run.
 			model: structuredClone(model),
 			thinking: { ...(settings?.thinking ?? this._state.thinking) },
 			convertToLlm: this.convertToLlm,
 			transformContext: this.transformContext,
+			beforeModelRequest: beforeModelRequest ? async (request, signal) => {
+				const next = await beforeModelRequest(request, signal);
+				signal?.throwIfAborted();
+				if (next) this._state.messages = next.messages;
+				return next;
+			} : undefined,
 			apiKey: settings ? settings.apiKey : this.apiKey,
 			getApiKey: settings ? settings.getApiKey : this.getApiKey,
 			beforeToolCall: this.beforeToolCall,

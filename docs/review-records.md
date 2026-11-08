@@ -1,5 +1,7 @@
 # Review records
 
+**2026-11-08 修复更新：** No.3 问题1 已修复：通过 Harness 的 `prompt_end` 报告整次请求的最终结果，恢复成功不残留错误，管道退出码同步恢复为 0。自动压缩改为每次主模型请求前检查，包含同一任务内的工具续接；压缩过程和结果仍立即显示。
+
 **2026-11-08 修复更新：** No.1 问题2 已实现 bash 输出截断与完整日志保存。返回内容包含截断状态、原始总字节数、已返回原始字节数及范围、日志绝对路径和执行状态；现有 `read` 可补读日志，未修改 `read`。
 
 **2026-11-01 修复更新（2026-11-08 复核通过）：** No.1 问题1 的批次中断配对已修复：剩余工具生成取消结果，不再请求下一轮模型。正式回归 `tests/regressions/abort-tool-result-pairing.test.ts` 与 `tests/tui/tui-full.test.tsx` 已验证中断配对、后续继续输入和审批中断不写文件。原评审记录保留当时证据。
@@ -261,7 +263,7 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 |---|---|
 | 位置 | `src/cli/main.ts` 的 `harness.subscribe(renderEvent)`；`src/cli/render.ts` 的 `agent_end` 分支；`src/harness/harness.ts` 的 `prompt()` |
 | 级别 | P2 |
-| 状态 | **代码路径可推导，终端显示未实测** |
+| 状态 | **已修复（2026-11-08）** |
 
 **现象与证据**
 
@@ -270,6 +272,13 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 **建议方向**
 
 在确认恢复结果后决定是否显示这条错误；如果压缩或重试失败，仍应显示最终错误。修改时需核对事件订阅者的行为，避免只隐藏 CLI 文案却让其他订阅者收到含义不明的中间失败事件。
+
+**修复记录（2026-11-08）**
+
+- 上述位置和现象保留的是原评审快照。当前由 `ReplController.handleEvent()` 处理 `prompt_end` 的最终成功、失败或中断；`agent_end` 保留单次执行语义，不再提前保存或显示最终错误。异常提示保留真实原因，外层 catch 避免重复显示。
+- loop 通过 `beforeModelRequest` 在首次主模型请求及每次工具续接前调用 Harness，使用最新 usage 加新增消息估算，必要时先压缩。摘要请求独立执行，超限后仍保留一次压缩重试兜底。
+- 切分支持完整工具回合边界，当前用户任务保留一次；实际请求、Agent 状态和会话恢复同步。压缩进度及完成结果即时进入 TUI，不等待 `prompt_end`。恢复记录带可选 `replacesError`，防止 `/resume` 再绘制已恢复的中间失败，原始日志保留。
+- 验证覆盖：`tests/unit/context-compaction.test.ts`、`tests/integration/context-recovery.test.ts`、`tests/integration/session.test.ts`、`tests/tui/context-compaction.test.tsx`、`tests/regressions/context-recovery-result.test.ts`、`tests/regressions/context-compaction-wire.test.ts`。使用真实 loop/Harness/REPL/管道入口及本地假模型或 HTTP；包含中途暂停观察界面、超限恢复、真实错误去重、中断和后续继续、三协议工具配对与思考回传、管道 0/1/130/143。真实模型摘要质量未在本轮验证。
 
 ---
 

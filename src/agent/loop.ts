@@ -67,6 +67,16 @@ async function runLoop(
 			firstTurn = false;
 		}
 
+		signal?.throwIfAborted();
+		if (config.beforeModelRequest) {
+			currentContext = await config.beforeModelRequest({
+				context: currentContext, model: structuredClone(config.model),
+				thinking: config.thinking ? { ...config.thinking } : undefined,
+				maxTokens: config.maxTokens ?? config.model.maxOutputTokens,
+				apiKey: config.apiKey, getApiKey: config.getApiKey,
+			}, signal) ?? currentContext;
+		}
+		signal?.throwIfAborted();
 		const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
 		newMessages.push(message);
 

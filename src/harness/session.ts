@@ -35,6 +35,8 @@ export interface CompactionEntry {
 	summary: string;
 	keptMessages: AgentMessage[];
 	tokensBefore?: number;
+	/** Recovery superseded the failed assistant immediately before this boundary. */
+	replacesError?: boolean;
 }
 
 export interface SessionSettingsEntry extends SessionSettings { type: "settings" }
@@ -209,7 +211,8 @@ export function loadSession(filePath: string): LoadedSession {
 
 		if (row.type === "compaction") {
 			const compaction = parsed as CompactionEntry;
-			if (typeof compaction.summary !== "string" || !Array.isArray(compaction.keptMessages)) {
+			if (typeof compaction.summary !== "string" || !Array.isArray(compaction.keptMessages)
+				|| (compaction.replacesError !== undefined && typeof compaction.replacesError !== "boolean")) {
 				throw new Error(`Invalid compaction entry in ${filePath}`);
 			}
 			entries.push({
@@ -217,6 +220,7 @@ export function loadSession(filePath: string): LoadedSession {
 				summary: compaction.summary,
 				keptMessages: compaction.keptMessages,
 				tokensBefore: compaction.tokensBefore,
+				...(compaction.replacesError ? { replacesError: true } : {}),
 			});
 			const headerTime = Date.parse(header.timestamp);
 			messages.length = 0;

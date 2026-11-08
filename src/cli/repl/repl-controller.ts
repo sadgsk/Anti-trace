@@ -80,6 +80,7 @@ export class ReplController {
 	private readonly restorePermissionHook?: () => void;
 	private assistantId?: number;
 	private interrupted = false;
+	private promptResultReceived = false;
 
 	constructor(private readonly options: ReplOptions) {
 		this.locale = new UiLocale(options.cwd ?? process.cwd(), options.interactive ?? false);
@@ -109,6 +110,7 @@ export class ReplController {
 	async submit(draft: PromptDraft): Promise<boolean> {
 		if (!this.canSubmit(draft)) return false;
 		this.interrupted = false;
+		this.promptResultReceived = false;
 		const { text, images } = preparePromptSubmission(draft);
 		this.update({ busy: true, error: undefined, expanded: false, scrollOffset: 0, viewingHistory: false, reviewAnchor: undefined, phase: "thinking", startedAt: Date.now(), lastEventAt: Date.now(), outputChars: 0 });
 		try {
@@ -129,8 +131,12 @@ export class ReplController {
 		} catch (error) {
 			if (!this.snapshot.closed) {
 				const message = error instanceof Error ? error.message : String(error);
-				this.update({ error: message });
-				this.write(`错误：${message}`, undefined, "error");
+				// Suppress only the error already reported by prompt_end. A different
+				// exception (for example from another subscriber) still needs reporting.
+				if (!this.promptResultReceived || this.snapshot.error !== message) {
+					this.update({ error: message });
+					this.write(`错误：${message}`, undefined, "error");
+				}
 			}
 		} finally {
 			this.flushLive();
@@ -491,20 +497,24 @@ export class ReplController {
 					? { ...item, status: failed ? "error" : "success", result: event.result as NonNullable<Extract<TranscriptItem, { kind: "tool" }>["result"]>, endedAt: Date.now() } : item) });
 				break;
 			}
-			case "compaction_start": this.update({ phase: "compacting" }); break;
+			case "compaction_start": this.flushLive(); this.update({ phase: "compacting" }); break;
 			case "compaction_end":
-				this.update({ activeItems: [...this.snapshot.activeItems, { id: this.nextId++, kind: "compact", summary: event.summary,
-					before: event.tokensBefore, after: event.tokensAfter }], display: this.readDisplay() }); break;
+				this.update({ phase: "thinking", activeItems: [...this.snapshot.activeItems, { id: this.nextId++, kind: "compact", summary: event.summary,
+					before: event.tokensBefore, after: event.tokensAfter }], display: this.readDisplay() });
+				this.write("上下文已压缩。", undefined, "info", true); break;
 			case "compaction_error": break;
 			case "turn_end": this.flushLive(); break;
 			case "agent_end": {
 				this.flushLive();
-				const assistant = [...event.messages].reverse().find((message): message is Extract<AgentMessage, { role: "assistant" }> => message.role === "assistant");
-				if (assistant && (assistant.errorMessage || assistant.stopReason === "error" || assistant.stopReason === "aborted")) {
-					const message = assistant.errorMessage ?? (assistant.stopReason === "aborted" ? "已中断。" : "请求失败。");
-					this.update({ error: message });
-					if (!(this.interrupted && assistant.stopReason === "aborted")) this.write(message, undefined, assistant.stopReason === "aborted" ? "warning" : "error");
-				}
+				break;
+			}
+			case "prompt_end": {
+				this.promptResultReceived = true;
+				this.flushLive();
+				const result = event.result;
+				this.update({ error: result.status === "success" ? undefined : result.message });
+				if (result.status === "error") this.write(result.message, undefined, "error");
+				if (result.status === "aborted" && !this.interrupted) this.write(result.message, undefined, "warning");
 				break;
 			}
 		}

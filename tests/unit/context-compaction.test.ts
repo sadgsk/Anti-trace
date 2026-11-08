@@ -34,6 +34,24 @@ test("compaction cuts at a user turn without separating tool calls from their re
 	assert.equal(findCutIndex(messages, 0), messages.length);
 });
 
+test("compaction can cut inside a user task but never inside a multi-tool batch", () => {
+	const call = (ids: string[]): AssistantMessage => ({ ...assistant(""), stopReason: "toolUse",
+		content: ids.map(id => ({ type: "toolCall", id, name: "read", arguments: { path: id } })) });
+	const result = (id: string, size: number): AgentMessage => ({ role: "toolResult", toolCallId: id, toolName: "read",
+		content: [{ type: "text", text: "x".repeat(size) }], isError: false, timestamp: 0 });
+	const messages = [user("task"), call(["old"]), result("old", 4000), call(["b", "c"]), result("b", 40), result("c", 40)];
+	assert.equal(findCutIndex(messages, 100), 3);
+	assert.equal(findCutIndex(messages, 1), 3, "expand a small budget to the complete last group");
+	assert.equal(findCutIndex(messages.slice(0, -1), 1), 0, "wait for all results before compacting");
+	assert.equal(findCutIndex([...messages.slice(0, -1), user("interrupt")], 1), 0);
+	assert.equal(findCutIndex([user("task"), result("orphan", 4000)], 1), 0);
+	assert.equal(findCutIndex([user("task"), call(["duplicate", "duplicate"])], 0), 0);
+});
+
+test("a very large older user message can be summarized while a small recent exchange stays intact", () => {
+	assert.equal(findCutIndex([user("x".repeat(100000)), assistant("old"), user("current"), assistant("reply")], 20000), 2);
+});
+
 test("overflow detection distinguishes context exhaustion from ordinary output truncation", () => {
 	assert.equal(isContextOverflow({ ...assistant(""), stopReason: "error", errorMessage: "maximum context length exceeded" }, 1000), true);
 	assert.equal(isContextOverflow({ ...assistant(""), stopReason: "error", errorMessage: "HTTP 401" }, 1000), false);

@@ -47,14 +47,34 @@ export function isContextOverflow(message: AssistantMessage, window: number): bo
 /**
  * Pick where the retained tail starts, as an index into `messages`.
  *
- * The cut only ever lands on a `user` message, so a turn is kept whole. Cutting at an
- * assistant or toolResult would leave a tool call without its tool result (or the reverse),
- * which the provider rejects.
+ * Keep user/text exchanges and complete assistant/tool-result groups together.
+ * A later tool-call group can start the retained tail even within one user task.
+ * Incomplete or malformed tool batches cannot be compacted.
  *
- * Returns 0 when the whole transcript is already within `keepRecentTokens` (nothing to
- * summarize) and `messages.length` when the tail has to be empty.
+ * Returns 0 when there is no safe prefix to summarize, and `messages.length`
+ * when the tail has to be empty. The tail budget is soft for an indivisible group.
  */
 export function findCutIndex(messages: readonly AgentMessage[], keepRecentTokens: number): number {
+	const boundaries: number[] = [];
+	const pending = new Set<string>();
+	for (let index = 0; index < messages.length; index += 1) {
+		const message = messages[index]!;
+		if (message.role === "toolResult") {
+			if (!pending.delete(message.toolCallId)) return 0;
+			continue;
+		}
+		if (pending.size > 0) return 0;
+		if (message.role === "user") boundaries.push(index);
+		if (message.role === "assistant") {
+			const calls = message.content.filter(block => block.type === "toolCall");
+			if (calls.length > 0) boundaries.push(index);
+			for (const call of calls) {
+				if (pending.has(call.id)) return 0;
+				pending.add(call.id);
+			}
+		}
+	}
+	if (pending.size > 0) return 0;
 	if (keepRecentTokens <= 0) {
 		return messages.length;
 	}
@@ -66,18 +86,10 @@ export function findCutIndex(messages: readonly AgentMessage[], keepRecentTokens
 		suffixTokens[index] = suffixTokens[index + 1] + (message ? estimateTokens(message) : 0);
 	}
 
-	// Walking backward returns the latest user whose tail already meets the budget, i.e. the
-	// smallest whole-turn tail that satisfies it.
-	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		if (messages[index]?.role !== "user") {
-			continue;
-		}
-		if (suffixTokens[index] >= keepRecentTokens) {
-			return index;
-		}
-	}
-
-	return 0;
+	if (suffixTokens[0]! <= keepRecentTokens) return 0;
+	const candidates = boundaries.filter(index => index > 0);
+	// Retain as much recent history as fits, expanding to a complete group if needed.
+	return candidates.find(index => suffixTokens[index]! <= keepRecentTokens) ?? candidates.at(-1) ?? 0;
 }
 
 // ---------------------------------------------------------------------------

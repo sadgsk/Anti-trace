@@ -243,10 +243,10 @@ test("Harness automatic compaction and manual compaction use current settings an
 		let harness: Harness;
 		let cancelSummary = false;
 		const fake = createFakeStreamFn([
-			{ text: "ok", usage: { input: 127000, output: 1 } }, { text: "<summary>short</summary>" },
+			{ text: "<summary>short</summary>" }, { text: "ok", usage: { input: 1200, output: 1 } },
 			{ text: "<summary>manual</summary>" }, { text: "<summary>cancelled</summary>" },
 		]);
-		harness = new Harness({ cwd: f.root, sessionsRoot: f.sessionsRoot, model: { ...model("deepseek", "deepseek-flash"), maxOutputTokens: 4096 },
+		harness = new Harness({ cwd: f.root, sessionsRoot: f.sessionsRoot, model: { ...model("deepseek", "deepseek-flash"), contextWindow: 60000, maxOutputTokens: 4096 },
 			thinking: { enabled: true, effort: "max" }, getApiKey: () => `key-${++turn}`,
 			streamFn: (m, c, o) => {
 				const summary = JSON.stringify(c.messages.at(-1)).includes("CRITICAL: Respond");
@@ -264,10 +264,10 @@ test("Harness automatic compaction and manual compaction use current settings an
 		];
 		harness.agent.state.messages = history();
 		await harness.prompt("continue");
-		assert.deepEqual(calls.map(c => c.summary), [false, true]);
+		assert.deepEqual(calls.map(c => c.summary), [true, false]);
 		assert.deepEqual(calls.map(c => c.options.apiKey), ["key-1", "key-2"]);
-		assert.deepEqual(calls[1].options.thinking, { enabled: true, effort: "max" });
-		assert.equal(calls[1].options.maxTokens, 4096);
+		assert.deepEqual(calls[0].options.thinking, { enabled: true, effort: "max" });
+		assert.equal(calls[0].options.maxTokens, 4096);
 		assert.match(JSON.stringify(harness.agent.state.messages[0]), /short/);
 		harness.setThinkingLevel("low");
 		harness.agent.state.messages = history();

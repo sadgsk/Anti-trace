@@ -50,6 +50,10 @@ export function projectSessionHistory(entries: readonly SessionEntry[], nextId: 
 	for (const entry of entries) {
 		if (entry.type === "message") messages.push(entry.message);
 		if (entry.type === "compaction") {
+			// The raw log retains failed attempts for diagnostics; a successful recovery
+			// boundary prevents that intermediate failure from reappearing on /resume.
+			const last = messages.at(-1);
+			if (entry.replacesError && last?.role === "assistant" && (last.errorMessage || last.stopReason === "error" || last.stopReason === "length")) messages.pop();
 			result.push(...projectMessages(messages, nextId)); messages = [];
 			result.push({ id: nextId(), kind: "compact", summary: entry.summary, before: entry.tokensBefore ?? 0,
 				after: estimateMessagesTokens([{ role: "user", content: [{ type: "text", text: entry.summary }], timestamp: 0 }, ...entry.keptMessages]) });

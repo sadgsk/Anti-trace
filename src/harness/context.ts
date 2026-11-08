@@ -1,6 +1,12 @@
-import type { AgentMessage, ImageContent, TextContent } from "../types.ts";
+import type { AgentContext, AgentMessage, ImageContent, TextContent } from "../types.ts";
 
 const ESTIMATED_IMAGE_CHARS = 4800;
+
+/** Fallback when no current provider usage is available, including fixed request overhead. */
+export function estimateContextTokens(context: AgentContext): number {
+	const tools = context.tools?.map(({ name, description, parameters }) => ({ name, description, parameters }));
+	return estimateMessagesTokens(context.messages) + Math.ceil((context.systemPrompt.length + JSON.stringify(tools ?? []).length) / 4);
+}
 
 /** Estimate token count for a whole transcript, message by message. */
 export function estimateMessagesTokens(messages: readonly AgentMessage[]): number {

@@ -42,6 +42,8 @@ const english: Record<string, string> = {
 	"已取消恢复会话。": "Session resume cancelled.", "请输入列表中的会话序号，或空行取消。": "Enter a listed session number, or leave empty to cancel.",
 	"该会话已不可用，请重新选择。": "This session is no longer available. Choose again.", "该会话已不可用，请返回后重新打开。": "This session is no longer available. Go back and reopen the list.",
 	"恢复失败，请重新选择。": "Could not resume. Choose again.", "已中断。可以修改要求后继续。": "Interrupted. Edit your request and continue.", "已中断。": "Interrupted.",
+	"请求失败。": "Request failed.", "未获得模型执行结果。": "No model execution result was received.",
+	"上下文超限，请求未恢复。": "Context limit exceeded; recovery did not succeed.",
 	"配置已保存并生效，会话已保留。": "Configuration saved and applied. Session preserved.",
 	"当前入口未提供配置管理。": "Configuration management is unavailable in this entry point.", "当前入口未提供模型配置。": "Model configuration is unavailable in this entry point.",
 	"当前入口不支持设置思考等级。": "Thinking effort is unavailable in this entry point.", "当前入口不支持设置模型思考。": "Thinking controls are unavailable in this entry point.",

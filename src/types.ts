@@ -271,11 +271,22 @@ export interface AgentLoopTurnUpdate {
 
 export type PrepareNextTurnContext = ShouldStopAfterTurnContext;
 
+export interface BeforeModelRequestContext {
+	context: AgentContext;
+	model: Model;
+	thinking?: ThinkingPreferences;
+	maxTokens?: number;
+	apiKey?: string;
+	getApiKey?: ApiKeyResolver;
+}
+
 export interface AgentLoopConfig extends StreamOptions {
 	model: Model;
 	convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
 	getApiKey?: ApiKeyResolver;
+	/** Runs before every main-model request, including tool continuations. */
+	beforeModelRequest?: (request: BeforeModelRequestContext, signal?: AbortSignal) => Promise<AgentContext | undefined>;
 	shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>;
 	prepareNextTurn?: (
 		context: PrepareNextTurnContext,

@@ -6,6 +6,7 @@ import { appendEntry, createSessionFile, findMostRecentSession, listSessions, lo
 import type { AssistantMessage, UserMessage } from "../../src/types.ts";
 import { tempWorkspace } from "../support/fixtures.ts";
 import { createTestHarness } from "../support/harness.ts";
+import { projectSessionHistory } from "../../src/tui/transcript.ts";
 
 const user = (text: string): UserMessage => ({ role: "user", content: [{ type: "text", text }], timestamp: 1 });
 const assistant = (text: string): AssistantMessage => ({ role: "assistant", content: [{ type: "text", text }], model: "test", stopReason: "stop", timestamp: 2 });
@@ -56,6 +57,19 @@ test("compaction rebuilds the summary and retained tail while preserving the ori
 	assert.equal(loaded.entries.length, 3);
 	assert.deepEqual(loaded.messages.slice(1), [user("recent"), assistant("recent reply")]);
 	assert.match(readFileSync(session.path, "utf8"), /old reply/);
+});
+
+for (const recovered of [true, false]) test(`restored history distinguishes recovered attempts from final errors (recovered=${recovered})`, (t) => {
+	const root = tempWorkspace(t), session = createSessionFile(root, join(root, "sessions"));
+	appendEntry(session, { type: "message", message: user("task") });
+	appendEntry(session, { type: "message", message: { ...assistant(""), stopReason: "error", errorMessage: "original overflow" } });
+	appendEntry(session, { type: "compaction", summary: "summary", keptMessages: [user("task")], ...(recovered ? { replacesError: true } : {}) });
+	appendEntry(session, { type: "message", message: { ...assistant(""), stopReason: "error", errorMessage: "retry failed" } });
+	const loaded = loadSession(session.path);
+	let id = 0;
+	const notices = projectSessionHistory(loaded.entries, () => id++).filter(item => item.kind === "notice" && item.tone === "error");
+	assert.deepEqual(notices.map(item => item.kind === "notice" ? item.text : ""), recovered ? ["retry failed"] : ["original overflow", "retry failed"]);
+	assert.match(readFileSync(session.path, "utf8"), /original overflow/, "original diagnostics stay in the raw log");
 });
 
 test("new and resume restore the saved conversation without creating a blank file", async (t) => {
