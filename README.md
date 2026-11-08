@@ -100,7 +100,8 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 - [ ] 验证功能变更，并通过热启动加载修改。
 - [x] 厂商预设、思考控制与统一设置链路。
 - [ ] 在 v1.3 完善 TUI 交互。
-- [ ] 建立可复现的自动化测试，补充真实模型和跨平台验证。
+- [x] 建立可复现的离线测试框架和 Windows／Linux／macOS CI。
+- [ ] 扩展真实模型与原生终端验收。
 - [ ] 修复已记录的工具配对、Windows 命令执行和上下文溢出提示问题。
 
 ## 已知限制
@@ -108,13 +109,14 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 - Windows 上的 `bash` 工具实际使用 `cmd.exe`，存在命令执行失败和卡住的问题，见 [问题记录](docs/future-issues.md)。
 - 可恢复的上下文溢出错误提前显示问题仍待处理；工具批次中断配对已在 TUI 批次修复，见 [评审记录](docs/review-records.md)。
 - 已有本地 HTTP SSE 和 macOS POSIX PTY 验证记录，真实模型、剪贴板和其他终端平台的覆盖仍不完整。
-- 仓库尚未提供可复现的自动化测试套件。`npm run typecheck` 和 `npm run build` 可用于类型检查与构建。
+- 正式测试位于 `tests/`。运行 `npm test` 执行离线测试，`npm run check` 执行类型检查、测试和构建；命令、覆盖范围与三端 CI 见 [测试指南](docs/testing.md)。真实模型检查使用独立的显式入口。
 
 ## 开发文档与来源
 
 - [开发进度](docs/progress.md)：当前状态、待办与开发记录。
 - [架构书](docs/architecture.md)：模块职责与设计。
 - [运行主流程](docs/main-flow.md)：输入提交、模型请求、工具执行与事件传播。
+- [测试与 CI](docs/testing.md)：本地命令、测试编写、隔离、覆盖率和三端 CI。
 
 项目从阅读和参考 [Pi](https://github.com/earendil-works/pi) 起步，部分基础代码参考并改写自 Pi，使用自己的 `Harness` 和功能设计，当前不依赖 Pi 的运行时包。
 

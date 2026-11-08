@@ -8,7 +8,17 @@
 	"scripts": {
 		"start": "tsx src/cli/main.ts",
 		"typecheck": "tsc --noEmit",
-		"build": "tsc"
+		"build": "tsc",
+		"test": "node scripts/run-tests.mjs",
+		"test:unit": "node scripts/run-tests.mjs unit",
+		"test:integration": "node scripts/run-tests.mjs integration regressions",
+		"test:tui": "node scripts/run-tests.mjs tui",
+		"test:e2e": "node scripts/run-tests.mjs e2e",
+		"test:watch": "node scripts/run-tests.mjs --watch",
+		"test:types": "tsc --project tsconfig.test.json",
+		"test:coverage": "c8 node scripts/run-tests.mjs",
+		"test:live": "node scripts/run-live-tests.mjs",
+		"check": "npm run typecheck && npm run test:types && npm test && npm run build"
 	},
 	"engines": {
 		"node": ">=22"
@@ -26,6 +36,7 @@
 	"devDependencies": {
 		"@types/node": "22.19.19",
 		"@types/react": "19.2.18",
+		"c8": "12.0.0",
 		"tsx": "4.21.0",
 		"typescript": "5.9.3"
 	}

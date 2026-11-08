@@ -7,8 +7,10 @@ dist/
 /docs/byok-build.md
 /docs/byok-providers.md
 .DS_Store
-# 零散测试只保留在本地，后续另建测试框架
+# 已退役目录，防止旧探针重新进入仓库；正式测试位于 tests/
 /test/
+/coverage/
+/.test-results/
 
 # 本轮扩展测试及终端验收辅助只保留在本地
 scripts/pty-runner.py

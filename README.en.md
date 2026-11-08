@@ -100,7 +100,8 @@ This capability has not been implemented. The diagram above shows the proposed d
 - [ ] Validate capability changes and load them through a hot restart.
 - [x] Provider presets, reasoning controls, and the unified settings workflow.
 - [ ] Improve TUI interaction in v1.3.
-- [ ] Establish reproducible automated tests and expand real-model and cross-platform verification.
+- [x] Establish reproducible offline tests and Windows/Linux/macOS CI.
+- [ ] Expand real-model and native-terminal acceptance checks.
 - [ ] Fix recorded issues with tool pairing, Windows command execution, and context-overflow error display.
 
 ## Known limitations
@@ -108,7 +109,7 @@ This capability has not been implemented. The diagram above shows the proposed d
 - On Windows, the `bash` tool actually uses `cmd.exe`. Command failures and hangs are recorded in [future-issues.md](docs/future-issues.md).
 - Premature display of recoverable context-overflow errors still needs work. Interrupted tool-batch pairing was fixed in the TUI implementation; see the [review records](docs/review-records.md).
 - Local HTTP SSE and macOS POSIX PTY verification records exist. Coverage of real models, clipboards, and other terminal platforms remains incomplete.
-- The repository does not yet provide a reproducible automated test suite. Use `npm run typecheck` for type checking and `npm run build` to build the project.
+- Formal tests live in `tests/`. Run `npm test` for offline tests or `npm run check` for type checks, tests and a build. See the [testing guide](docs/testing.md) for commands, coverage and the three-platform CI matrix. Real-model checks have a separate explicit entry point.
 
 ## Development documentation and origins
 
@@ -117,6 +118,7 @@ The detailed development documents are currently in Chinese.
 - [Development progress](docs/progress.md): current status, pending work, and development history.
 - [Architecture](docs/architecture.md): module responsibilities and design.
 - [Main execution flow](docs/main-flow.md): input submission, model requests, tool execution, and event propagation.
+- [Testing and CI](docs/testing.md): commands, test authoring, isolation, coverage and the CI matrix (Chinese).
 
 The project started by studying and referencing [Pi](https://github.com/earendil-works/pi). Some foundational code was adapted from Pi. Anti-trace uses its own `Harness` and feature design, and does not currently depend on Pi runtime packages.
 

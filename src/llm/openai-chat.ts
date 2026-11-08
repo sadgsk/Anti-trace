@@ -517,7 +517,8 @@ export const streamOpenAIChat: StreamFn = (model, context, options) => {
 			// assistant tool calls that would require tool results on the next user turn.
 			output.content = output.content.filter(block => block.type !== "toolCall");
 			output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-			output.errorMessage = error instanceof Error ? error.message : String(error);
+			const message = error instanceof Error ? error.message : String(error);
+			output.errorMessage = options?.apiKey ? message.replaceAll(options.apiKey, "[redacted]") : message;
 			stream.push({ type: "error", reason: output.stopReason, error: output });
 			stream.end();
 		}

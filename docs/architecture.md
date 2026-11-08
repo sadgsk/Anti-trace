@@ -6,7 +6,7 @@
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态（2026-10-15）：**输入迁移功能已完成并提交，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除，已完成的施工计划按用户要求退役。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。此前本机扩展 115 项测试、类型检查和构建通过，包含 macOS 真实 POSIX PTY 与本地 HTTP SSE。现按用户要求，整个 `test/` 均仅保留在本地，取消历史文件跟踪和 npm 测试／探针入口，后续另建测试框架。其他平台原生终端、真实剪贴板和具体终端应用仍需手测，见 §7 和进度文档。上下键仅移动当前输入光标，不提供历史召回。
+**输入迁移状态：**输入迁移功能已完成，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。上下键仅移动当前输入光标，不提供历史召回。正式测试已迁入 `tests/`，使用 `node:test + tsx`、共享测试环境和三端 GitHub Actions，命令和验收边界见 [测试指南](./testing.md)。旧 `test/` 已退役并移出项目；原生终端、真实剪贴板和具体终端应用仍需对应环境验收。
 
 **TUI 当前结构（2026-11-03）：** 界面统一位于 `src/tui/`，与 `harness/`、`agent/` 平行。整体 TUI、FB-001～029 反馈修复及历史回看闪烁修复已接入：`ReplScreen` 取代 `ReplView`，`terminal-repl.tsx` 负责启动、控制器、终端与焦点装配。消息／工具／Markdown／Diff 为分层 React Ink 组件，控制器投影结构化历史和活跃回合，Harness 提供数据与权限钩子。当前结构与交互统一见 §4，验证和最终 Review 待办见 [progress.md](./progress.md)；施工计划、试用及反馈专题文档已退役。
 
@@ -200,9 +200,9 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/llm/adapter.ts`、`rules.ts`、`sse.ts` | 统一入口、adapter schema／配置校验／规则与编码模板、可复用 SSE 分帧；当前接入 Chat |
 | `src/types.ts`、`src/agent/agent.ts`、`src/agent/loop.ts` | BYOK 公共数据、模型／偏好（含 adapter）快照、请求选项与 hook 的显式覆盖；线上字段留在协议适配器 |
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
-| `test/probe-harness.ts`、`test/probe-session.ts` | 已有框架与会话探针 |
-| 本地 `test/probe-context.ts` | 假流探针覆盖自动压缩、上下文溢出重试与摘要失败；仅留本地，不随 Git 分发 |
-| 本地 `test/` | 所有零散测试与探针均不跟踪、不提交；历史跟踪文件仅从 Git 移除，本地保留。对应 npm 入口已删除，后续另建测试框架 |
+| `tests/support/` | 共享测试 Harness、脚本化模型、本地 HTTP、临时目录和异步等待 |
+| `tests/integration/`、`tests/regressions/` | Agent、会话、自动压缩、协议与工具验证，以及具体故障回归 |
+| 旧 `test/` | 已退役并移出项目；正式测试使用受版本管理的 `tests/`，见 [测试指南](./testing.md) |
 
 **v1.2 后续：** 新输入及 `/new`、`/resume`、`/context`、`/compact`、每轮 `ctx` 已接回。思考等级与 BYOK 按 build 文档分批实施；保留 Agent / Harness 的消息和事件边界。
 
@@ -428,7 +428,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 ## 7. 这一版验收
 
-新 REPL 已接通，本机 115 项扩展输入测试通过，包括 macOS 真实 POSIX PTY、实际 Harness 与本地 HTTP SSE；所有测试文件现按用户要求只留本地，仓库不再提供对应测试脚本入口。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以本地测试替代。自动压缩与溢出形状由可控流探针验证；手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
+新 REPL 已接通，输入、实际 Harness、本地 HTTP SSE、自动压缩与溢出恢复已纳入 `tests/` 的自动化套件，维护流程和三端 CI 见 [测试指南](./testing.md)。此前 macOS 真实 POSIX PTY 验收记录保留在进度文档。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以离线测试替代。手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
 2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
