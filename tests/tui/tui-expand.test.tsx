@@ -61,11 +61,23 @@ test("wheel review and Ctrl+O retain the older tool, with collapse and resize pr
 			await waitFor(() => f.paints() > before && f.metrics()!.offset < previous, "wheel movement painted");
 		}
 		assert.equal(f.metrics()?.anchor?.id, older.id);
+		// The preview assertion below requires the first output row to remain in view.
+		// Wheel steps can land inside the card, depending on the welcome header's height.
+		const row = f.metrics()!.anchor!.row;
+		if (row > 0) {
+			const before = f.paints(); f.app.repl.scroll(row);
+			await waitFor(() => f.paints() > before && f.metrics()?.anchor?.id === older.id && f.metrics()?.anchor?.row === 0, "older tool aligned to its first row");
+		}
+		assert.equal(f.metrics()?.anchor?.row, 0);
 		assert.equal(f.app.repl.getSnapshot().viewingHistory,true);f.stdin.write("\x0f");
 		await waitFor(() => f.frame().includes("OLDER_06"), "older expanded tool painted");
 		assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);assert.match(f.frame(),/OLDER_06/);
 		f.stdin.write("\x0f");
-		await waitFor(() => f.frame().includes("OLDER_00") && !f.frame().includes("OLDER_06"), "collapsed older tool painted");
+		try {
+			await waitFor(() => f.frame().includes("OLDER_00") && !f.frame().includes("OLDER_06"), "collapsed older tool painted");
+		} catch (error) {
+			throw new Error(`${String(error)}\nMetrics: ${JSON.stringify(f.metrics())}\nFrame:\n${f.frame()}`, { cause: error });
+		}
 		assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);assert.match(f.frame(),/OLDER_00/);assert.doesNotMatch(f.frame(),/OLDER_06/);
 		const beforeResize = f.paints(); f.stdout.columns=75;f.stdout.emit("resize");
 		await waitFor(() => f.paints() > beforeResize, "resized reading view painted");
