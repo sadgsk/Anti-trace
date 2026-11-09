@@ -12,7 +12,7 @@ export function BashProgressView({ item, columns }: { item: ToolUseItem; columns
 }
 export function BashToolView({ item, expanded, columns, live = false }: { item: ToolUseItem; expanded: boolean; columns: number; live?: boolean }) {
 	const details = toolDetails(item), text = toolText(item), lines = text.split("\n");
-	return <ToolUseCard item={item} label="Bash" target={String(item.args.command ?? "")} columns={columns}>
+	return <ToolUseCard item={item} label={item.name === "powershell" ? "PowerShell" : "Bash"} target={String(item.args.command ?? "")} columns={columns}>
 		{item.status === "running" ? <BashProgressView item={item} columns={columns} /> : <MessageResponse columns={Math.max(1, columns - 4)}>
 			{details.exitCode !== undefined && details.exitCode !== 0 ? <ThemedText color="error">exit {String(details.exitCode)}{details.timedOut ? " · timed out" : ""}</ThemedText> : null}
 			<Text color={item.status === "error" ? "red" : undefined}>{(expanded && !live ? lines : lines.slice(0, live ? 3 : 5)).join("\n") || "(No content)"}</Text>

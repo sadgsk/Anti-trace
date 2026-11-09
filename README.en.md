@@ -36,6 +36,8 @@ The default `main` entry contains a placeholder URL and model ID. Replace them b
 npm start
 ```
 
+macOS and Linux use Bash. Windows prefers PowerShell 7, falling back to Windows PowerShell 5.1. Installing Git for Windows also enables the Bash tool for Bash scripts and POSIX commands. For a custom Git installation, set `ANTI_TRACE_GIT_BASH_PATH` to the absolute path of its `bin\bash.exe` before startup. You can launch Anti-trace from CMD or PowerShell; each tool selects its own interpreter. Commands default to a 120-second timeout.
+
 Describe a task directly in the conversation, for example:
 
 ```text
@@ -102,11 +104,11 @@ This capability has not been implemented. The diagram above shows the proposed d
 - [ ] Improve TUI interaction in v1.3.
 - [x] Establish reproducible offline tests and Windows/Linux/macOS CI.
 - [ ] Expand real-model and native-terminal acceptance checks.
-- [ ] Fix recorded issues with tool pairing, Windows command execution, and context-overflow error display.
+- [ ] Fix remaining issues with tool pairing and context-overflow error display.
 
 ## Known limitations
 
-- On Windows, the `bash` tool actually uses `cmd.exe`. Command failures and hangs are recorded in [future-issues.md](docs/future-issues.md).
+- Windows requires a working PowerShell or Git Bash installation. Without Git Bash, only PowerShell is exposed. An invalid explicit Bash path produces a configuration error. See [future-issues.md](docs/future-issues.md).
 - Premature display of recoverable context-overflow errors still needs work. Interrupted tool-batch pairing was fixed in the TUI implementation; see the [review records](docs/review-records.md).
 - Local HTTP SSE and macOS POSIX PTY verification records exist. Coverage of real models, clipboards, and other terminal platforms remains incomplete.
 - Formal tests live in `tests/`. Run `npm test` for offline tests or `npm run check` for type checks, tests and a build. See the [testing guide](docs/testing.md) for commands, coverage and the three-platform CI matrix. Real-model checks have a separate explicit entry point.

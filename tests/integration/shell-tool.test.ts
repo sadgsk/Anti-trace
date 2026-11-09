@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { createBashTool, type BashToolDetails } from "../../src/harness/tools/bash.ts";
 import { BASH_OUTPUT_MAX_BYTES } from "../../src/harness/tools/bash-output.ts";
+import { createShellTool } from "../../src/harness/tools/shell.ts";
 import type { AgentToolResult } from "../../src/types.ts";
 import { tempWorkspace, waitFor } from "../support/fixtures.ts";
 
@@ -38,6 +39,35 @@ test("shell rejects invalid timeout values before executing a command", async (t
 	for (const timeout of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
 		await assert.rejects(tool.execute("invalid", { command: "echo should-not-run", timeout }), /Invalid timeout/);
 	}
+});
+
+test("shell has a default deadline, closes stdin, and rejects spawn errors without hanging", async t => {
+	const root = tempWorkspace(t);
+	const config = { name: "bash" as const, path: process.execPath, args: (source: string) => ["-e", source], description: "fixture" };
+	const input = await createShellTool(root, config).execute("stdin", { command: "process.stdin.resume();process.stdin.on('end',()=>console.log('STDIN_EOF'));" });
+	assert.match(text(input), /STDIN_EOF/);
+	const short = createShellTool(root, { ...config, defaultTimeout: 0.05 });
+	const result = await short.execute("default", { command: "setInterval(()=>{},1000)" });
+	assert.equal(result.details.timedOut, true);
+	await assert.rejects(createShellTool(root, { ...config, path: join(root, "missing-executable") }).execute("spawn", { command: "" }), /ENOENT/);
+});
+
+test("Bash deletion works in a Unicode directory with spaces", async t => {
+	const root = tempWorkspace(t), cwd = join(root, "中文 空格"); mkdirSync(cwd);
+	writeFileSync(join(cwd, "待删除 [a].txt"), "delete me");
+	const result = await createBashTool(cwd).execute("delete", { command: "test -n \"$BASH_VERSION\" && rm -- '待删除 [a].txt' && printf '%s\\n' 'DELETE_OK'" });
+	assert.equal(result.details.exitCode, 0, text(result));
+	assert.equal(existsSync(join(cwd, "待删除 [a].txt")), false); assert.match(text(result), /DELETE_OK/);
+});
+
+test("a descendant retaining output pipes cannot keep the shell tool waiting forever", { skip: process.platform === "win32" }, async t => {
+	const root = tempWorkspace(t), ready = join(root, "orphan-pid");
+	const result = await createBashTool(root).execute("orphan", { command: command(root,
+		`const c=require('node:child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit'});require('node:fs').writeFileSync(${JSON.stringify(ready)},String(c.pid));console.log('parent done');process.exit(0);`) });
+	const pid = Number(readFileSync(ready, "utf8"));
+	t.after(() => { try { process.kill(pid, "SIGKILL"); } catch {} });
+	assert.match(text(result), /parent done/); assert.equal(result.details.outputDrainTimedOut, true);
+	assert.ok(result.details.durationMs! < 10000);
 });
 
 function text(result: AgentToolResult): string {

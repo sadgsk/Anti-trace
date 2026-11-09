@@ -8,6 +8,7 @@ import { createElement } from "react";
 import { render } from "ink";
 import stringWidth from "string-width";
 import { createBashTool } from "../../src/harness/tools/bash.ts";
+import { createPowerShellTool } from "../../src/harness/tools/powershell.ts";
 import { BashToolView } from "../../src/tui/tools/BashToolView.tsx";
 import { toolText } from "../../src/tui/tools/tool-result.ts";
 import type { ToolUseItem } from "../../src/tui/transcript.ts";
@@ -32,9 +33,9 @@ test("real Windows dir CRLF output stays inside a compact frame, including expan
 	const root = resolve(mkdtempSync(join(tmpdir(), "tool-frame-")));
 	try {
 		writeFileSync(join(root, "alpha.txt"), "alpha"); writeFileSync(join(root, "beta.ts"), "beta");
-		const result = await createBashTool(root).execute("dir", { command: "dir" });
-		assert.ok(result.content[0]?.type === "text" && result.content[0].text.includes("\r\n"), "fixture must exercise actual CMD CRLF output");
-		const item: ToolUseItem = { id: 1, kind: "tool", callId: "dir", name: "bash", args: { command: "dir" }, status: "success", startedAt: 0, endedAt: 1000, result };
+		const result = await createPowerShellTool(root).execute("dir", { command: "Get-ChildItem -Name" });
+		assert.ok(result.content[0]?.type === "text" && result.content[0].text.includes("\r\n"), "fixture must exercise actual PowerShell CRLF output");
+		const item: ToolUseItem = { id: 1, kind: "tool", callId: "dir", name: "powershell", args: { command: "Get-ChildItem -Name" }, status: "success", startedAt: 0, endedAt: 1000, result };
 		assert.doesNotMatch(toolText(item), /\r/);
 		for (const columns of [40, 80, 190]) {
 			const collapsed = await capture(item, columns); assertCard(collapsed, columns); assert.ok(strip(collapsed).split("\n").length < 16);

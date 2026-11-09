@@ -6,6 +6,8 @@ import { TextInputController } from "../input/text-input-controller.ts";
 import { buildDiff, type StructuredDiffHunk } from "../../harness/tools/diff.ts";
 
 export type PermissionMode = "default" | "auto-edit" | "yolo";
+export const isShellTool = (name: string) => name === "bash" || name === "powershell";
+const commandKey = (name: string, args: Record<string, unknown>) => JSON.stringify([name, String(args.command)]);
 export interface PermissionRequest { id: string; name: string; args: Record<string, unknown>; hunks?: StructuredDiffHunk[]; previewError?: string }
 export interface PermissionSnapshot { mode: PermissionMode; request: PermissionRequest | null; selectedIndex: number; editingFeedback: boolean }
 
@@ -35,7 +37,7 @@ export class PermissionPolicy {
 	private update(change: Partial<PermissionSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; for (const listener of this.listeners) listener(); }
 	private allowed(name: string, args: Record<string, unknown>) {
 		return name === "read" || this.snapshot.mode === "yolo" || ((name === "edit" || name === "write") && (this.snapshot.mode === "auto-edit" || this.allowEdits))
-			|| (name === "bash" && this.allowedCommands.has(String(args.command)));
+			|| (isShellTool(name) && this.allowedCommands.has(commandKey(name, args)));
 	}
 	cycleMode(): void {
 		const modes: PermissionMode[] = ["default", "auto-edit", "yolo"];
@@ -55,7 +57,7 @@ export class PermissionPolicy {
 		if (!request || !this.pending) return;
 		if (decision === "session") {
 			if (["edit", "write"].includes(request.name)) this.allowEdits = true;
-			else if (request.name === "bash") this.allowedCommands.add(String(request.args.command));
+			else if (isShellTool(request.name)) this.allowedCommands.add(commandKey(request.name, request.args));
 		}
 		const settle = this.pending; this.pending = undefined;
 		const reason = this.feedback.getSnapshot().state.text.trim() || "用户拒绝执行此工具。";

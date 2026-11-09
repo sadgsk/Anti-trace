@@ -16,10 +16,27 @@ test("noninteractive default permits reads and blocks writes and commands", asyn
 	const policy = new PermissionPolicy(tempWorkspace(t), false);
 	t.after(() => policy.dispose());
 	assert.equal(await policy.beforeToolCall(context("read")), undefined);
-	for (const name of ["write", "edit", "bash"]) {
+	for (const name of ["write", "edit", "bash", "powershell"]) {
 		assert.equal((await policy.beforeToolCall(context(name)))?.block, true);
 	}
 	assert.equal(policy.getSnapshot().request, null);
+});
+
+test("shell session approvals distinguish Bash from PowerShell and exact commands", async (t) => {
+	const policy = new PermissionPolicy(tempWorkspace(t), true);
+	t.after(() => policy.dispose());
+	for (const name of ["bash", "powershell"]) {
+		const request = context(name, { command: "echo one" });
+		const pending = policy.beforeToolCall(request);
+		assert.equal(policy.getSnapshot().request?.name, name, "the other shell's approval must not authorize this one");
+		policy.decide("session"); await pending;
+		assert.equal(await policy.beforeToolCall(request), undefined);
+		const changed = policy.beforeToolCall(context(name, { command: "echo two" }));
+		assert.ok(policy.getSnapshot().request); policy.decide("deny"); await changed;
+	}
+	policy.resetSession();
+	const pending = policy.beforeToolCall(context("powershell", { command: "echo one" }));
+	assert.ok(policy.getSnapshot().request); policy.decide("deny"); await pending;
 });
 
 test("auto-edit permits file changes but requires approval for commands; yolo permits both", async (t) => {

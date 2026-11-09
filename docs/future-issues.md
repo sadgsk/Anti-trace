@@ -13,6 +13,7 @@
 | 平台 | Windows（本机 `win32 10.0.26200`）。同一套代码在 macOS 上删除正常。 |
 | 项目版本 | v1.1（`package.json` `0.1.0`）。当时已装配 `read` / `write` / `edit` / `bash`，bash 实现未改。 |
 | 仓库快照 | `main` `5cca932`（`https://github.com/sadgsk/Anti-trace.git`） |
+| 状态 | 已修复（2026-11-09），Windows／macOS／Linux × Node 22／24 的 [CI 实跑通过](https://github.com/sadgsk/Anti-trace/actions/runs/42545692498)。 |
 
 **问题描述**
 
@@ -35,6 +36,14 @@ macOS 上同一操作（删除本地文件）一次通过，无卡死。
 `src/tools/bash.ts` 在 Windows 上把 shell 改成了 `cmd.exe`（Pi 原版是找真正的 bash）。工具仍叫 `bash`，系统提示也没按平台告诉模型用 cmd 语法，所以 LLM 会发 `rm` / `ls` / `find` 这类 bash 命令。cmd 执行失败或挂起，删除就走不通。
 
 （v1.2 第 0 步搬家后，该文件在 `src/harness/tools/bash.ts`，函数体未改。）
+
+**本次修复**
+
+启动时探测 shell，Windows 优先提供 PowerShell，找到 Git Bash 时额外提供真正的 Bash；工具列表与 Windows 专用系统提示由同一份探测结果生成。macOS／Linux 沿用 Bash，提示词仅增加 Anti-trace 身份。两个 shell 共用默认 120 秒超时、非交互输入、进程树终止、输出保存和有界输出排空。权限按工具名与完整命令分别记忆。
+
+回归覆盖 `tests/unit/shell-environment.test.ts`、`tests/integration/platform-tools.test.ts`、`tests/integration/shell-tool.test.ts`、`tests/integration/windows-shells.test.ts` 及 `tests/e2e/cli-process.test.ts` 的 Windows CMD 启动用例。
+
+Windows 已实跑 PowerShell 5.1／7、Git Bash 删除、中文／空格／引号路径、原生命令退出码、非交互输入、完整 UTF-8 大日志、取消后代进程，以及无 Git Bash 的 PowerShell 工具往返。PowerShell 在加载模块前关闭进度输出，避免 5.1 的初始化 CLIXML 混入日志。原生终端、剪贴板和真实模型的工具选择偏好仍不属于这些离线用例的验证结论。
 
 ---
 

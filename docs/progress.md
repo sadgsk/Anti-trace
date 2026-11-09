@@ -6,16 +6,20 @@
 |---|---|
 | 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
 | 当前版本 | **v1.2** |
-| 阶段 | **正式测试框架已建立并推送 GitHub（2026-11-08）：34 个离线测试文件，Windows 的 Node 22／24 均为 389 项通过、2 项平台跳过、0 失败；本机行覆盖率 89.44%、分支 86.40%、函数 91.07%。GitHub Actions 配置 Windows／Linux／macOS × Node 22／24，实际远程结果见 [CI 运行记录](https://github.com/sadgsk/Anti-trace/actions/workflows/ci.yml)。既有最终 Review 尾项保留。** |
+| 阶段 | **Windows Shell 与分平台提示词已完成（2026-11-09），Windows／Linux／macOS × Node 22／24 六任务 CI 通过；既有 TUI 最终 Review 尾项保留。验证见下方本轮记录。** |
 | 架构书 | [architecture.md](./architecture.md) |
 | TUI 架构与交互 | [架构书 §4](./architecture.md#4-分层)；反馈结果与验证统一记录在本页 |
 | 最终 Review 提醒 | RV-001：检查 Shift+Tab、三种权限模式、工具执行前判断、审批与会话授权记忆的真实执行链路 |
 | 测试与 CI | [testing.md](./testing.md)：命令、隔离、覆盖范围、覆盖率门槛和后续维护 |
-| 问题记录 | [future-issues.md](./future-issues.md)：No.1 Windows Shell 语义问题保留；No.2 闪烁／首条消息与 Logo 附近回看卡住已修复并回归 |
+| 问题记录 | [future-issues.md](./future-issues.md)：No.1 Windows Shell 与 No.2 回看闪烁已修复并回归；No.3 浅色主题待处理 |
 | 对照代码 | `e:\pi-harness\pi`、`e:\pi-harness\claude-code-rev`、新版 TS `e:\pi-harness\kimi-code`；[CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) |
-| 最后更新 | 2026-11-08 |
+| 最后更新 | 2026-11-09 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
+
+**Windows Shell 修复（2026-11-09）：** 启动时探测并缓存 shell 能力。Windows 优先提供 PowerShell 7，回退到系统 5.1；找到 Git Bash 时同时暴露真正的 bash，支持 `ANTI_TRACE_GIT_BASH_PATH`。POSIX 与 Windows 分别组装系统提示，共同声明 Anti-trace 身份；macOS／Linux 的其余提示词保持原文。两个 shell 共用输出保存、默认超时、非交互输入、进程树终止与有界输出排空，PowerShell 接入审批和工具卡，授权按工具名与完整命令隔离。
+
+**本轮验证：** 本机 `npm run check` 通过；[三端 CI](https://github.com/sadgsk/Anti-trace/actions/runs/42545692498) 的 Windows／Linux／macOS × Node 22／24 六任务均通过类型、构建、离线测试与覆盖率门槛。Windows 原生执行验证含 PowerShell 5.1／7、Git Bash、CMD 启动 CLI 后删除并回复、中文／空格路径和取消后代进程。CI 排查还修复了日志写入失败后的清理时机；测试运行器保留 `PSModulePath`，避免清空本机模块查找路径使 5.1 基础 cmdlet 加载阻塞；关闭 PowerShell 初始化进度以保持 UTF-8 日志。真实模型偏好与原生终端人工体验未据此宣称通过。
 
 **本轮正式测试框架（2026-11-08）：** 按用户新要求，将测试作为项目的一部分随 Git 管理，替代此前“全部测试仅留本地”的安排。迁入 22 份有效旧测试，排除引用已删除 stash 的五份归档测试；新增 Agent 生命周期、工具配对中断回归、文件与 Shell 工具、会话、上下文恢复、权限、独立 CLI 进程和测试隔离验证。统一使用 `node:test + tsx`，提供文件／名称筛选、watch、测试类型检查、c8 覆盖率和真实模型的独立显式入口。默认使用临时 HOME／工作目录、环境白名单、模型替身和回环 HTTP，并阻止 Node 外连。测试数据、源码和配置正常跟踪，旧 `test/`、真实凭据、覆盖率和日志继续忽略。
 

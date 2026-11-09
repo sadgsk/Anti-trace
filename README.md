@@ -36,6 +36,8 @@ npm install
 npm start
 ```
 
+macOS／Linux 使用 Bash。Windows 优先使用 PowerShell（优先 7，回退到系统 5.1）；安装 Git for Windows 后还会提供 Git Bash，用于 Bash 脚本和 POSIX 命令。Git Bash 安装在特殊目录时，可在启动前设置 `ANTI_TRACE_GIT_BASH_PATH` 为其 `bin\bash.exe` 的绝对路径。可以从 CMD 或 PowerShell 启动 Anti-trace，工具执行器由程序独立选择。命令默认超时为 120 秒。
+
 进入对话后，可以直接描述任务，例如：
 
 ```text
@@ -102,11 +104,11 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 - [ ] 在 v1.3 完善 TUI 交互。
 - [x] 建立可复现的离线测试框架和 Windows／Linux／macOS CI。
 - [ ] 扩展真实模型与原生终端验收。
-- [ ] 修复已记录的工具配对、Windows 命令执行和上下文溢出提示问题。
+- [ ] 修复剩余的工具配对和上下文溢出提示问题。
 
 ## 已知限制
 
-- Windows 上的 `bash` 工具实际使用 `cmd.exe`，存在命令执行失败和卡住的问题，见 [问题记录](docs/future-issues.md)。
+- Windows 需要可用的 PowerShell 或 Git Bash；没有 Git Bash 时只提供 PowerShell，显式配置的 Bash 路径无效时会提示配置错误。见 [问题记录](docs/future-issues.md)。
 - 可恢复的上下文溢出错误提前显示问题仍待处理；工具批次中断配对已在 TUI 批次修复，见 [评审记录](docs/review-records.md)。
 - 已有本地 HTTP SSE 和 macOS POSIX PTY 验证记录，真实模型、剪贴板和其他终端平台的覆盖仍不完整。
 - 正式测试位于 `tests/`。运行 `npm test` 执行离线测试，`npm run check` 执行类型检查、测试和构建；命令、覆盖范围与三端 CI 见 [测试指南](docs/testing.md)。真实模型检查使用独立的显式入口。

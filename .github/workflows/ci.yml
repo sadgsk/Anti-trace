@@ -29,6 +29,19 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci --ignore-scripts
+      - name: Verify required Windows shells
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+          if (-not (Test-Path -LiteralPath $bash)) { throw "Git Bash is required for Windows regressions" }
+          & $bash --version
+          if ($LASTEXITCODE -ne 0) { throw "Git Bash could not start" }
+          $legacy = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+          & $legacy -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.Major'
+          if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell 5.1 could not start" }
+          if ($PSVersionTable.PSVersion.Major -lt 7) { throw "PowerShell 7 is required" }
       - run: npm run typecheck
       - run: npm run test:types
       - run: npm run build

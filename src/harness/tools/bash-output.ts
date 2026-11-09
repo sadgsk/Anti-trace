@@ -36,7 +36,7 @@ export class BashOutput {
 	totalBytes = 0;
 	private newlineCount = 0;
 
-	constructor(private readonly cwd: string) {}
+	constructor(private readonly cwd: string, private readonly toolName = "bash") {}
 
 	append(chunk: Buffer): Promise<void> {
 		this.pending = this.write(chunk);
@@ -71,7 +71,7 @@ export class BashOutput {
 			}
 			await this.file.writeFile(chunk);
 		} catch (error) {
-			throw new Error(`Could not save complete bash output: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+			throw new Error(`Could not save complete ${this.toolName} output: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
 		}
 	}
 

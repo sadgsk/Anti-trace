@@ -97,7 +97,7 @@ startLine(index + segment.length);
 
 图片文件和剪贴板读取已通过新输入接入完整草稿；提交时按有效引用收集真实图片内容。
 
-**后续范围：** 原计划 v1.3 的整体 TUI 已提前接入当前版本，后续完成用户复试及最终 Review，不再按施工计划重复实现。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows bash 问题（No.1）单独安排。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
+**后续范围：** 原计划 v1.3 的整体 TUI 已提前接入当前版本，后续完成用户复试及最终 Review，不再按施工计划重复实现。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows Shell 问题（No.1）已修复并通过三端 CI，验证边界见问题记录。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
 
 ---
 
@@ -313,7 +313,7 @@ export class Harness {
 }
 ```
 
-**现有框架：** 构造时创建四个工具、系统提示和 Agent，允许模型未配置。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；通过 `beforeModelRequest` 在首次请求和每次工具续接前检查压缩。`subscribe` 同时订阅 Agent 原始事件及 Harness 的压缩、最终结果事件；`prompt_end` 每次接受的 prompt 调用只发一次，确认全部恢复后的成败。`prompt()` 保持 `Promise<void>`；异常仍向调用方抛出，同时通过最终事件提供结果，REPL 避免重复报告。`abort` 取消本次 prompt、Agent 和摘要。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`manualCompact()` 保留空闲、用量门槛和压后无新消息的检查。思考 setters 校验并记录设置；请求前回调使用当次模型、思考和凭据快照，工具续接／摘要重试重新取 Key。
+**现有框架：** 构造时先通过 `detectShellEnvironment()` 探测平台与 shell，再创建工具、系统提示和 Agent，允许模型未配置。macOS／Linux 保持 read/bash/edit/write；Windows 优先 PowerShell，检测到 Git Bash 时额外提供 bash。系统提示按 POSIX／Windows 分别生成，Windows 语法说明与实际 PowerShell 版本一致。shell 共用执行器、120 秒默认超时和有界输出排空，CMD 不参与 Bash 命令解释。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；通过 `beforeModelRequest` 在首次请求和每次工具续接前检查压缩。`subscribe` 同时订阅 Agent 原始事件及 Harness 的压缩、最终结果事件；`prompt_end` 每次接受的 prompt 调用只发一次，确认全部恢复后的成败。`prompt()` 保持 `Promise<void>`；异常仍向调用方抛出，同时通过最终事件提供结果，REPL 避免重复报告。`abort` 取消本次 prompt、Agent 和摘要。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`manualCompact()` 保留空闲、用量门槛和压后无新消息的检查。思考 setters 校验并记录设置；请求前回调使用当次模型、思考和凭据快照，工具续接／摘要重试重新取 Key。
 
 **对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
 

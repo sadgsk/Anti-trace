@@ -94,4 +94,4 @@ npm run test:live -- --config /path/to/byok.json --model main
 
 仅发送一次合成文字请求，无工具和会话写入；默认最多输出 256 token，请求超时 30 秒。可用 `--max-tokens 2048` 调整需要更多推理预算的模型。该入口验证实际接入，任务成功率、提示词对照等评测在有明确任务集后单独扩展。
 
-原生剪贴板、具体终端外观和平台 Shell 进程树仍需对应环境验收。Shell 超时测试的子进程会自行结束，只验证超时结果，不据此宣称后台后代进程都会被清理；Windows Shell 既有问题见 `future-issues.md` No.1。
+原生剪贴板、具体终端外观仍需对应环境验收。Shell 测试覆盖默认超时、关闭标准输入、取消和有界输出排空；Windows CI 必须具备 Git Bash、PowerShell 5.1／7，并实际执行中文与空格路径删除、退出码、后代进程清理，以及 CMD 启动 CLI 后的 PowerShell 工具往返。缺少必需 shell 时用例失败；这些 Windows 专用用例仅在其他平台跳过。无 Git Bash 的探测和工具装配另有独立覆盖。见 `future-issues.md` No.1。

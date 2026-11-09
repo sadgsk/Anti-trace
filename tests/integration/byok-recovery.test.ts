@@ -329,7 +329,10 @@ test("Harness and Agent start without a placeholder model; only model operations
 		const seeded = seedSession(f);
 		const harness = new Harness({ cwd: f.root, sessionsRoot: f.sessionsRoot, streamFn });
 		assert.equal(harness.agent.state.model, undefined);
-		assert.deepEqual(harness.agent.state.tools.map(tool => tool.name), ["read", "bash", "edit", "write"]);
+		const names = harness.agent.state.tools.map(tool => tool.name);
+		assert.ok(names.includes("read") && names.includes("edit") && names.includes("write"));
+		if (process.platform === "win32") assert.ok(names.includes("powershell"));
+		else assert.deepEqual(names, ["read", "bash", "edit", "write"]);
 		assert.equal(harness.listSessions().length, 1);
 		assert.equal(harness.resumeAt(1), true);
 		const messages = structuredClone(harness.agent.state.messages);

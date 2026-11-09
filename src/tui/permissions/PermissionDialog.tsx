@@ -1,5 +1,6 @@
 import { Box, Text } from "ink";
 import type { PermissionSnapshot, PermissionPolicy } from "../../cli/permissions/permission-policy.ts";
+import { isShellTool } from "../../cli/permissions/permission-policy.ts";
 import { BaseTextInput } from "../../cli/input/base-text-input.tsx";
 import { StructuredDiff } from "../diff/StructuredDiff.tsx";
 import { Pane } from "../design-system/Pane.tsx";
@@ -13,7 +14,7 @@ export function PermissionDialog({ state, policy, columns, availableRows }: { st
 	if (!request) return null;
 	const framed = columns >= 40 && availableRows >= 10;
 	const width = Math.max(1, columns - (framed ? 4 : 0));
-	const labels = ["1. 允许本次执行", request.name === "bash" ? "2. 本会话允许这条命令" : "2. 本会话允许所有文件编辑", "3. 拒绝，并输入修改建议"];
+	const labels = ["1. 允许本次执行", isShellTool(request.name) ? "2. 本会话允许这条命令" : "2. 本会话允许所有文件编辑", "3. 拒绝，并输入修改建议"];
 	const previewRows = Math.max(0, availableRows - (framed ? 9 : 7) - Number(state.editingFeedback) * 2);
 	const content = <Box flexDirection="column">
 		<ThemedText color="accent" bold wrap="truncate-end">Allow {request.name}?</ThemedText>

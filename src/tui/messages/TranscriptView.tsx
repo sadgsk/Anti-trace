@@ -42,6 +42,6 @@ export function TranscriptItemView({ item, expanded, thinkingDisplay, columns, l
 	if (item.name === "read") return <ReadToolView {...props} />;
 	if (item.name === "edit") return <EditToolView {...props} />;
 	if (item.name === "write") return <WriteToolView {...props} />;
-	if (item.name === "bash") return <BashToolView {...props} />;
+	if (item.name === "bash" || item.name === "powershell") return <BashToolView {...props} />;
 	return <ToolUseCard item={item} label={item.name} target={JSON.stringify(item.args)} columns={columns}><Text>{toolText(item)}</Text></ToolUseCard>;
 }

@@ -13,6 +13,7 @@ import {
 } from "./compaction.ts";
 import { estimateContextTokens, estimateMessagesTokens } from "./context.ts";
 import { buildSystemPrompt } from "./prompt.ts";
+import { getShellEnvironment, type ShellEnvironment } from "./shell-environment.ts";
 import {
 	appendEntry,
 	createSessionFile,
@@ -26,6 +27,7 @@ import {
 	type SessionEntry,
 } from "./session.ts";
 import { createBashTool } from "./tools/bash.ts";
+import { createPowerShellTool } from "./tools/powershell.ts";
 import { createEditTool } from "./tools/edit.ts";
 import { createReadTool } from "./tools/read.ts";
 import { createWriteTool } from "./tools/write.ts";
@@ -44,6 +46,8 @@ export interface HarnessOptions extends Partial<HarnessModelSettings> {
 	streamFn: StreamFn;
 	sessionsRoot?: string;
 	resolveModel?: (reference: ModelReference) => HarnessModelSettings;
+	/** Supply an already detected environment when embedding the harness. */
+	shellEnvironment?: ShellEnvironment;
 }
 
 export type PromptResult = { status: "success" } | { status: "error"; message: string } | { status: "aborted"; message: string };
@@ -78,9 +82,11 @@ export class Harness {
 	private readonly displayListeners = new Set<(event: HarnessEvent, signal: AbortSignal) => Promise<void> | void>();
 
 	constructor(options: HarnessOptions) {
+		const shells = options.shellEnvironment ?? getShellEnvironment();
 		const tools = [
 			createReadTool(options.cwd),
-			createBashTool(options.cwd),
+			...(shells.powershell ? [createPowerShellTool(options.cwd, shells.powershell)] : []),
+			...(shells.bash ? [createBashTool(options.cwd, shells.bash)] : []),
 			createEditTool(options.cwd),
 			createWriteTool(options.cwd),
 		];
@@ -97,6 +103,8 @@ export class Harness {
 				systemPrompt: buildSystemPrompt({
 					cwd: options.cwd,
 					toolNames: tools.map((tool) => tool.name),
+					platform: shells.platform,
+					powerShellVersion: shells.powershell?.majorVersion,
 				}),
 				model: options.model,
 				thinking: options.thinking,

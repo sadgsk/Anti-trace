@@ -11,6 +11,8 @@ export { loadByokConfig, type LoadByokConfigOptions, type LoadedByokConfig } fro
 export { CONNECTION_PRESETS } from "./config/presets.ts";
 export { AssistantMessageEventStream, EventStream } from "./llm/event-stream.ts";
 export { createBashTool } from "./harness/tools/bash.ts";
+export { createPowerShellTool } from "./harness/tools/powershell.ts";
+export { detectShellEnvironment, type ShellEnvironment, type PowerShellConfig } from "./harness/shell-environment.ts";
 export { createEditTool } from "./harness/tools/edit.ts";
 export { createReadTool } from "./harness/tools/read.ts";
 export { createWriteTool } from "./harness/tools/write.ts";

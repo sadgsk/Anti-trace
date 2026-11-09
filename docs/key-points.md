@@ -25,7 +25,7 @@ HTTP 无状态，服务端不记忆上一轮的工具列表，客户端也不做
 
 | 环节 | 位置 |
 |---|---|
-| 工具定义来源 | `src/harness/tools/{read,bash,edit,write}.ts`（`name`/`description`/`parameters`） |
+| 工具定义来源 | `src/harness/tools/{read,bash,powershell,edit,write}.ts`（`name`/`description`/`parameters`）；shell 定义通过 `shell.ts` 共用执行逻辑 |
 | 装配进初始状态 | `src/harness/harness.ts:97`（`buildSystemPrompt` 同处） |
 | 构造请求级 Context | `src/agent/loop.ts:163`–`168`（`systemPrompt` / `messages` / `tools` 每轮重建） |
 | 每轮循环 | `src/agent/loop.ts:63`（`while (true)`，每次工具调用后再请求一次） |
@@ -38,13 +38,13 @@ HTTP 无状态，服务端不记忆上一轮的工具列表，客户端也不做
 | | ① 工具定义 | ② 工具调用历史 |
 |---|---|---|
 | 载体 | body 顶层 `tools` | `messages` 数组内部的 `toolCall` / `toolResult` |
-| 数量 | 恒定 4 个 | 随对话累积增长 |
+| 数量 | 每个 Harness 启动时确定并保持固定；macOS／Linux 4 个，Windows 取决于可用 shell（通常 4 或 5 个） | 随对话累积增长 |
 | 生命周期 | 每次请求一份，内容字节级相同 | 一条条堆在历史里 |
 | 代码 | `loop.ts:167` | 结果消息构造 `loop.ts:548`（`createToolResultMessage`）；落进历史 `loop.ts:108`–`111` |
 
 **验证方式**
 
-用真实 `Agent` + 真实工具 + mock `streamFn` 跑两轮（第一轮含一次 `read` 调用），记录每次 `streamFn` 收到的 `context`：
+用真实 `Agent` + 真实工具 + mock `streamFn` 跑两轮（第一轮含一次 `read` 调用），记录每次 `streamFn` 收到的 `context`。以下为 macOS／Linux 的 4 工具示例；平台装配见 `tests/integration/platform-tools.test.ts`：
 
 ```
 turn 1 / 第 1 次请求: messages=1, tools=4
