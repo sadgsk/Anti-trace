@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Check tag and package versions
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+          const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+          const lock = JSON.parse(readFileSync("package-lock.json", "utf8"));
+          const tag = process.env.GITHUB_REF_NAME ?? "";
+          assert.match(tag, /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, "Use a stable version tag such as v0.1.1");
+          assert.equal(tag, `v${pkg.version}`, "The tag must match package.json version");
+          assert.equal(lock.version, pkg.version, "Update package-lock.json with npm version");
+          assert.equal(lock.packages[""].version, pkg.version, "The lockfile root version must match");
+          assert.notEqual(pkg.private, true, "The package must allow publishing");
+          console.log(`Validated ${pkg.name}@${pkg.version}`);
+          NODE
+      - name: Require a commit from main
+        run: git merge-base --is-ancestor HEAD origin/main
+
+  check:
+    name: Release checks
+    needs: validate
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Publish to npm
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts
+      - name: Build and pack
+        id: pack
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP" --json > "$RUNNER_TEMP/anti-trace-pack.json"
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import { appendFileSync, readFileSync } from "node:fs";
+          import { join } from "node:path";
+          const [pkg] = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "anti-trace-pack.json"), "utf8"));
+          const files = pkg.files.map(file => file.path);
+          for (const path of ["dist/cli/bin.js", "dist/cli/main.js", "README.md", "LICENSE", "byok.example.json"]) {
+            assert.ok(files.includes(path), `Missing package file: ${path}`);
+          }
+          const allowed = /^(dist\/|README\.md$|README\.en\.md$|LICENSE$|package\.json$|byok\.example\.json$|byok\.providers\.example\.json$|docs\/assets\/target-architecture\.svg$)/;
+          assert.ok(files.every(path => allowed.test(path)), "Unexpected files in the package; review the files list");
+          appendFileSync(process.env.GITHUB_OUTPUT, `tarball=${join(process.env.RUNNER_TEMP, pkg.filename)}\n`);
+          console.log(`Packed ${pkg.name}@${pkg.version}: ${pkg.entryCount} files`);
+          NODE
+      - name: Install and run the packed CLI
+        env:
+          TARBALL_PATH: ${{ steps.pack.outputs.tarball }}
+          ANTI_TRACE_HOME: ${{ runner.temp }}/anti-trace-smoke-home
+          CI: "true"
+        run: |
+          smoke_dir="$RUNNER_TEMP/anti-trace-smoke"
+          npm install --prefix "$smoke_dir" --omit=dev --ignore-scripts --no-audit --no-fund "$TARBALL_PATH"
+          mkdir -p "$smoke_dir/workspace"
+          cd "$smoke_dir/workspace"
+          for command in ati anti-trace; do
+            printf /new | "$smoke_dir/node_modules/.bin/$command" > "$smoke_dir/$command.log"
+            cat "$smoke_dir/$command.log"
+            grep -Eq '新会话|[Nn]ew session' "$smoke_dir/$command.log"
+          done
+      - name: Publish the verified package with OIDC
+        env:
+          TARBALL_PATH: ${{ steps.pack.outputs.tarball }}
+        run: npm publish "$TARBALL_PATH" --access public

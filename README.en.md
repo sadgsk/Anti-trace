@@ -146,6 +146,7 @@ The detailed development documents are currently in Chinese.
 - [Development progress](docs/progress.md): current status, pending work, and development history.
 - [Architecture](docs/architecture.md): module responsibilities and design.
 - [Testing and CI](docs/testing.md): commands, test authoring, isolation, coverage and the CI matrix (Chinese).
+- [npm releases](docs/releases.md): connect npm to GitHub and publish stable releases using version tags (Chinese).
 
 The project started by studying and referencing [Pi](https://github.com/earendil-works/pi). Some foundational code was adapted from Pi. Anti-trace uses its own `Harness` and feature design, and does not currently depend on Pi runtime packages.
 

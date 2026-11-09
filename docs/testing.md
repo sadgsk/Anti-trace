@@ -80,7 +80,7 @@ test("完成对话后恢复空闲", async (t) => {
 
 c8 使用源码映射生成覆盖率，并把从未导入的源码计入分母。报告位于忽略的 `coverage/`，包括 HTML、LCOV 和 JSON。全量门槛：行／语句／函数至少 85%，分支至少 80%。覆盖率命令用于全量检查，筛选调试使用 `npm test`。行为清单和关键回归仍是验收依据，百分比不代表所有场景均已覆盖。
 
-`.github/workflows/ci.yml` 使用 GitHub 官方 Actions，在 push、pull request 和手动触发时运行 Windows、Linux、macOS × Node 22、24，共六个独立任务。每个任务安装锁定依赖、检查源码与测试类型、构建、执行全量测试和覆盖率检查，并上传报告保存七天。单个任务失败不会取消其余平台检查。
+`.github/workflows/ci.yml` 使用 GitHub 官方 Actions，在分支 push、pull request、手动触发，以及由 Release 工作流调用时运行 Windows、Linux、macOS × Node 22、24，共六个独立任务。每个任务安装锁定依赖、检查源码与测试类型、构建、执行全量测试和覆盖率检查，并上传报告保存七天。单个任务失败不会取消其余平台检查。版本 tag 由 Release 统一检查，避免重复运行相同矩阵；自动发布和账号绑定见 [npm 自动发布](releases.md)。
 
 需要把 CI 设为合并必需项时，由维护者配置仓库分支规则，工作流不会修改仓库设置。本机和远程验证分开记录；Linux/macOS 的通过状态以 Actions 实际执行结果为准。
 

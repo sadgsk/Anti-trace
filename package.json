@@ -1,9 +1,27 @@
 {
 	"name": "anti-trace",
-	"private": true,
 	"version": "0.1.0",
 	"license": "MIT",
-	"description": "Minimal evolvable CLI agent skeleton, shaped like pi-agent-core",
+	"description": "Terminal AI coding agent with bring-your-own-key model support",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/sadgsk/Anti-trace.git"
+	},
+	"homepage": "https://github.com/sadgsk/Anti-trace#readme",
+	"bugs": {
+		"url": "https://github.com/sadgsk/Anti-trace/issues"
+	},
+	"files": [
+		"dist/",
+		"README.en.md",
+		"byok.example.json",
+		"byok.providers.example.json",
+		"docs/assets/target-architecture.svg"
+	],
+	"publishConfig": {
+		"access": "public",
+		"registry": "https://registry.npmjs.org/"
+	},
 	"type": "module",
 	"bin": {
 		"ati": "dist/cli/bin.js",
@@ -13,6 +31,7 @@
 		"start": "tsx src/cli/main.ts",
 		"typecheck": "tsc --noEmit",
 		"build": "tsc",
+		"prepack": "npm run build",
 		"test": "node scripts/run-tests.mjs",
 		"test:unit": "node scripts/run-tests.mjs unit",
 		"test:integration": "node scripts/run-tests.mjs integration regressions",

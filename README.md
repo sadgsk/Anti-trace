@@ -144,6 +144,7 @@ Enter 提交，Shift/Alt+Enter 或反斜杠后 Enter 换行；Ctrl+C 中断生�
 - [开发进度](docs/progress.md)：当前状态、待办与开发记录。
 - [架构书](docs/architecture.md)：模块职责与设计。
 - [测试与 CI](docs/testing.md)：本地命令、测试编写、隔离、覆盖率和三端 CI。
+- [npm 自动发布](docs/releases.md)：首次绑定 npm 与 GitHub，以及通过版本 tag 自动发布。
 - [关键认知](docs/key-points.md)：读码时形成的确定结论（工具字段位置、缓存前缀等），含原因与验证方式。
 
 项目从阅读和参考 [Pi](https://github.com/earendil-works/pi) 起步，部分基础代码参考并改写自 Pi，使用自己的 `Harness` 和功能设计，当前不依赖 Pi 的运行时包。
