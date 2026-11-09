@@ -15,6 +15,7 @@ import { ScrollbackOutput } from "../../src/cli/ink/scrollback-output.ts";
 import { startTerminalHost, type TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
 import { createFakeStreamFn } from "../support/fake-stream.ts";
 import { tempWorkspace, waitFor } from "../support/fixtures.ts";
+import { TerminalScreen } from "../support/terminal-screen.ts";
 
 const pause = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms));
 const strip = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
@@ -100,6 +101,23 @@ test("native frame transport overwrites rows in place inside one synchronized up
 		writer.write(["alpha", "beta", "gamma", "delta"].join("\n"));
 	}
 	stdout.destroy();
+});
+
+test("incremental terminal repaints retain unchanged tool preview rows on screen", async () => {
+	const screen = new TerminalScreen(80, 10), writes: string[] = [];
+	const stdout = Object.assign(new Writable({ write(chunk, _enc, done) {
+		const data = chunk.toString(); writes.push(data); screen.write(data); done();
+	} }), { columns: 80, rows: 10 });
+	const writer = new ScrollbackOutput(stdout as any);
+	try {
+		writer.write("OLDER_00\nOLDER_01\nexpanded");
+		await waitFor(() => screen.idle, "initial terminal output parsed");
+		writer.write("OLDER_00\nOLDER_01\ncollapsed");
+		await waitFor(() => screen.idle, "incremental terminal output parsed");
+		assert.doesNotMatch(writes.at(-1)!, /OLDER_00/, "an unchanged row need not be sent again");
+		assert.match(screen.text, /OLDER_00\nOLDER_01\ncollapsed/);
+		assert.doesNotMatch(screen.text, /expanded/);
+	} finally { stdout.destroy(); screen.dispose(); }
 });
 
 test("terminal host paints only the latest of several frames committed in one tick", async () => {

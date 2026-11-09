@@ -8,18 +8,19 @@ import { Harness } from "../../src/harness/harness.ts";
 import { startTerminalRepl } from "../../src/cli/repl/terminal-repl.tsx";
 import { createFakeStreamFn } from "../support/fake-stream.ts";
 import { waitFor } from "../support/fixtures.ts";
+import { TerminalScreen } from "../support/terminal-screen.ts";
 import { mouseWheelDirection } from "../../src/cli/ink/mouse-wheel.ts";
 import type { TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
 import type { ViewportMetrics } from "../../src/tui/viewport-state.ts";
 class Input extends PassThrough { isTTY = true; isRaw = false; setRawMode(value: boolean) { this.isRaw = value; return this; } }
 class Output extends PassThrough { isTTY = true; columns = 100; rows = 30; }
-const strip = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 function fixture() {
 	const root = resolve(mkdtempSync(join(tmpdir(),"expand-history-"))), stdin = new Input(), stdout = new Output();
-	let output = "", frame = "", paints = 0;
+	const screen = new TerminalScreen(stdout.columns, stdout.rows);
+	let output = "";
 	stdout.on("data", chunk => {
 		const write = chunk.toString(); output += write;
-		if (write.startsWith("\x1b[?2026h")) { frame = strip(write); paints++; }
+		screen.write(write);
 	});
 	const command = (prefix:string) => `"${process.execPath}" -e "for(let i=0;i<30;i++)console.log('${prefix}_'+String(i).padStart(2,'0'))"`;
 	const h = new Harness({ cwd:root, sessionsRoot:join(root,"sessions"), apiKey:"fake", model:{ id:"local",name:"local",provider:"test",api:"openai-completions",baseUrl:"http://127.0.0.1:1",contextWindow:100000 },
@@ -28,8 +29,9 @@ function fixture() {
 	let metrics: ViewportMetrics | undefined;
 	const setMetrics = app.repl.setViewportMetrics;
 	app.repl.setViewportMetrics = value => { metrics = value; setMetrics(value); };
-	return {root,stdin,stdout,app,output:()=>output,frame:()=>frame,paints:()=>paints,metrics:()=>metrics,
-		close(){app.stop();stdin.destroy();stdout.destroy();assert.equal(dirname(root),resolve(tmpdir()));assert.match(basename(root),/^expand-history-/);rmSync(root,{recursive:true,force:true});}};
+	return {root,stdin,stdout,app,output:()=>output,frame:()=>screen.text,paints:()=>screen.paints,metrics:()=>metrics,
+		resize(columns: number) { screen.resize(columns, stdout.rows); stdout.columns = columns; stdout.emit("resize"); },
+		close(){app.stop();stdin.destroy();stdout.destroy();screen.dispose();assert.equal(dirname(root),resolve(tmpdir()));assert.match(basename(root),/^expand-history-/);rmSync(root,{recursive:true,force:true});}};
 }
 async function finishPrompt(f: ReturnType<typeof fixture>) {
 	f.stdin.write("run\r");
@@ -79,7 +81,7 @@ test("wheel review and Ctrl+O retain the older tool, with collapse and resize pr
 			throw new Error(`${String(error)}\nMetrics: ${JSON.stringify(f.metrics())}\nFrame:\n${f.frame()}`, { cause: error });
 		}
 		assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);assert.match(f.frame(),/OLDER_00/);assert.doesNotMatch(f.frame(),/OLDER_06/);
-		const beforeResize = f.paints(); f.stdout.columns=75;f.stdout.emit("resize");
+		const beforeResize = f.paints(); f.resize(75);
 		await waitFor(() => f.paints() > beforeResize, "resized reading view painted");
 		f.stdin.write("\x0f");
 		await waitFor(() => f.frame().includes("OLDER_06"), "older tool expanded after resize");
