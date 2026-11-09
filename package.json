@@ -1,6 +1,6 @@
 {
 	"name": "anti-trace",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"license": "MIT",
 	"description": "Terminal AI coding agent with bring-your-own-key model support",
 	"repository": {
