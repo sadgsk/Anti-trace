@@ -24,7 +24,7 @@ cd Anti-trace
 npm install
 ```
 
-Copy [byok.example.json](byok.example.json) to `byok.json` in the project root and configure:
+Copy [byok.example.json](byok.example.json) to `~/.anti-trace/profiles/local/configs/main.json` in your home directory (create the directories first) and configure:
 
 - The connection's API key and service URL.
 - The model ID, context window, and output limit.
@@ -35,6 +35,15 @@ The default `main` entry contains a placeholder URL and model ID. Replace them b
 ```sh
 npm start
 ```
+
+To register the equivalent local commands `ati` and `anti-trace`, run these commands from this repository:
+
+```sh
+npm run build
+npm link
+```
+
+You can then run `ati` or `anti-trace` from any working directory; that directory becomes the CLI's cwd, while model configuration is loaded from your user data directory. `CLI_AGENT_CONFIG` can explicitly select another JSON file. The commands run the compiled `dist` files, so run `npm run build` again after source changes; linking again is unnecessary. `npm link` registers the commands locally and does not publish to npm.
 
 macOS and Linux use Bash. Windows prefers PowerShell 7, falling back to Windows PowerShell 5.1. Installing Git for Windows also enables the Bash tool for Bash scripts and POSIX commands. For a custom Git installation, set `ANTI_TRACE_GIT_BASH_PATH` to the absolute path of its `bin\bash.exe` before startup. You can launch Anti-trace from CMD or PowerShell; each tool selects its own interpreter. Commands default to a 120-second timeout.
 
@@ -60,7 +69,24 @@ Use BYOK JSON to configure your own model service:
 
 Models reference a connection through `connection`; `currentModel` selects a key in `models`. Set `apiKey` directly or use `apiKeyEnv` to reference a process environment variable.
 
-The CLI remembers the last successfully used configuration and model for each project and restores them on restart. On first launch, it reads `byok.json` from the startup working directory. If there is neither a remembered selection nor a root `byok.json`, it automatically uses the sole valid configuration in `.ant-trace/configs/`; use `/config` to choose when there are several. `CLI_AGENT_CONFIG` overrides the remembered configuration. The selection is stored in `.ant-trace/last-model.json`, containing only the configuration path and model key. `.env` files are not loaded. `byok.json` and `.ant-trace/` are ignored by Git; do not commit real credentials.
+The user data root defaults to `~/.anti-trace`; override it with `ANTI_TRACE_HOME`. Model configurations and `/config` creations use `profiles/local/configs/`. The `local` profile is the current local user; the code accepts a `profileId` for future user separation without implementing login.
+
+Startup selects an explicit `CLI_AGENT_CONFIG`, the project's last selection, the user's default selection, or the sole valid configuration, in that order. Multiple configurations without a saved selection require `/config`. Explicit configuration/model choices update the user default; reopening a project does not overwrite that default with its project selection. Missing saved paths warn and fall back; invalid explicit paths fail. Workspace `byok.json`, `.env` and old storage directories are not automatically read.
+
+```text
+~/.anti-trace/
+├── preferences.json                     # Machine-wide language preference
+└── profiles/local/
+    ├── configs/                         # Model connection configuration
+    ├── default-model.json               # Default selection for new projects
+    └── projects/<SHA-256 of workspace>/
+        ├── project.json                 # Workspace path
+        ├── last-model.json              # Project model/config selection
+        ├── sessions/                    # Conversations and image attachments
+        └── tool-results/                # Complete tool output
+```
+
+Selection files contain only configuration paths and model keys. Conversations and tool output are separated by workspace and profile, while language is shared on this machine. File operations and shells keep the startup cwd. Image conversion uses the system temporary directory. Old conversations are not migrated; existing files remain untouched.
 
 Anthropic Messages defaults to `32000` when `maxOutputTokens` is omitted, capped at the configured `contextWindow` if it is smaller. An explicit output limit takes precedence.
 

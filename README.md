@@ -24,7 +24,7 @@ cd Anti-trace
 npm install
 ```
 
-将 [byok.example.json](byok.example.json) 复制为项目根目录的 `byok.json`，填写：
+将 [byok.example.json](byok.example.json) 复制为用户目录下的 `~/.anti-trace/profiles/local/configs/main.json`（请先创建目录），填写：
 
 - 连接的 API key 和服务地址。
 - 模型 ID、上下文窗口与输出上限。
@@ -35,6 +35,15 @@ npm install
 ```sh
 npm start
 ```
+
+也可以在本机注册 `ati` 和 `anti-trace` 两个等价的启动命令。先在本仓库目录执行：
+
+```sh
+npm run build
+npm link
+```
+
+之后在任意工作目录运行 `ati` 或 `anti-trace`，程序会使用该目录作为 cwd，模型配置默认从用户目录加载。`CLI_AGENT_CONFIG` 可显式指定其他 JSON 文件。命令运行的是编译后的 `dist`；修改源码后重新执行 `npm run build` 即可，无需再次 link。`npm link` 只注册本地命令，不会发布到 npm。
 
 macOS／Linux 使用 Bash。Windows 优先使用 PowerShell（优先 7，回退到系统 5.1）；安装 Git for Windows 后还会提供 Git Bash，用于 Bash 脚本和 POSIX 命令。Git Bash 安装在特殊目录时，可在启动前设置 `ANTI_TRACE_GIT_BASH_PATH` 为其 `bin\bash.exe` 的绝对路径。可以从 CMD 或 PowerShell 启动 Anti-trace，工具执行器由程序独立选择。命令默认超时为 120 秒。
 
@@ -60,7 +69,24 @@ Agent 会按任务需要读取文件、修改代码和执行命令。这些操�
 
 模型通过 `connection` 引用连接配置，`currentModel` 选择 `models` 中的模型键。连接可以直接填写 `apiKey`，也可以用 `apiKeyEnv` 引用进程环境变量。
 
-CLI 会记住当前项目最近成功使用的配置文件和模型，重启后自动恢复；首次启动默认读取启动目录下的 `byok.json`。如果没有选择记录且根目录没有 `byok.json`，会自动使用 `.ant-trace/configs/` 中唯一有效的配置；有多个时通过 `/config` 选择。`CLI_AGENT_CONFIG` 可指定其他文件，并优先于记住的配置。选择记录保存在 `.ant-trace/last-model.json`，仅包含配置路径和模型键。不会读取 `.env` 文件。`byok.json` 和 `.ant-trace/` 已被 Git 忽略，请勿提交真实密钥。
+CLI 使用统一的用户数据目录，默认是 `~/.anti-trace`，可通过 `ANTI_TRACE_HOME` 覆盖。模型配置保存在 `profiles/local/configs/`，`/config` 新建的文件也写入这里。`local` 是当前本地用户空间；代码通过 `profileId` 预留未来的用户隔离能力，当前没有登录功能。
+
+启动时依次使用：显式 `CLI_AGENT_CONFIG`、当前项目上次选择、当前用户默认选择、配置目录中唯一有效的配置。首次没有选择记录且存在多个配置时，需要通过 `/config` 选择。用户主动选择配置或模型后，会更新用户默认选择；打开已有项目不会用它的项目选择覆盖用户默认。不存在的记忆路径会提示并回退，显式路径错误会报错。不会自动读取工作目录的 `byok.json` 或 `.env`，也不读取旧目录的配置、偏好和会话。
+
+```text
+~/.anti-trace/
+├── preferences.json                     # 全局语言偏好
+└── profiles/local/
+    ├── configs/                         # 模型连接配置
+    ├── default-model.json               # 新项目的默认配置与模型
+    └── projects/<工作目录的 SHA-256>/
+        ├── project.json                 # 实际工作路径
+        ├── last-model.json              # 当前项目的配置与模型选择
+        ├── sessions/                    # 会话及图片附件
+        └── tool-results/                # 完整工具输出
+```
+
+选择记录只包含配置路径和模型键，不包含凭据。每个项目的会话和工具输出独立；语言偏好在本机共享。文件读写与 Shell 执行继续使用启动目录作为 cwd。临时图片转换文件使用系统临时目录。旧会话不迁移，原文件保留。
 
 Anthropic Messages 未填写 `maxOutputTokens` 时默认使用 `32000`；若配置的 `contextWindow` 更小，默认输出上限会降到窗口大小。显式填写的输出上限优先。
 

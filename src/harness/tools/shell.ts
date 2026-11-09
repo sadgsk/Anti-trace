@@ -5,6 +5,7 @@ import { win32 } from "node:path";
 import { type Static, Type } from "typebox";
 import type { AgentTool } from "../../types.ts";
 import { BashOutput, type BashOutputSummary } from "./bash-output.ts";
+import { ensureProjectDirectory, getAppPaths, type AppPaths } from "../../storage/app-paths.ts";
 
 export const shellSchema = Type.Object({
 	command: Type.String({ description: "Shell command to execute" }),
@@ -26,7 +27,7 @@ export interface ShellToolDetails extends Partial<BashOutputSummary> {
 	outputDrainTimedOut?: boolean;
 }
 
-export function createShellTool(cwd: string, config: ShellToolConfig): AgentTool<typeof shellSchema, ShellToolDetails> {
+export function createShellTool(cwd: string, config: ShellToolConfig, paths: AppPaths = getAppPaths({ cwd })): AgentTool<typeof shellSchema, ShellToolDetails> {
 	return {
 		name: config.name,
 		label: config.name,
@@ -46,7 +47,7 @@ export function createShellTool(cwd: string, config: ShellToolConfig): AgentTool
 			});
 			child.stdin.end();
 			const childClosedPromise = new Promise<void>(resolve => child.once("close", () => resolve()));
-			const output = new BashOutput(cwd, config.name), startedAt = Date.now();
+			const output = new BashOutput(paths.toolResultsDir, config.name, () => ensureProjectDirectory(paths)), startedAt = Date.now();
 			const decoders = { stdout: new StringDecoder("utf8"), stderr: new StringDecoder("utf8") };
 			let timedOut = false, tail = "", totalLines = 0, finished = false;
 			let updateTimer: NodeJS.Timeout | undefined, timer: NodeJS.Timeout | undefined, drainTimer: NodeJS.Timeout | undefined;

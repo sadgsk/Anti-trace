@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage, ImageContent, SessionSettings } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { extensionForImageMimeType } from "./tools/image.ts";
+import { canonicalWorkspace, ensureProjectDirectory, getAppPaths, projectIdForCwd, type AppPaths } from "../storage/app-paths.ts";
 
-export const DEFAULT_SESSIONS_ROOT = join(homedir(), ".cli-agent", "sessions");
+export type SessionStorage = string | AppPaths;
 
-export function sessionDirForCwd(cwd: string, sessionsRoot: string = DEFAULT_SESSIONS_ROOT): string {
-	const resolvedCwd = resolve(cwd);
-	const encoded = `--${resolvedCwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
-	return join(resolve(sessionsRoot), encoded);
+/** A string is an explicit root used by embedders/tests; normal CLI calls supply resolved paths. */
+export function sessionDirForCwd(cwd: string, storage?: SessionStorage): string {
+	return typeof storage === "string" ? join(resolve(storage), projectIdForCwd(cwd)) : (storage ?? getAppPaths({ cwd })).sessionsDir;
 }
 
 export const SESSION_VERSION = 1 as const;
@@ -43,13 +42,15 @@ export interface SessionSettingsEntry extends SessionSettings { type: "settings"
 export type SessionEntry = SessionMessageEntry | CompactionEntry | SessionSettingsEntry;
 
 export interface SessionFile {
+	storage?: AppPaths;
 	path: string;
 	header: SessionHeader;
 	entries: SessionEntry[];
 	flushed: boolean;
 }
 
-export function createSessionFile(cwd: string, sessionsRoot: string = DEFAULT_SESSIONS_ROOT): SessionFile {
+export function createSessionFile(cwd: string, storage?: SessionStorage): SessionFile {
+	storage ??= getAppPaths({ cwd });
 	const id = randomUUID();
 	const timestamp = new Date().toISOString();
 	const resolvedCwd = resolve(cwd);
@@ -62,7 +63,8 @@ export function createSessionFile(cwd: string, sessionsRoot: string = DEFAULT_SE
 	};
 	const fileTimestamp = timestamp.replace(/[:.]/g, "-");
 	return {
-		path: join(sessionDirForCwd(resolvedCwd, sessionsRoot), `${fileTimestamp}_${id}.jsonl`),
+		path: join(sessionDirForCwd(resolvedCwd, storage), `${fileTimestamp}_${id}.jsonl`),
+		...(typeof storage === "string" ? {} : { storage }),
 		header,
 		entries: [],
 		flushed: false,
@@ -108,8 +110,9 @@ export function appendEntry(session: SessionFile, entry: SessionEntry): void {
 			}
 			session.header.name = sessionTitleFromUserText(userText);
 		}
-		mkdirSync(dirname(session.path), { recursive: true });
-		const fd = openSync(session.path, "wx");
+		if (session.storage) ensureProjectDirectory(session.storage);
+		mkdirSync(dirname(session.path), { recursive: true, mode: 0o700 });
+		const fd = openSync(session.path, "wx", 0o600);
 		try {
 			writeFileSync(fd, `${JSON.stringify(session.header)}\n`);
 			for (const item of session.entries) {
@@ -254,8 +257,8 @@ export interface SessionListItem {
 	lastOpenedAt: number;
 }
 
-export function listSessions(cwd: string, sessionsRoot: string = DEFAULT_SESSIONS_ROOT): SessionListItem[] {
-	const dir = sessionDirForCwd(cwd, sessionsRoot);
+export function listSessions(cwd: string, storage?: SessionStorage): SessionListItem[] {
+	const dir = sessionDirForCwd(cwd, storage);
 	let fileNames: string[];
 	try {
 		fileNames = readdirSync(dir);
@@ -277,7 +280,9 @@ export function listSessions(cwd: string, sessionsRoot: string = DEFAULT_SESSION
 		}
 		let name: string;
 		try {
-			name = loadSession(filePath).name;
+			const loaded = loadSession(filePath);
+			if (canonicalWorkspace(loaded.header.cwd) !== canonicalWorkspace(cwd)) continue;
+			name = loaded.name;
 		} catch {
 			continue;
 		}
@@ -288,8 +293,8 @@ export function listSessions(cwd: string, sessionsRoot: string = DEFAULT_SESSION
 	return items;
 }
 
-export function findMostRecentSession(cwd: string, sessionsRoot: string = DEFAULT_SESSIONS_ROOT): string | undefined {
-	return listSessions(cwd, sessionsRoot)[0]?.filePath;
+export function findMostRecentSession(cwd: string, storage?: SessionStorage): string | undefined {
+	return listSessions(cwd, storage)[0]?.filePath;
 }
 
 export function touchSession(filePath: string): void {
@@ -310,8 +315,8 @@ export function touchSession(filePath: string): void {
  */
 export function saveSessionImage(sessionPath: string, image: ImageContent): string {
 	const dir = `${sessionPath.replace(/\.jsonl$/, "")}.assets`;
-	mkdirSync(dir, { recursive: true });
+	mkdirSync(dir, { recursive: true, mode: 0o700 });
 	const filePath = join(dir, `${randomUUID()}.${extensionForImageMimeType(image.mimeType)}`);
-	writeFileSync(filePath, Buffer.from(image.data, "base64"));
+	writeFileSync(filePath, Buffer.from(image.data, "base64"), { mode: 0o600 });
 	return filePath;
 }

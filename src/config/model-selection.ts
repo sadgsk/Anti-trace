@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { ModelReference } from "../types.ts";
 
-/** Project-local startup selection. Only catalog references are stored, never credentials. */
+/** A selection file contains only catalog references, never credentials. */
 export class ModelSelectionStore {
 	private readonly path: string;
-	constructor(private readonly cwd: string) {
-		this.path = join(resolve(cwd), ".ant-trace", "last-model.json");
+	constructor(path: string, private readonly cwd: string = process.cwd()) {
+		this.path = resolve(path);
 	}
 
 	read(): ModelReference | undefined {

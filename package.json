@@ -1,10 +1,14 @@
 {
-	"name": "cli-agent",
+	"name": "anti-trace",
 	"private": true,
 	"version": "0.1.0",
 	"license": "MIT",
 	"description": "Minimal evolvable CLI agent skeleton, shaped like pi-agent-core",
 	"type": "module",
+	"bin": {
+		"ati": "dist/cli/bin.js",
+		"anti-trace": "dist/cli/bin.js"
+	},
 	"scripts": {
 		"start": "tsx src/cli/main.ts",
 		"typecheck": "tsc --noEmit",

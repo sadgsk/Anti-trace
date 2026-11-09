@@ -14,6 +14,7 @@ import type { PermissionMode } from "../permissions/permission-policy.ts";
 import { LocaleProvider } from "../../tui/locale/LocaleProvider.tsx";
 import { mouseWheelDirection } from "../ink/mouse-wheel.ts";
 import type { TranscriptFrame } from "../../tui/layout/TranscriptViewport.tsx";
+import type { UiLocale } from "../locale.ts";
 import { ArrayRows, appendRows, overlayTail } from "../../tui/layout/terminal-rows.ts";
 
 export interface TerminalReplOptions {
@@ -25,6 +26,7 @@ export interface TerminalReplOptions {
 	bindings?: readonly Keybinding[];
 	onExit?: () => void;
 	cwd?: string;
+	locale?: UiLocale;
 	permissionMode?: PermissionMode;
 }
 
@@ -39,7 +41,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	let resolveDone!: () => void;
 	const done = new Promise<void>(resolve => { resolveDone = resolve; });
 	let prompt!: PromptInputController;
-	const repl = new ReplController({ harness: options.harness, byok: options.byok, cwd, interactive: true, permissionMode: options.permissionMode,
+	const repl = new ReplController({ harness: options.harness, byok: options.byok, cwd, locale: options.locale, interactive: true, permissionMode: options.permissionMode,
 		onAccept: () => prompt.reset(), onExit: () => stop() });
 	prompt = new PromptInputController({
 		availableColumns: inputColumns(),

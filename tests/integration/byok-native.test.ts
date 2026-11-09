@@ -229,12 +229,12 @@ for (const api of protocols) {
 			const f = temp();
 			try {
 				writeFileSync(join(f.root, "byok.json"), JSON.stringify({ version: 1, connections: { local: { api, baseUrl: url, apiKey: "fake-secret" } }, models: { main: { connection: "local", id: model(api, url).id, contextWindow: 128000, maxOutputTokens: 32000, adapter: model(api, url).adapter } }, currentModel: "main" }));
-				const loaded = loadByokConfig({ cwd: f.root }); assert.equal(loaded.model.api, api);
+				const loaded = loadByokConfig({ cwd: f.root, configPath: join(f.root, "byok.json") }); assert.equal(loaded.model.api, api);
 				const harness = new Harness({ cwd: f.root, sessionsRoot: join(f.root, "sessions"), model: loaded.model, getApiKey: loaded.getApiKey, streamFn: streamModel });
 				await harness.prompt("first"); assert.equal((harness.agent.state.messages.at(-1) as AssistantMessage).stopReason, "error");
 				await harness.prompt("second"); assert.equal((harness.agent.state.messages.at(-1) as AssistantMessage).stopReason, "stop");
 				const stdin = new PassThrough(), stdout = new PassThrough(), stderr = new PassThrough(); let text = ""; stdout.on("data", b => text += b);
-				stdin.end("CLI"); assert.equal(await runCli({ cwd: f.root, sessionsRoot: join(f.root, "sessions"), streams: { stdin, stdout, stderr } }), 0); assert.match(text, /你好/);
+				stdin.end("CLI"); assert.equal(await runCli({ cwd: f.root, configPath: join(f.root, "byok.json"), sessionsRoot: join(f.root, "sessions"), streams: { stdin, stdout, stderr } }), 0); assert.match(text, /你好/);
 			} finally { f.cleanup(); }
 		});
 	});

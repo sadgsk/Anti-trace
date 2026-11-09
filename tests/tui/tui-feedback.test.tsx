@@ -16,6 +16,7 @@ import { createFakeStreamFn } from "../support/fake-stream.ts";
 import { CommandDialog } from "../../src/tui/commands/CommandDialog.tsx";
 import { ReplScreen } from "../../src/tui/layout/ReplScreen.tsx";
 import { loadByokConfig } from "../../src/config/byok.ts";
+import { getAppPaths } from "../../src/storage/app-paths.ts";
 import { ConfigProfiles } from "../../src/config/config-profiles.ts";
 import { AssistantThinkingMessage } from "../../src/tui/messages/AssistantThinkingMessage.tsx";
 import { TranscriptViewport } from "../../src/tui/layout/TranscriptViewport.tsx";
@@ -83,7 +84,7 @@ test("config menu adds a usable profile through the TUI, masks the secret and ed
 		const frame = await snapshot(createElement(CommandDialog, { controller: f.app.repl.dialogs, columns: 80, rows: 26 }), 80);
 		assert.doesNotMatch(frame, /new-secret/); assert.match(frame, /••••••••/);
 		f.stdin.write("\x13"); assert.equal(f.app.repl.dialogs.getSnapshot(), null);
-		const path = join(f.root, ".ant-trace", "configs", "new.json"); assert.ok(existsSync(path)); assert.equal(loadByokConfig({ configPath: path }).model.id, "new-model"); assert.equal(f.h.agent.state.model?.id, "new-model");
+		const path = join(getAppPaths({ cwd: f.root }).configsDir, "new.json"); assert.ok(existsSync(path)); assert.equal(loadByokConfig({ configPath: path }).model.id, "new-model"); assert.equal(f.h.agent.state.model?.id, "new-model");
 		// Edit an existing multi-model file with a shared connection and preserve the other model's key.
 		writeFileSync(f.path, JSON.stringify(f.raw)); const edit = f.byok.profiles.read(f.path, "main"), values = Object.fromEntries(f.byok.profiles.fields(edit).map(field => [field.key, field.value]));
 		values.modelId = "edited"; values.apiKey = "replacement-secret"; f.byok.saveProfile(values, edit);

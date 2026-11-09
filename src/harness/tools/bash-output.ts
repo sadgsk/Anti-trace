@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdir, open, unlink, type FileHandle } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 /** Raw output budget; metadata and the omission marker have a small additional cost. */
 export const BASH_OUTPUT_MAX_BYTES = 32 * 1024;
@@ -36,7 +36,7 @@ export class BashOutput {
 	totalBytes = 0;
 	private newlineCount = 0;
 
-	constructor(private readonly cwd: string, private readonly toolName = "bash") {}
+	constructor(private readonly directory: string, private readonly toolName = "bash", private readonly beforePersist?: () => void) {}
 
 	append(chunk: Buffer): Promise<void> {
 		this.pending = this.write(chunk);
@@ -61,9 +61,9 @@ export class BashOutput {
 		}
 		try {
 			if (!this.file) {
-				const directory = resolve(this.cwd, ".ant-trace", "tool-results");
-				await mkdir(directory, { recursive: true });
-				const path = join(directory, `${randomUUID()}.log`);
+				this.beforePersist?.();
+				await mkdir(this.directory, { recursive: true, mode: 0o700 });
+				const path = join(this.directory, `${randomUUID()}.log`);
 				this.file = await open(path, "wx", 0o600);
 				this.path = path;
 				for (const buffered of this.inline) await this.file.writeFile(buffered);

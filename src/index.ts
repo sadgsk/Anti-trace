@@ -1,4 +1,5 @@
 export { Agent, type AgentOptions } from "./agent/agent.ts";
+export { getAppPaths, type AppPaths, type StorageOptions } from "./storage/app-paths.ts";
 export { ByokConfigError } from "./config/errors.ts";
 export { runAgentLoop } from "./agent/loop.ts";
 export { Harness, type HarnessOptions, type HarnessModelSettings } from "./harness/harness.ts";

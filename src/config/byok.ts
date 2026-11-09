@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { getAppPaths, type StorageOptions } from "../storage/app-paths.ts";
 import { Type, type Static } from "typebox";
 import { Check, Errors } from "typebox/value";
 import type { Model, ThinkingPreferences } from "../types.ts";
@@ -47,7 +48,7 @@ const ConfigSchema = Type.Object({
 }, { additionalProperties: false });
 export type ByokConfigDocument = Static<typeof ConfigSchema>;
 
-export interface LoadByokConfigOptions {
+export interface LoadByokConfigOptions extends StorageOptions {
 	cwd?: string;
 	configPath?: string;
 	/** Model catalog key; takes precedence over currentModel in the file. */
@@ -72,7 +73,7 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 	const env = options.env ?? process.env;
 	const explicitPath = options.configPath ?? env.CLI_AGENT_CONFIG;
 	if (explicitPath !== undefined && !explicitPath.trim()) throw new ByokConfigError("BYOK 配置路径不能为空。");
-	const configPath = resolve(cwd, explicitPath ?? "byok.json");
+	const configPath = resolve(cwd, explicitPath ?? join(getAppPaths({ ...options, cwd }).configsDir, "main.json"));
 	let text: string;
 	try {
 		text = readFileSync(configPath, "utf8");

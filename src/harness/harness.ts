@@ -17,7 +17,6 @@ import { getShellEnvironment, type ShellEnvironment } from "./shell-environment.
 import {
 	appendEntry,
 	createSessionFile,
-	DEFAULT_SESSIONS_ROOT,
 	listSessions as listSessionFiles,
 	loadSession,
 	saveSessionImage,
@@ -25,12 +24,14 @@ import {
 	type SessionFile,
 	type SessionListItem,
 	type SessionEntry,
+	type SessionStorage,
 } from "./session.ts";
 import { createBashTool } from "./tools/bash.ts";
 import { createPowerShellTool } from "./tools/powershell.ts";
 import { createEditTool } from "./tools/edit.ts";
 import { createReadTool } from "./tools/read.ts";
 import { createWriteTool } from "./tools/write.ts";
+import { getAppPaths, type AppPaths, type StorageOptions } from "../storage/app-paths.ts";
 
 export interface HarnessModelSettings {
 	model: Model;
@@ -41,7 +42,8 @@ export interface HarnessModelSettings {
 	getApiKey?: (model: Model) => string | undefined | Promise<string | undefined>;
 }
 
-export interface HarnessOptions extends Partial<HarnessModelSettings> {
+export interface HarnessOptions extends Partial<HarnessModelSettings>, StorageOptions {
+	paths?: AppPaths;
 	cwd: string;
 	streamFn: StreamFn;
 	sessionsRoot?: string;
@@ -64,7 +66,7 @@ export interface HarnessDisplayState {
 export class Harness {
 	readonly agent: Agent;
 	private readonly cwd: string;
-	private readonly sessionsRoot: string;
+	private readonly sessionStorage: SessionStorage;
 	private session!: SessionFile;
 	private usedTokens = 0;
 	private promptController: AbortController | undefined;
@@ -82,16 +84,17 @@ export class Harness {
 	private readonly displayListeners = new Set<(event: HarnessEvent, signal: AbortSignal) => Promise<void> | void>();
 
 	constructor(options: HarnessOptions) {
+		const paths = options.paths ?? getAppPaths(options);
 		const shells = options.shellEnvironment ?? getShellEnvironment();
 		const tools = [
 			createReadTool(options.cwd),
-			...(shells.powershell ? [createPowerShellTool(options.cwd, shells.powershell)] : []),
-			...(shells.bash ? [createBashTool(options.cwd, shells.bash)] : []),
+			...(shells.powershell ? [createPowerShellTool(options.cwd, shells.powershell, paths)] : []),
+			...(shells.bash ? [createBashTool(options.cwd, shells.bash, paths)] : []),
 			createEditTool(options.cwd),
 			createWriteTool(options.cwd),
 		];
 		this.cwd = options.cwd;
-		this.sessionsRoot = options.sessionsRoot ?? DEFAULT_SESSIONS_ROOT;
+		this.sessionStorage = options.sessionsRoot ?? paths;
 		this.getApiKey = options.getApiKey;
 		this.modelRef = options.modelRef ? { ...options.modelRef } : undefined;
 		this.resolveModel = options.resolveModel;
@@ -287,13 +290,13 @@ export class Harness {
 		this.usedTokens = 0;
 		this.usageBaseline = undefined;
 		this.justCompacted = undefined;
-		this.session = createSessionFile(this.cwd, this.sessionsRoot);
+		this.session = createSessionFile(this.cwd, this.sessionStorage);
 		this.restoreWarning = undefined;
 		this.recordSettings(this.settings);
 	}
 
 	listSessions(): SessionListItem[] {
-		return listSessionFiles(this.cwd, this.sessionsRoot);
+		return listSessionFiles(this.cwd, this.sessionStorage);
 	}
 
 	resumeAt(index: number): boolean {

@@ -9,7 +9,7 @@ export function fileSuggestionQuery(draft: PromptDraft): FileQuery | null {
 	if (draft.references.some(ref => ref.start < draft.cursor && ref.end > start)) return null;
 	return { query: match[1]!.replace(/\\/g, "/"), start, end: draft.cursor };
 }
-const excluded = new Set([".git", "node_modules", "dist", ".workbuddy", ".next", "coverage", ".cli-agent"]);
+const excluded = new Set([".git", "node_modules", "dist", ".workbuddy", ".next", "coverage", ".anti-trace", ".ant-trace", ".cli-agent"]);
 function score(path: string, query: string): number {
 	const value = path.toLowerCase(), needle = query.toLowerCase();
 	if (!needle) return 100 - path.length / 100;

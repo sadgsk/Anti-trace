@@ -1,5 +1,22 @@
 import { syncBuiltinESMExports } from "node:module";
 import net from "node:net";
+import { afterEach, beforeEach } from "node:test";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+
+// Shared user defaults must not leak between tests. The runner owns and removes this entire root.
+const previousHomes: Array<string | undefined> = [];
+beforeEach(() => {
+	const root = process.env.CLI_AGENT_TEST_ROOT;
+	if (!root) throw new Error("Storage tests require the isolated test runner");
+	previousHomes.push(process.env.ANTI_TRACE_HOME);
+	process.env.ANTI_TRACE_HOME = join(root, "storage", randomUUID());
+});
+afterEach(() => {
+	const previous = previousHomes.pop();
+	if (previous === undefined) delete process.env.ANTI_TRACE_HOME;
+	else process.env.ANTI_TRACE_HOME = previous;
+});
 
 // Node's HTTP clients and fetch/undici eventually connect through a net.Socket.
 // Keep actual loopback HTTP available while failing accidental external requests.

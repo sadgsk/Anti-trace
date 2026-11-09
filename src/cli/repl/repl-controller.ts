@@ -50,6 +50,7 @@ export interface ReplOptions {
 	byok?: ByokRuntime;
 	cwd?: string;
 	interactive?: boolean;
+	locale?: UiLocale;
 	permissionMode?: PermissionMode;
 	/** Runs synchronously once a draft is accepted; the editor clears that draft here. */
 	onAccept?: () => void;
@@ -83,7 +84,7 @@ export class ReplController {
 	private promptResultReceived = false;
 
 	constructor(private readonly options: ReplOptions) {
-		this.locale = new UiLocale(options.cwd ?? process.cwd(), options.interactive ?? false);
+		this.locale = options.locale ?? new UiLocale(options.cwd ?? process.cwd(), options.interactive ?? false);
 		this.unsubscribeLocale = this.locale.subscribe(() => this.update({ renderEpoch: this.snapshot.renderEpoch + 1 }));
 		this.harness = options.harness;
 		this.permissions = new PermissionPolicy(options.cwd ?? process.cwd(), options.interactive ?? false, options.permissionMode);

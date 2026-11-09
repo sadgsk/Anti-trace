@@ -9,6 +9,7 @@ import { BASH_OUTPUT_MAX_BYTES } from "../../src/harness/tools/bash-output.ts";
 import { createShellTool } from "../../src/harness/tools/shell.ts";
 import type { AgentToolResult } from "../../src/types.ts";
 import { tempWorkspace, waitFor } from "../support/fixtures.ts";
+import { getAppPaths } from "../../src/storage/app-paths.ts";
 
 function command(root: string, source: string): string {
 	const script = join(root, "shell fixture.cjs");
@@ -101,7 +102,7 @@ test("empty and short shell output returns complete bytes and metadata without a
 		assert.equal(meta.timedOut, false);
 		assert.equal(meta.interrupted, false);
 		assert.ok(output.startsWith(original.length ? original.toString("utf8") : "(no output)"));
-		assert.equal(existsSync(join(root, ".ant-trace", "tool-results")), false);
+	assert.equal(existsSync(getAppPaths({ cwd: root }).toolResultsDir), false);
 		for (const key of Object.keys(meta) as Array<keyof BashToolDetails>) assert.deepEqual(result.details[key], meta[key]);
 	}
 });
@@ -205,7 +206,9 @@ test("pre-aborted shell never executes or creates output files", async (t) => {
 
 test("failed log creation reports an error instead of claiming a saved complete output", async (t) => {
 	const root = tempWorkspace(t);
-	writeFileSync(join(root, ".ant-trace"), "a file blocks the log directory");
+	const outputParent = getAppPaths({ cwd: root }).projectRoot;
+	mkdirSync(join(outputParent, ".."), { recursive: true });
+	writeFileSync(outputParent, "a file blocks the log directory");
 	await assert.rejects(emitFile(root, Buffer.alloc(100000, "x")), error => {
 		assert.match(String(error), /Could not save complete bash output/);
 		assert.doesNotMatch(String(error), /\[bash_result\]/);
@@ -230,7 +233,7 @@ test("a late disk write failure closes and removes the incomplete log without ha
 	try {
 		await assert.rejects(emitFile(root, Buffer.alloc(200000, "x")), /Could not save complete bash output: injected disk write failure/);
 		assert.ok(writes >= 2);
-		assert.deepEqual(readdirSync(join(root, ".ant-trace", "tool-results")), [], "partial log must not survive as an apparently complete file");
+		assert.deepEqual(readdirSync(getAppPaths({ cwd: root }).toolResultsDir), [], "partial log must not survive as an apparently complete file");
 	} finally { prototype.writeFile = originalWrite; }
 });
 
@@ -245,5 +248,5 @@ test("sequential and concurrent invocations, including reused call IDs, keep sep
 	const paths = results.map(result => metadata(text(result)).outputPath!);
 	assert.equal(new Set(paths).size, 3);
 	for (const [index, path] of paths.entries()) assert.deepEqual(readFileSync(path), Buffer.alloc(100000, ["a", "b", "c"][index]!));
-	assert.equal(readdirSync(join(root, ".ant-trace", "tool-results")).length, 3);
+	assert.equal(readdirSync(getAppPaths({ cwd: root }).toolResultsDir).length, 3);
 });

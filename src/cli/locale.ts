@@ -1,10 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import { getAppPaths, type AppPaths } from "../storage/app-paths.ts";
 export type UiLanguage = "zh" | "en";
 
 // Source phrases are keys, keeping protocol/model/user content outside the UI dictionary.
 const english: Record<string, string> = {
+	"存在多个模型配置，请用 /config 选择配置文件。": "Multiple model configurations are available; use /config to choose a file.",
 	"选择语言": "Interface language", "切换 CLI 界面语言，不改变对话内容。": "Choose the CLI language. Conversation content stays as written.",
 	"查看命令和快捷键": "Commands and shortcuts", "开始新会话": "Start a new session", "恢复已有会话": "Resume a session",
 	"打开模型选择": "Choose a model", "打开模型思考开关": "Toggle model thinking", "打开思考档位选择": "Choose thinking effort",
@@ -142,8 +144,8 @@ export class UiLocale {
 	private language: UiLanguage = "zh";
 	private readonly listeners = new Set<() => void>();
 	private readonly path: string;
-	constructor(cwd: string, private readonly persist = false) {
-		this.path = join(cwd, ".ant-trace", "preferences.json");
+	constructor(cwd: string, private readonly persist = false, paths: AppPaths = getAppPaths({ cwd })) {
+		this.path = paths.preferencesFile;
 		try { const value = JSON.parse(readFileSync(this.path,"utf8")); if (value.language === "en") this.language = "en"; } catch { /* First launch uses Chinese. */ }
 	}
 	getSnapshot = () => this.language;
@@ -154,7 +156,7 @@ export class UiLocale {
 			let previous = {};
 			try { if (existsSync(this.path)) previous = JSON.parse(readFileSync(this.path,"utf8")); } catch { /* Replace malformed UI preferences. */ }
 			const temporary = this.path + `.${randomUUID()}.tmp`;
-			try { mkdirSync(dirname(this.path), { recursive: true }); writeFileSync(temporary, JSON.stringify({ ...previous, language }, null, 2), { mode: 0o600, flag: "wx" }); renameSync(temporary, this.path); }
+			try { mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 }); writeFileSync(temporary, JSON.stringify({ ...previous, language }, null, 2), { mode: 0o600, flag: "wx" }); renameSync(temporary, this.path); }
 			catch { throw new Error(this.t("语言偏好保存失败。")); }
 			finally { if (existsSync(temporary)) unlinkSync(temporary); }
 		}

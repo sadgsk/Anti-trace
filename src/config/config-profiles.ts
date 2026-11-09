@@ -3,6 +3,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
 import { loadByokConfig, parseByokConfig, type ByokConfigDocument } from "./byok.ts";
 import { ByokConfigError } from "./errors.ts";
+import { getAppPaths, type AppPaths } from "../storage/app-paths.ts";
 
 export interface ConfigProfileField { key: string; label: string; value: string; secret?: boolean; placeholder?: string; options?: readonly string[] }
 
@@ -15,10 +16,11 @@ const digest = (text: string) => createHash("sha256").update(text).digest("hex")
 /** Only recognized BYOK documents and the explicitly selected file appear as profiles. */
 export class ConfigProfiles {
 	readonly directory: string;
-	constructor(private readonly cwd: string, private readonly env: NodeJS.ProcessEnv) { this.directory = join(resolve(cwd), ".ant-trace", "configs"); }
+	constructor(cwd: string, private readonly env: NodeJS.ProcessEnv,
+		paths: AppPaths = getAppPaths({ cwd })) { this.directory = paths.configsDir; }
 	list(currentPath: string): ConfigProfile[] {
-		const paths = new Set([resolve(currentPath), join(resolve(this.cwd), "byok.json")]);
-		for (const directory of new Set([this.directory, dirname(currentPath)])) {
+		const paths = new Set([resolve(currentPath)]);
+		for (const directory of [this.directory]) {
 			if (!existsSync(directory)) continue;
 			for (const entry of readdirSync(directory, { withFileTypes: true })) {
 				if (!entry.isFile() || !entry.name.endsWith(".json") || entry.name.includes(".example.")) continue;
@@ -106,7 +108,7 @@ export class ConfigProfiles {
 	/** Atomic replacement; returns an undo operation used if applying the model fails. */
 	write(path: string, text: string): () => void {
 		const previous = existsSync(path) ? readFileSync(path) : undefined;
-		mkdirSync(dirname(path), { recursive: true });
+		mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 		const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`);
 		try { writeFileSync(temporary, text, { flag: "wx", mode: 0o600 }); renameSync(temporary, path); }
 		finally { if (existsSync(temporary)) unlinkSync(temporary); }

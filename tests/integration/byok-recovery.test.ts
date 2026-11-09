@@ -222,7 +222,7 @@ test("pipe uses an explicit valid selection with a stale-default warning and sup
 	stdout.on("data", chunk => { output += chunk.toString(); }); stderr.on("data", chunk => { error += chunk.toString(); });
 	try {
 		const config = catalog(); config.currentModel = "deleted"; f.write(config); stdin.end("/config");
-		assert.equal(await runCli({ cwd: f.root, sessionsRoot: f.sessionsRoot, model: "main", streams: { stdin, stdout, stderr } }), 0);
+		assert.equal(await runCli({ cwd: f.root, configPath: f.path, sessionsRoot: f.sessionsRoot, model: "main", streams: { stdin, stdout, stderr } }), 0);
 		assert.match(error, /currentModel 引用了不存在的模型 deleted/);
 		assert.match(output, /当前仍生效：main/);
 	} finally { stdin.destroy(); stdout.destroy(); stderr.destroy(); f.cleanup(); }

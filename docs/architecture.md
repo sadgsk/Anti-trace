@@ -130,10 +130,10 @@ Agent / loop（已有，不改职责）
 磁盘采用按项目分桶的线性会话，格式由本项目定义：
 
 ```text
-~/.cli-agent/sessions/--<cwd 编码>--/<ISO时间戳>_<id>.jsonl
+~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/<ISO时间戳>_<id>.jsonl
 ```
 
-编码：绝对 cwd 去掉开头 `/` `\`，把 `/` `\` `:` 换成 `-`，两边加 `--`。同一目录多个 jsonl = 多次聊天。启动默认**新会话**；`/new` 再开一份。第一条 assistant 出现才建文件。
+项目 ID：先将 cwd 转成规范化绝对路径，再计算 SHA-256；项目路径同时保存在 `project.json`。同一目录多个 jsonl = 多次聊天。启动默认**新会话**；`/new` 再开一份。第一条 assistant 出现才建文件。
 
 **会话名：**
 
@@ -194,7 +194,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/cli/input/prompt-input-controller.ts`、`prompt-input.tsx` | 长文本/图片占位、原子移动与删除、完整草稿撤销/重做、提交门槛与输入显示 |
 | `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx` | 命令／会话、busy 门槛、结构化 transcript／activeItems、管道文字投影、权限策略及唯一宿主装配 |
 | `src/tui/*` | ReplScreen 根界面、主题／焦点／通用原语、消息与工具卡、Markdown／Diff、输入外框、补全和审批 |
-| `src/config/byok.ts` | 加载 cwd 下的 `byok.json` 或显式路径 JSON，校验连接与模型目录、选择启动模型并独立读取凭据；JSON 是唯一模型配置来源，缺失或损坏均报错；dotenv 代码和两个 env 文件已删除，本机 JSON 被 Git 忽略 |
+| `src/config/byok.ts` | 加载用户空间 `configs/main.json` 或显式路径 JSON，校验连接与模型目录、选择启动模型并独立读取凭据；JSON 是唯一模型配置来源，缺失或损坏均报错；不加载 dotenv |
 | `src/cli/main.ts` | `runCli()` 先创建 Harness，再尝试应用 BYOK 配置；TTY 交互和非 TTY EOF 提交共用 REPL 逻辑，配置错误不阻止会话命令；导入不启动进程 |
 | `src/cli/byok-runtime.ts` | 保存待尝试选择、有效配置及诊断，加载校验后通过回调应用设置；提供模型键和可恢复结果，不管理 Harness 生命周期 |
 | `src/llm/adapter.ts`、`rules.ts`、`sse.ts` | 统一入口、adapter schema／配置校验／规则与编码模板、可复用 SSE 分帧；当前接入 Chat |
@@ -251,10 +251,10 @@ CLI 负责装配，TUI 负责交互与展示；真实 stdin 和终端输出始�
 
 ### 4.2 交互、配置与权限
 
-- `npm start` 恢复当前项目 `.ant-trace/last-model.json` 中最近成功使用的配置路径和模型键；首次启动使用 `byok.json`，显式路径／`CLI_AGENT_CONFIG` 优先。无选择记录且根目录无 `byok.json` 时，自动加载 `.ant-trace/configs/` 中唯一有效的配置；多个配置仍需选择。选择记录不含模型配置和凭据，保存失败只提示、不阻止本次使用；无配置也能操作界面和恢复会话。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
+- 启动从 `src/storage/app-paths.ts` 统一取得路径。配置选择顺序为显式路径／`CLI_AGENT_CONFIG`、项目上次选择、用户默认选择、用户配置目录中唯一有效的文件；多个配置无选择记录时通过 `/config` 选择。保存选择失败只提示、不阻止本次使用；无配置也能操作界面和恢复新目录中的会话。旧目录不再自动读取，旧会话不迁移。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
 - `/model`、`/effort`、`/thinking`、`/thinking-display`、`/resume`、`/config`、`/language` 使用二级界面；显式参数继续兼容。模型思考开关与思考正文展示分别控制请求和显示。
 - `/config` 的已有配置、添加、修改位于同一菜单；修改进入模型列表，可在同一文件新增模型。字段列表 Enter 进入独立编辑页，确认只改草稿，Esc 放弃该字段；最终保存项或 Ctrl+S 才校验、写盘和应用。共享连接独立复制，API Key 遮挡且留空保留，不进入消息或会话。
-- 配置发现范围为启动目录的 `byok.json`、当前配置所在目录的 BYOK 文档及 `.ant-trace/configs/`；新增配置默认保存在后者。中英文偏好保存在 `.ant-trace/preferences.json`，即时更新界面，用户文字、模型内容与工具原始输出保留原文；整个 `.ant-trace/` 被 Git 忽略。
+- 配置发现范围为当前用户空间的 `configs/` 和显式选择的文件。新增配置默认写入 `~/.anti-trace/profiles/local/configs/`；语言偏好保存在 `~/.anti-trace/preferences.json`，即时更新当前界面。配置、默认模型、项目选择、会话和工具输出按 profile 隔离，默认 profile 为 `local`；`ANTI_TRACE_HOME` 可覆盖数据根目录。用户文字、模型内容与工具原始输出保留原文。
 - 默认 `default` 模式直接读取，编辑与 Shell 先审批；`auto-edit` 自动允许编辑，Shell 仍审批；`yolo` 直接执行工具。启动可传 `--auto-edit`／`--yolo`，Shift+Tab 循环切换。审批支持本次允许、会话记住与拒绝建议；新会话清理会话授权。非 TTY 无法审批时直接拒绝，不等待输入。
 - 权限通过 `Harness.setBeforeToolCall()` 接入既有 Agent 钩子，保留原调用方的前置检查并支持卸载恢复。中断审批或生成时，为同批剩余工具补齐取消结果，不继续请求下一轮模型；最终 Review 仍须核对实际执行链路。
 - 滚轮／PgUp／PgDn 回看；Ctrl+O 在回看处原位展开／收起，在最新处定位最近工具；Ctrl+End 返回最新并收起。回看时新输出保持阅读位置，返回后补齐历史；Shift+拖动使用终端原生选字。
@@ -284,10 +284,11 @@ export interface HarnessModelSettings {
   getApiKey?: (model: Model) => string | undefined | Promise<string | undefined>;
 }
 
-export interface HarnessOptions extends Partial<HarnessModelSettings> {
+export interface HarnessOptions extends Partial<HarnessModelSettings>, StorageOptions {
+  paths?: AppPaths;
   cwd: string;
   streamFn: StreamFn;
-  sessionsRoot?: string; // 默认 ~/.cli-agent/sessions；探针用 tmp
+  sessionsRoot?: string; // 可选的自定义会话根目录，内部仍按 cwd SHA-256 分桶
   resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 }
 
@@ -321,18 +322,18 @@ export class Harness {
 
 ### 5.2 `src/harness/session.ts`
 
-**做什么：** cwd 目录编码、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 随 JSONL 保存，settings 行只保存模型目录引用和偏好。loadSession 分别返回消息和最后设置，不从会话加载旧 URL／Key。
+**做什么：** 按统一项目路径定位会话、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 随 JSONL 保存，settings 行只保存模型目录引用和偏好。loadSession 分别返回消息和最后设置，不从会话加载旧 URL／Key。
 
-- `sessionDirForCwd(cwd, sessionsRoot?): string` → `~/.cli-agent/sessions/--encoded--/`（`sessionsRoot` 默认家目录那份，探针指到 tmp）
+- `sessionDirForCwd(cwd, storage?: string | AppPaths): string` → 默认 `~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/`；传入字符串根目录时使用 `<根目录>/<cwd SHA-256>/`
 - `sessionTitleFromUserText(text): string` → 前 10 个字符，见 §2
 - `createSessionFile(...)` 只准备路径和 header（此时 `name` 可空），第一条 assistant 才 `writeFile` header + 已攒的行；flush 前用第一条 user 文本填 `header.name`
 - `appendEntry(entry)`
 - `loadSession(path): { messages, name }`
-- `listSessions(cwd, sessionsRoot?): { filePath, name, lastOpenedAt }[]` 按 mtime 新到旧；`name` 优先 header，缺则从第一条 user 消息现算
+- `listSessions(cwd, storage?: string | AppPaths): { filePath, name, lastOpenedAt }[]` 按 mtime 新到旧；`name` 优先 header，缺则从第一条 user 消息现算
 - `findMostRecentSession(cwd): string | undefined` 即列表第 1 条的 path
 - `touchSession(path)`：更新 mtime（resume 时调用）
 
-当前格式包含 settings 行，不包含树、lane 或 session_info。compaction / 用量相关行的读写也走这里，类型放在 `session.ts`。`HarnessOptions.sessionsRoot?: string` 默认 `~/.cli-agent/sessions`。
+当前格式包含 settings 行，不包含树、lane 或 session_info。compaction / 用量相关行的读写也走这里，类型放在 `session.ts`。普通 CLI 传入统一的 `AppPaths`；`HarnessOptions.sessionsRoot?: string` 仅用于嵌入场景或测试中的自定义根目录。
 
 **对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath` 和 `_persist` 中延迟落盘的处理。当前借鉴目录组织和延迟建文件的思路；标题规则、线性格式和恢复交互由本项目确定。
 
@@ -391,7 +392,7 @@ export class Harness {
 
 统一设置链、选定厂商和本地验收已完成，既有 review 尾项保留。配置入口见 [厂商示例](../byok.providers.example.json)，模型绑定在 `src/llm/rules.ts`，命令见 README，验证记录见 [开发进度](./progress.md)。两份 BYOK 专题文档已按用户要求退役。
 
-配置使用 cwd 的 byok.json 或明确指定的路径；loadByokConfig 校验连接／模型目录并分离凭据。连接与模型可填 adapter：模型按字段覆盖连接默认，其中 thinking 整条替换。运行时模型不含凭据，adapter 随 createLoopConfig 的 structuredClone 一起快照；现有 loop 与内部 hook 行为继续复用。
+配置使用用户空间 configs/main.json 或明确指定的路径；loadByokConfig 校验连接／模型目录并分离凭据。连接与模型可填 adapter：模型按字段覆盖连接默认，其中 thinking 整条替换。运行时模型不含凭据，adapter 随 createLoopConfig 的 structuredClone 一起快照；现有 loop 与内部 hook 行为继续复用。
 
 runCli 使用统一 streamModel，三协议均已接通。Chat 的 prepareChatRequest 选择规则，映射思考，序列化历史与工具，校验输出上限；fetch 只负责 HTTP；readSSE 解析正文、思考、工具与 usage，输出已有事件，不新增工具循环。rules.ts 集中保存 schema、规则选择与 effort／toggle／budget 模板，sse.ts 负责与 HTTP chunk 无关的分帧。
 
@@ -424,7 +425,7 @@ Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正
 | 4+6 | 思考等级与 BYOK：约定功能与选定厂商范围已实现 | 模型请求、工具、设置恢复和压缩本地验证通过；真实接口范围见开发进度 | Kimi、CC Switch、Pi 与官方文档 |
 | 7 | REPL 按 §7 验收 | 功能验证完成并记录未覆盖的网关差异 | — |
 
-session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.cli-agent/sessions`）。
+session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions`）。
 
 ---
 
@@ -433,7 +434,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 新 REPL 已接通，输入、实际 Harness、本地 HTTP SSE、自动压缩与溢出恢复已纳入 `tests/` 的自动化套件，维护流程和三端 CI 见 [测试指南](./testing.md)。此前 macOS 真实 POSIX PTY 验收记录保留在进度文档。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以离线测试替代。手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
-2. 说一句话之后，`~/.cli-agent/sessions/--...--/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
+2. 说一句话之后，`~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
 3. `/new` 后再说一句，同目录多一个文件，两份 `name` 能分开。
 4. 退出再启动，整行输入 `/resume` 打印「名字 + 上次打开时间」列表，再输入序号接上那一份（能问「我刚才说了什么」对得上）。
 5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改窗口配置或 `/context <n>` 后窗口跟着变。假流探针覆盖阈值压缩、溢出报错、空 `length` 重试和 `stop` 超窗只压。`/compact` 在用量未过 1/4 时提示无需压缩；过线且有可压旧历史时用真实模型生成摘要，jsonl 有 `compaction` 行，续聊能利用摘要和保留的尾部。
@@ -467,7 +468,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 这一版                            Pi（参考，不当规范）
 ────────────────────────────────────────────────────
 src/harness/harness.ts            角色 ≈ AgentSession，API 自定
-src/harness/session.ts            目录编码 / jsonl append 的思路；标题自定（10 字，写入 header）
+src/harness/session.ts            项目分桶 / jsonl append 的思路；标题自定（10 字，写入 header）
 src/harness/context.ts            窗口 / 计量 / 显示（自定）
 src/harness/compaction.ts         shouldCompact + 默认阈值
 src/harness/tools/*               agent/harness/tools/*，实现按本项目需求调整

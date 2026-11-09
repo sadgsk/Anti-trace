@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -7,10 +7,13 @@ import { PassThrough } from "node:stream";
 import test from "node:test";
 import { loadByokConfig } from "../../src/config/byok.ts";
 import { runCli } from "../../src/cli/main.ts";
+import { getAppPaths } from "../../src/storage/app-paths.ts";
 
 function fixture() {
 	const root = resolve(mkdtempSync(join(tmpdir(), "cli-agent-config-")));
-	const path = join(root, "byok.json");
+	const configsDir = getAppPaths({ cwd: root }).configsDir;
+	mkdirSync(configsDir, { recursive: true });
+	const path = join(configsDir, "main.json");
 	return {
 		root, path,
 		write(config: unknown) { writeFileSync(path, JSON.stringify(config)); },
@@ -153,7 +156,7 @@ test("uses only process environment references and never loads a local .env file
 		const env: NodeJS.ProcessEnv = {};
 		assert.throws(() => temp.load({ configPath: undefined, env }).getApiKey(), /BYOK_TEST_KEY/);
 		assert.deepEqual(env, {});
-		const loaded = temp.load({ configPath: undefined, env: { CLI_AGENT_CONFIG: "byok.json", BYOK_TEST_KEY: "env-fake-key" } });
+		const loaded = temp.load({ configPath: undefined, env: { CLI_AGENT_CONFIG: temp.path, BYOK_TEST_KEY: "env-fake-key" } });
 		assert.equal(loaded.configPath, temp.path);
 		assert.equal(loaded.getApiKey(), "env-fake-key");
 		assert.throws(() => temp.load({ configPath: "missing.json" }), /缺少 BYOK 配置/);

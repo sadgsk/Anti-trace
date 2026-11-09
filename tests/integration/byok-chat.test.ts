@@ -155,7 +155,7 @@ test("model overrides replace a complete thinking rule while inheriting connecti
 		}, currentModel: "b" };
 		const path = join(temp.root, "byok.json");
 		writeFileSync(path, JSON.stringify(config));
-		const loaded = loadByokConfig({ cwd: temp.root, env: {} });
+		const loaded = loadByokConfig({ cwd: temp.root, configPath: path, env: {} });
 		assert.deepEqual(loaded.model.adapter, { thinking: { mode: "toggle", format: "enable-thinking" }, maxTokensField: "max_completion_tokens", includeUsage: false, reasoningReplay: "same-source" });
 		const selectedModel: Model = loaded.model;
 		selectedModel.adapter!.thinking = { mode: "unsupported" };
@@ -170,7 +170,7 @@ test("model overrides replace a complete thinking rule while inheriting connecti
 			{ mode: "budget", format: "enable-thinking", budgets: { low: 128, medium: 256, high: 512, xhigh: 512, max: 2048 }, minBudget: 128, answerReserveTokens: 512 },
 		]) {
 			writeFileSync(path, JSON.stringify({ ...config, models: { ...config.models, b: { ...config.models.b, adapter: { thinking } } } }));
-			assert.throws(() => loadByokConfig({ cwd: temp.root, env: {} }));
+			assert.throws(() => loadByokConfig({ cwd: temp.root, configPath: path, env: {} }));
 		}
 	} finally { temp.cleanup(); }
 });
@@ -334,7 +334,7 @@ test("CLI uses configured rules and persists complete replay without credentials
 			stdout.on("data", chunk => { output += chunk.toString(); });
 			stdin.end("hello");
 			const sessionsRoot = join(temp.root, "sessions");
-			assert.equal(await runCli({ cwd: temp.root, sessionsRoot, streams: { stdin, stdout, stderr } }), 0);
+			assert.equal(await runCli({ cwd: temp.root, configPath: join(temp.root, "byok.json"), sessionsRoot, streams: { stdin, stdout, stderr } }), 0);
 			assert.equal(output.includes("visible"), true);
 			assert.equal(output.includes("[思考] 完整思考"), true);
 			assert.equal(requests[0].path, "/v1/exact");

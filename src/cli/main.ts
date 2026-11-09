@@ -10,13 +10,14 @@ import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
 import { startTerminalRepl } from "./repl/terminal-repl.tsx";
 import type { PermissionMode } from "./permissions/permission-policy.ts";
 import { UiLocale } from "./locale.ts";
+import { getAppPaths, type StorageOptions } from "../storage/app-paths.ts";
 
 export interface CliStreams {
 	stdin: Readable & { isTTY?: boolean };
 	stdout: Writable & { isTTY?: boolean; columns?: number };
 	stderr: Writable;
 }
-export interface RunCliOptions {
+export interface RunCliOptions extends StorageOptions {
 	harness?: ReplHarness;
 	streams?: CliStreams;
 	cwd?: string;
@@ -29,17 +30,18 @@ export interface RunCliOptions {
 /** TTY runs the editor; a pipe is one complete message, including all of its newlines. */
 export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	const streams = options.streams ?? { stdin: process.stdin, stdout: process.stdout, stderr: process.stderr };
-	const cwd = options.cwd ?? process.cwd();
-	const locale = new UiLocale(cwd);
+	const cwd = resolve(options.cwd ?? process.cwd());
+	const paths = getAppPaths({ ...options, cwd });
+	const locale = new UiLocale(cwd, Boolean(streams.stdin.isTTY && streams.stdout.isTTY), paths);
 	let harness = options.harness;
 	let byok: ByokRuntime | undefined;
 	let startupMessage: string | undefined;
 	let warnings: string[] = [];
 	if (!harness) {
-		const sessionHarness = new Harness({ cwd, sessionsRoot: options.sessionsRoot, streamFn: streamModel,
+		const sessionHarness = new Harness({ cwd, paths, sessionsRoot: options.sessionsRoot, streamFn: streamModel,
 			resolveModel: reference => byok!.resolveModel(reference) });
 		harness = sessionHarness;
-		byok = new ByokRuntime({ cwd, configPath: options.configPath, model: options.model }, config => {
+		byok = new ByokRuntime({ cwd, paths, configPath: options.configPath, model: options.model }, config => {
 			sessionHarness.configureModel({ model: config.model, modelRef: { configPath: config.configPath, modelKey: config.currentModel },
 				thinking: config.thinking, getApiKey: config.getApiKey });
 		}, () => sessionHarness.settings);
@@ -48,7 +50,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 		if (result.ok) warnings = result.warnings;
 	}
 	if (streams.stdin.isTTY && streams.stdout.isTTY) {
-		const terminal = startTerminalRepl({ harness, byok, cwd, permissionMode: options.permissionMode, startupMessage: byok?.hasConfig ? warnings.join("\n") || undefined : startupMessage,
+		const terminal = startTerminalRepl({ harness, byok, cwd, locale, permissionMode: options.permissionMode, startupMessage: byok?.hasConfig ? warnings.join("\n") || undefined : startupMessage,
 			streams: streams as unknown as TerminalStreams });
 		await terminal.done;
 		return 0;
@@ -60,11 +62,11 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	// A pipe may contain a session command; config diagnostics must not prevent its execution.
 	if (byok && !byok.hasConfig) streams.stderr.write(`${locale.t(startupMessage ?? "")}\n`);
 	for (const warning of warnings) streams.stderr.write(`${locale.t(warning)}\n`);
-	return runPipe(harness, streams, byok, options.permissionMode, cwd);
+	return runPipe(harness, streams, byok, options.permissionMode, cwd, locale);
 }
 
-async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRuntime, permissionMode?: PermissionMode, cwd = process.cwd()): Promise<number> {
-	const repl = new ReplController({ harness, byok, permissionMode, cwd });
+async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRuntime, permissionMode?: PermissionMode, cwd = process.cwd(), locale?: UiLocale): Promise<number> {
+	const repl = new ReplController({ harness, byok, permissionMode, cwd, locale });
 	let printedEntries = 0;
 	let printedLive = 0;
 	let livePrefix = "";
@@ -115,10 +117,14 @@ async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRun
 	}
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+export function runCliFromProcess(): void {
 	const permissionMode: PermissionMode = process.argv.includes("--yolo") ? "yolo" : process.argv.includes("--auto-edit") ? "auto-edit" : "default";
 	void runCli({ permissionMode }).then(code => { process.exitCode = code; }).catch(error => {
 		process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
 		process.exitCode = 1;
 	});
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+	runCliFromProcess();
 }
