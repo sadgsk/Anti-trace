@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Box, Text } from "ink";
 import type { TranscriptAnchor, ViewportMetrics } from "../viewport-state.ts";
 import type { TranscriptGroup } from "../messages/TranscriptView.tsx";
@@ -13,10 +13,17 @@ interface View { lines: string[]; animated: number[]; layout: TranscriptLayout; 
 function VisibleRows({ lines, animated }: Pick<View, "lines" | "animated">) {
 	const [frame, setFrame] = useState(0), active = animated.length > 0;
 	useEffect(() => { if (!active) return; const timer = setInterval(() => setFrame(value => (value + 1) % 4), 160); return () => clearInterval(timer); }, [active]);
-	return <Text wrap="truncate-end">{lines.map((line, row) => {
+	// Truncate each cached row independently and reserve a line even for empty rows.
+	return lines.map((line, row) => {
 		const dot = animated.includes(row) ? line.indexOf("●") : -1;
-		return <Fragment key={row}>{row ? "\n" : ""}{dot < 0 ? line : <>{line.slice(0, dot)}<ThemedText color={frame < 2 ? "accent" : "dim"}>●</ThemedText>{line.slice(dot + 1)}</>}</Fragment>;
-	})}</Text>;
+		return <Box key={row} height={1} flexShrink={0} flexDirection="column">
+			<Text wrap="truncate-end">{dot < 0 ? line : <>
+				{line.slice(0, dot)}
+				<ThemedText color={frame < 2 ? "accent" : "dim"}>●</ThemedText>
+				{line.slice(dot + 1)}
+			</>}</Text>
+		</Box>;
+	});
 }
 
 /** Only visible terminal rows enter the live Ink tree. Cache misses run outside React commits. */
