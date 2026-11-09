@@ -10,7 +10,6 @@
 | 架构书 | [architecture.md](./architecture.md) |
 | TUI 架构与交互 | [架构书 §4](./architecture.md#4-分层)；反馈结果与验证统一记录在本页 |
 | 最终 Review 提醒 | RV-001：检查 Shift+Tab、三种权限模式、工具执行前判断、审批与会话授权记忆的真实执行链路 |
-| 运行主流程 | [main-flow.md](./main-flow.md)：Enter 提交、Agent 工具循环、流式事件与显示的流程图 |
 | 测试与 CI | [testing.md](./testing.md)：命令、隔离、覆盖范围、覆盖率门槛和后续维护 |
 | 问题记录 | [future-issues.md](./future-issues.md)：No.1 Windows Shell 语义问题保留；No.2 闪烁／首条消息与 Logo 附近回看卡住已修复并回归 |
 | 对照代码 | `e:\pi-harness\pi`、`e:\pi-harness\claude-code-rev`、新版 TS `e:\pi-harness\kimi-code`；[CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) |
