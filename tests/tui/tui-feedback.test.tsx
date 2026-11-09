@@ -24,6 +24,8 @@ import { LocaleProvider } from "../../src/tui/locale/LocaleProvider.tsx";
 import { UiLocale } from "../../src/cli/locale.ts";
 import type { TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
 import type { HarnessEvent } from "../../src/harness/harness.ts";
+import type { TranscriptFrame } from "../../src/tui/layout/TranscriptViewport.tsx";
+import { waitFor } from "../support/fixtures.ts";
 class Input extends PassThrough { isTTY = true; isRaw = false; setRawMode(value: boolean) { this.isRaw = value; return this; } }
 class Output extends PassThrough { isTTY = true; columns = 100; rows = 28; }
 const pause = (ms = 75) => new Promise(resolve => setTimeout(resolve, ms));
@@ -42,11 +44,16 @@ function fixture(loaded = true) {
 		async command(text: string) { await app.repl.submit(createPromptDraft(text)); await pause(); },
 		close() { app.stop(); stdin.destroy(); stdout.destroy(); assert.equal(dirname(root), resolve(tmpdir())); assert.match(basename(root), /^tui-feedback-/); rmSync(root, { recursive: true, force: true }); } };
 }
-async function snapshot(element: React.ReactNode, columns = 100, rows = 28) {
+async function snapshot(element: React.ReactNode, columns = 100, rows = 28, expected?: RegExp) {
 	const frames: string[] = [], stdin = new PassThrough(), stdout = new Writable({ write(chunk, _enc, done) { frames.push(chunk.toString()); done(); } });
 	Object.assign(stdout, { columns, rows, isTTY: false });
 	const app = render(element, { stdin: stdin as any, stdout: stdout as any, debug: true, exitOnCtrlC: false, patchConsole: false });
-	await pause(); const result = (frames.at(-1) ?? "").replace(/\x1b\[[0-9;]*m/g, ""); app.unmount(); app.cleanup(); stdin.destroy(); stdout.destroy(); return result;
+	const frame = () => (frames.at(-1) ?? "").replace(/\x1b\[[0-9;]*m/g, "");
+	try {
+		if (expected) await waitFor(() => expected.test(frame()), `rendered frame matching ${expected}`);
+		else await pause();
+		return frame();
+	} finally { app.unmount(); app.cleanup(); stdin.destroy(); stdout.destroy(); }
 }
 test("real terminal pickers update model, effort, thinking and display with isolated modal input", async () => {
 	const f = fixture();
@@ -119,14 +126,14 @@ test("long thinking remains contiguous through streaming, completion, scroll and
 			listener({ type: "message_update", message, assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta, partial: message } } as any);
 			for (const columns of [100, 45, 100]) {
 				const element = createElement(ReplScreen, { repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns, rows: 28 });
-				const frame = await snapshot(element, columns);
+				const frame = await snapshot(element, columns, 28, new RegExp(`Thinking line ${part * 30 + 29}`));
 				assert.match(frame, new RegExp(`Thinking line ${part * 30 + 29}`));
 				const body = frame.split("\n").filter(line => line.includes("Thinking line")); assert.ok(body.length >= 8, `viewport contains only ${body.length} lines`);
 				assert.ok(frame.split("\n").length <= 28); for (const line of frame.split("\n")) assert.ok(stringWidth(line) <= columns);
 			}
 		}
 		listener({ type: "message_end", message: { ...message, content: [{ type: "thinking", thinking: text }] } });
-		repl.scroll(10000); const frame = await snapshot(createElement(ReplScreen, { repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 })); assert.match(frame, /Thinking line 0/);
+		repl.scroll(10000); const frame = await snapshot(createElement(ReplScreen, { repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 }), 100, 28, /Thinking line 0/); assert.match(frame, /Thinking line 0/);
 		assert.equal(repl.getSnapshot().activeItems.filter(item => item.kind === "assistant")[0]?.blocks[0]?.text, text); repl.dispose();
 	} finally { f.close(); }
 });
@@ -135,12 +142,16 @@ test("same Ink instance keeps long thinking visible while repeatedly resizing du
 	const frames: string[] = [], stdin = new PassThrough(), stdout = new Writable({ write(chunk, _enc, done) { frames.push(chunk.toString()); done(); } });
 	Object.assign(stdout, { columns: 120, rows: 30, isTTY: false });
 	let text = "";
-	const tree = (columns: number) => createElement(TranscriptViewport, { height: 24, columns, scrollOffset: 0, items: [{ id: 1, kind: "assistant", timestamp: 0, blocks: [{ kind: "thinking", index: 0, text }] }], header: null, headerKey: "", expanded: true, thinkingDisplay: true, onMetrics() {} });
+	let layout: TranscriptFrame | undefined;
+	const onFrame = (frame?: TranscriptFrame) => { layout = frame; };
+	const tree = (columns: number) => createElement(TranscriptViewport, { height: 24, columns, scrollOffset: 0, items: [{ id: 1, kind: "assistant", timestamp: 0, blocks: [{ kind: "thinking", index: 0, text }] }], header: null, headerKey: "", expanded: true, thinkingDisplay: true, onMetrics() {}, onFrame });
 	const app = render(tree(119), { stdin: stdin as any, stdout: stdout as any, debug: true, exitOnCtrlC: false, patchConsole: false });
 	try {
 		for (const columns of [119, 59, 119, 44, 79, 119]) {
-			for (let i = 0; i < 35; i++) text += `Thinking line ${text.length}: Checking terminal layout and continuity.\n`;
-			Object.assign(stdout, { columns: columns + 1 }); stdout.emit("resize"); app.rerender(tree(columns)); await pause();
+			let lastLine = "";
+			for (let i = 0; i < 35; i++) { lastLine = `Thinking line ${text.length}:`; text += `${lastLine} Checking terminal layout and continuity.\n`; }
+			Object.assign(stdout, { columns: columns + 1 }); stdout.emit("resize"); app.rerender(tree(columns));
+			await waitFor(() => layout?.columns === columns && (frames.at(-1) ?? "").includes(lastLine), "latest thinking laid out and painted at the resized width");
 			const frame = (frames.at(-1) ?? "").replace(/\x1b\[[0-9;]*m/g, "");
 			assert.ok(frame.split("\n").filter(line => line.includes("Thinking line")).length >= 10, frame);
 			for (const line of frame.split("\n")) assert.ok(stringWidth(line) <= columns);
@@ -206,16 +217,30 @@ test("scrollback mode uses the main screen and keeps the footer minimal", async 
 test("keyboard history remains anchored while additional thinking arrives", async () => {
 	const f = fixture(); let listener!: (event: HarnessEvent) => void;
 	const repl = new ReplController({ harness: { prompt: async () => {}, abort() {}, subscribe(fn) { listener = event => { void fn(event, new AbortController().signal); }; return () => {}; }, newSession() {}, listSessions: () => [], resumeAt: () => false, setContextWindow() {}, manualCompact: async () => "nothing-to-compact" as const, contextUsage: () => ({ used: 0, window: undefined }) }, interactive: true });
-	const frames: string[] = [], stdin = new PassThrough(), stdout = new Writable({ write(chunk, _enc, done) { frames.push(chunk.toString()); done(); } });
+	let layout: TranscriptFrame | undefined, writtenLayout: TranscriptFrame | undefined;
+	const onTranscriptFrame = (frame?: TranscriptFrame) => { layout = frame; };
+	const frames: string[] = [], stdin = new PassThrough(), stdout = new Writable({ write(chunk, _enc, done) {
+		frames.push(chunk.toString());
+		// Ink can write before the viewport's layout effects finish this React commit.
+		queueMicrotask(() => { writtenLayout = layout; });
+		done();
+	} });
 	Object.assign(stdout, { columns: 100, rows: 28, isTTY: false });
-	const app = render(createElement(ReplScreen, { repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 }), { stdin: stdin as any, stdout: stdout as any, debug: true, patchConsole: false, exitOnCtrlC: false });
+	const app = render(createElement(ReplScreen, { repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28, onTranscriptFrame }), { stdin: stdin as any, stdout: stdout as any, debug: true, patchConsole: false, exitOnCtrlC: false });
 	const message: any = { role: "assistant", content: [], model: "fake", stopReason: "stop", timestamp: 0 };
 	const emit = (delta: string) => listener({ type: "message_update", message, assistantMessageEvent: { type: "thinking_delta", contentIndex: 0, delta, partial: message } } as any);
 	const visible = () => (frames.at(-1) ?? "").replace(/\x1b\[[0-9;]*m/g, "").split("\n").filter(line => line.includes("Thinking line"));
 	try {
-		listener({ type: "message_start", message }); emit(Array.from({ length: 80 }, (_, i) => `Thinking line ${i}: content.\n`).join("")); await pause();
-		repl.scroll(15); await pause(); const before = visible(); assert.ok(before.length);
-		emit(Array.from({ length: 15 }, (_, i) => `Thinking line ${80+i}: new content.\n`).join("")); await pause(); assert.deepEqual(visible(), before);
-		repl.scroll(-10000); await pause(); assert.match(visible().join("\n"), /Thinking line 94/);
+		listener({ type: "message_start", message }); emit(Array.from({ length: 80 }, (_, i) => `Thinking line ${i}: content.\n`).join(""));
+		await waitFor(() => visible().some(line => line.includes("Thinking line 79:")), "initial thinking tail painted");
+		repl.scroll(15);
+		await waitFor(() => visible().some(line => line.includes("Thinking line 64:")) && !visible().some(line => line.includes("Thinking line 79:")), "keyboard history scroll painted");
+		const before = visible(); assert.ok(before.length); const previousLayout = layout;
+		emit(Array.from({ length: 15 }, (_, i) => `Thinking line ${80+i}: new content.\n`).join(""));
+		await waitFor(() => Boolean(layout && layout !== previousLayout && writtenLayout === layout), "new thinking layout painted while reviewing history");
+		assert.deepEqual(visible(), before);
+		repl.scroll(-10000);
+		await waitFor(() => visible().some(line => line.includes("Thinking line 94:")), "return to latest thinking painted");
+		assert.match(visible().join("\n"), /Thinking line 94/);
 	} finally { app.unmount(); app.cleanup(); repl.dispose(); stdin.destroy(); stdout.destroy(); f.close(); }
 });

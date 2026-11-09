@@ -1,55 +1,77 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PassThrough, Writable } from "node:stream";
+import { PassThrough } from "node:stream";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { createElement } from "react";
-import { render } from "ink";
 import { Harness } from "../../src/harness/harness.ts";
 import { startTerminalRepl } from "../../src/cli/repl/terminal-repl.tsx";
-import { ReplScreen } from "../../src/tui/layout/ReplScreen.tsx";
 import { createFakeStreamFn } from "../support/fake-stream.ts";
 import { waitFor } from "../support/fixtures.ts";
 import { mouseWheelDirection } from "../../src/cli/ink/mouse-wheel.ts";
 import type { TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
+import type { ViewportMetrics } from "../../src/tui/viewport-state.ts";
 class Input extends PassThrough { isTTY = true; isRaw = false; setRawMode(value: boolean) { this.isRaw = value; return this; } }
 class Output extends PassThrough { isTTY = true; columns = 100; rows = 30; }
-const pause = (ms=80) => new Promise(resolve => setTimeout(resolve,ms));
-async function until(check:()=>boolean) { for(let i=0;i<150&&!check();i++) await pause(10); assert.ok(check(),"timed out"); }
+const strip = (text: string) => text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "");
 function fixture() {
-	const root = resolve(mkdtempSync(join(tmpdir(),"expand-history-"))), stdin = new Input(), stdout = new Output(); let output="";
-	stdout.on("data",chunk=>{output+=chunk.toString();});
+	const root = resolve(mkdtempSync(join(tmpdir(),"expand-history-"))), stdin = new Input(), stdout = new Output();
+	let output = "", frame = "", paints = 0;
+	stdout.on("data", chunk => {
+		const write = chunk.toString(); output += write;
+		if (write.startsWith("\x1b[?2026h")) { frame = strip(write); paints++; }
+	});
 	const command = (prefix:string) => `"${process.execPath}" -e "for(let i=0;i<30;i++)console.log('${prefix}_'+String(i).padStart(2,'0'))"`;
 	const h = new Harness({ cwd:root, sessionsRoot:join(root,"sessions"), apiKey:"fake", model:{ id:"local",name:"local",provider:"test",api:"openai-completions",baseUrl:"http://127.0.0.1:1",contextWindow:100000 },
 		streamFn:createFakeStreamFn([{toolCalls:[{id:"older",name:"bash",arguments:{command:command("OLDER")}},{id:"newer",name:"bash",arguments:{command:command("NEWER")}}]}, {text:Array.from({length:80},(_,i)=>`REPLY_${String(i).padStart(2,"0")}`).join("\n")}]) });
 	const app = startTerminalRepl({harness:h,cwd:root,permissionMode:"yolo",streams:{stdin,stdout} as unknown as TerminalStreams});
-	return {root,stdin,stdout,app,output:()=>output,close(){app.stop();stdin.destroy();stdout.destroy();assert.equal(dirname(root),resolve(tmpdir()));assert.match(basename(root),/^expand-history-/);rmSync(root,{recursive:true,force:true});}};
+	let metrics: ViewportMetrics | undefined;
+	const setMetrics = app.repl.setViewportMetrics;
+	app.repl.setViewportMetrics = value => { metrics = value; setMetrics(value); };
+	return {root,stdin,stdout,app,output:()=>output,frame:()=>frame,paints:()=>paints,metrics:()=>metrics,
+		close(){app.stop();stdin.destroy();stdout.destroy();assert.equal(dirname(root),resolve(tmpdir()));assert.match(basename(root),/^expand-history-/);rmSync(root,{recursive:true,force:true});}};
 }
-async function snapshot(f:ReturnType<typeof fixture>, expected:RegExp) {
-	const frames:string[]=[],stdin=new PassThrough(),stdout=new Writable({write(chunk,_enc,done){frames.push(chunk.toString());done();}});
-	Object.assign(stdout,{columns:99,rows:30,isTTY:false});
-	const app=render(createElement(ReplScreen,{repl:f.app.repl,prompt:f.app.prompt,suggestions:f.app.suggestions,cwd:f.root,columns:99,rows:30}),{stdin:stdin as any,stdout:stdout as any,debug:true,patchConsole:false,exitOnCtrlC:false});
-	const frame=()=>(frames.at(-1)??"").replace(/\x1b\[[0-9;]*m/g,"");
-	try{await waitFor(()=>expected.test(frame()),`history viewport matching ${expected}`);return frame();}finally{app.unmount();app.cleanup();stdin.destroy();stdout.destroy();}
+async function finishPrompt(f: ReturnType<typeof fixture>) {
+	f.stdin.write("run\r");
+	await waitFor(() => !f.app.repl.getSnapshot().busy && f.frame().includes("REPLY_79"), "completed prompt painted in the real terminal");
 }
 test("Ctrl+O immediately shows expanded tool content instead of the final reply at the bottom",async()=>{
 	const f=fixture();
-	try{f.stdin.write("run\r");await until(()=>!f.app.repl.getSnapshot().busy&&f.app.repl.getSnapshot().transcript.some(item=>item.kind==="tool"));await pause();
-		f.stdin.write("\x0f");await pause();const state=f.app.repl.getSnapshot();assert.equal(state.expanded,true);assert.equal(state.viewingHistory,true);assert.ok(state.scrollOffset>0);
-		const frame=await snapshot(f,/NEWER_06/);assert.match(frame,/NEWER_06/);assert.doesNotMatch(frame,/REPLY_79/);
-		f.stdin.write("\x1b[1;5F");await pause();assert.equal(f.app.repl.getSnapshot().viewingHistory,false);assert.equal(f.app.repl.getSnapshot().scrollOffset,0);
+	try{await finishPrompt(f);
+		f.stdin.write("\x0f");
+		await waitFor(() => f.frame().includes("NEWER_06"), "expanded tool painted without another keypress");
+		const state=f.app.repl.getSnapshot();assert.equal(state.expanded,true);assert.equal(state.viewingHistory,true);assert.ok(state.scrollOffset>0);
+		assert.match(f.frame(),/NEWER_06/);assert.doesNotMatch(f.frame(),/REPLY_79/);
+		f.stdin.write("\x1b[1;5F");
+		await waitFor(() => !f.app.repl.getSnapshot().viewingHistory && f.frame().includes("REPLY_79"), "return to latest reply painted");
+		assert.equal(f.app.repl.getSnapshot().viewingHistory,false);assert.equal(f.app.repl.getSnapshot().scrollOffset,0);
 	}finally{f.close();}
 });
 test("wheel review and Ctrl+O retain the older tool, with collapse and resize preserving its anchor",async()=>{
 	const f=fixture();
-	try{f.stdin.write("run\r");await until(()=>!f.app.repl.getSnapshot().busy&&f.app.repl.getSnapshot().transcript.some(item=>item.kind==="tool"));await pause();
-		f.stdin.write("\x1b[<64;5;5M".repeat(100));await pause();f.stdin.write("\x1b[<65;5;5M".repeat(4));await pause();
+	try{await finishPrompt(f);
 		const older=f.app.repl.getSnapshot().transcript.find(item=>item.kind==="tool")!;
-		assert.equal(f.app.repl.getSnapshot().viewingHistory,true);f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);
-		assert.match(await snapshot(f,/OLDER_06/),/OLDER_06/);
-		f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);const collapsed=await snapshot(f,/OLDER_00/);assert.match(collapsed,/OLDER_00/);assert.doesNotMatch(collapsed,/OLDER_06/);
-		f.stdout.columns=75;f.stdout.emit("resize");await pause();f.stdin.write("\x0f");await pause();assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);
+		const beforeTop = f.paints();
+		f.stdin.write("\x1b[<64;5;5M".repeat(100));
+		await waitFor(() => f.paints() > beforeTop && f.metrics()?.offset === f.metrics()?.limit, "top of history painted");
+		// Navigate to the actual message anchor, rather than assuming the welcome header has a fixed height.
+		for (let i = 0; i < 30 && f.metrics()?.anchor?.id !== older.id; i++) {
+			const previous = f.metrics()!.offset, before = f.paints();
+			f.stdin.write("\x1b[<65;5;5M");
+			await waitFor(() => f.paints() > before && f.metrics()!.offset < previous, "wheel movement painted");
+		}
+		assert.equal(f.metrics()?.anchor?.id, older.id);
+		assert.equal(f.app.repl.getSnapshot().viewingHistory,true);f.stdin.write("\x0f");
+		await waitFor(() => f.frame().includes("OLDER_06"), "older expanded tool painted");
+		assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);assert.match(f.frame(),/OLDER_06/);
+		f.stdin.write("\x0f");
+		await waitFor(() => f.frame().includes("OLDER_00") && !f.frame().includes("OLDER_06"), "collapsed older tool painted");
+		assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);assert.match(f.frame(),/OLDER_00/);assert.doesNotMatch(f.frame(),/OLDER_06/);
+		const beforeResize = f.paints(); f.stdout.columns=75;f.stdout.emit("resize");
+		await waitFor(() => f.paints() > beforeResize, "resized reading view painted");
+		f.stdin.write("\x0f");
+		await waitFor(() => f.frame().includes("OLDER_06"), "older tool expanded after resize");
+		assert.equal(f.app.repl.getSnapshot().reviewAnchor?.id,older.id);
 		assert.equal(f.app.prompt.getDraft().text,"");
 	}finally{f.close();}
 });
