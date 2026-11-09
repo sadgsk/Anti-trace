@@ -126,4 +126,4 @@ Pushing a `vX.Y.Z` version tag triggers the npm release workflow. It checks that
 
 ## License
 
-[MIT](LICENSE). Portions adapted from [Pi](https://github.com/earendil-works/pi) retain their original copyright and license notices.
+[MIT](LICENSE).

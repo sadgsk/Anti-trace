@@ -1,6 +1,6 @@
 # CLI Agent 架构书
 
-项目目标是逐步构建一个可开源、可持续使用和演进的产品级个人 CLI agent。开发过程同时服务于用户理解源码：先参考 Pi，从简单到复杂补齐能力，再持续加入自己的设计和想法。学习决定每次推进的大小，产品目标决定框架和功能的设计。
+项目目标是逐步构建一个可开源、可持续使用和演进的产品级个人 CLI agent。开发过程同时服务于用户理解源码：从简单到复杂逐步补齐能力，并持续加入自己的设计和想法。学习决定每次推进的大小，产品目标决定框架和功能的设计。
 
 **长期产品目标（2026-10-21 明确，尚未实现）：** agent 根据用户的一句话描述，动态修改自身 CLI 的功能，范围包括工具、CLI 界面等，并通过热启动应用变更。需求解析、变更实施、验证及热启动机制仍待设计和实现；现有 `/reload` 仅重载模型配置，不能据此视为已经具备该能力。对外说明和预计架构图见 [中文 README](../README.md) / [English README](../README.en.md)。
 
@@ -10,7 +10,6 @@
 
 **TUI 当前结构（2026-11-03）：** 界面统一位于 `src/tui/`，与 `harness/`、`agent/` 平行。整体 TUI、FB-001～029 反馈修复及历史回看闪烁修复已接入：`ReplScreen` 取代 `ReplView`，`terminal-repl.tsx` 负责启动、控制器、终端与焦点装配。消息／工具／Markdown／Diff 为分层 React Ink 组件，控制器投影结构化历史和活跃回合，Harness 提供数据与权限钩子。当前结构与交互统一见 §4，验证和最终 Review 待办见 [progress.md](./progress.md)；施工计划、试用及反馈专题文档已退役。
 
-对照代码在 `../pi`（`e:\pi-harness\pi`），下文参考路径从 `pi/` 写起。当前项目独立实现，不依赖 `@earendil-works/pi-*`。
 
 ---
 
@@ -26,13 +25,13 @@
 - 文件中的已知职责应尽量一次按最终结构完成。若必须保留以后确定会替换的代码，动手前说明依赖，在代码原处注明阶段性原因、替换条件／批次，并在交付中列具体位置；仅在规划文档写待办不够。新增能力与替换已有逻辑分别说明，不为“以后可能共用”主动制造重构。
 - 一个功能全部实现完再开始测试，验证方式和结果在功能完成后一起交代。实现过程中发现设计冲突、边界或影响面问题，当场说明，不留到 review 之后。允许修改已有函数、填充占位和调整必要的类型；减少返工是设计目标，不是「代码写过就不能再改」的禁令。
 
-### 0.2 Pi 是参考，产品设计由本项目决定
+### 0.2 分层职责
 
-Pi 提供起始框架和源码学习材料，不要求逐项复刻它的 API、交互或实现。当前使用自己的 `Harness` 承担装配和会话管理，具体职责见 §4。现有 Agent / loop / 工具执行细节以源码为准。
+`Harness` 承担装配、请求与会话管理，职责见 §4；Agent、loop 与工具执行细节见对应源码。
 
-图片粘贴、会话命名等功能按用户希望的行为设计；可以参考 Claude Code 或其他实现，也可以独立设计。讲解时说明借鉴了什么、为何不同，自定义部分不需要勉强寻找 Pi 对照。
+图片粘贴、会话命名等功能按用户可见的使用行为设计，讲解时说明设计理由和取舍。
 
-阅读 Pi 时，优先看当前小点涉及的函数和调用方；需要理解上下文时再扩展阅读。§5、§8 的位置是阅读入口，不是禁止阅读其他文件的约束。
+实现时优先看当前小点涉及的函数和调用方；需要理解上下文时再扩展阅读。§5 的位置是阅读入口，不是禁止阅读其他文件的约束。
 
 ### 0.3 文档只保留有效状态
 
@@ -70,7 +69,7 @@ startLine(index + segment.length);
 ```
 把换行符之后的原文下标传给 `startLine`，从这个位置初始化新行。
 
-这一段先收好上一行，再准备下一行，让后续字素从新行继续加入。参考来源和本项目取舍仍按 §0.2 说明。
+这一段先收好上一行，再准备下一行，让后续字素从新行继续加入。设计理由和取舍仍按 §0.2 说明。
 
 ---
 
@@ -97,7 +96,7 @@ startLine(index + segment.length);
 
 图片文件和剪贴板读取已通过新输入接入完整草稿；提交时按有效引用收集真实图片内容。
 
-**后续范围：** 原计划 v1.3 的整体 TUI 已提前接入当前版本，后续完成用户复试及最终 Review，不再按施工计划重复实现。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows Shell 问题（No.1）已修复并通过三端 CI，验证边界见问题记录。会话继续使用线性 JSONL，不做会话树、`/tree`、树状 fork 或 Pi v4 session 迁移，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
+**后续范围：** 原计划 v1.3 的整体 TUI 已提前接入当前版本，后续完成用户复试及最终 Review，不再按施工计划重复实现。v1.2 的三协议、固定五档／独立开关和厂商适配已完成，后续按实际需要补模型绑定与真实接口验证。Windows Shell 问题（No.1）已修复并通过三端 CI，验证边界见问题记录。会话继续使用线性 JSONL，不做会话树、`/tree` 或树状 fork，也不引入 SQLite。v1.1 遗留手测继续在进度里记录，不阻塞 v1.2 开发。
 
 ---
 
@@ -127,7 +126,7 @@ Agent / loop（已有，不改职责）
 
 **命令与界面：** `command-registry.ts` 统一定义 13 条命令，供识别、帮助和菜单使用。`PromptSuggestionsController` 提供 / 命令与 @ 文件补全。模型／effort／思考／思考展示／恢复会话／配置管理／语言无参数时进入 `CommandDialogController` 管理的二级界面，经同一 `InputDispatcher` 接管模态输入；确认调用真实 `ByokRuntime`／`Harness` 接口。`ConfigProfiles` 提供配置发现、表单映射、校验与原子保存，应用失败回滚文件。`ReplScreen` 在单一视窗中组合历史与活跃消息，输入框固定底部。具体职责与交互见 §4。
 
-磁盘采用按项目分桶的线性会话，格式由本项目定义：
+磁盘采用按项目分桶的线性会话，格式为：
 
 ```text
 ~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/<ISO时间戳>_<id>.jsonl
@@ -165,7 +164,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 1. **窗口：** 数字在 `Model.contextWindow`，由 BYOK JSON 中当前模型的 `contextWindow` 提供正整数，缺失或无效时报配置错误。`/context <正整数>` 只改本进程这份 `Model.contextWindow`。
 2. **记录：** 优先用 AssistantMessage.usage；没有则用现有估算。Harness 记住 usedTokens，屏幕只显示 used/window。正常对话追加消息，压缩换成摘要＋原样尾部。Chat 的字符串思考已按 adapter 策略回传，默认 omit；文字、图片和工具调用继续按角色转换。
 3. **显示：** 接口是 `contextUsage(): { used: number; window: number | undefined }`。没有模型时仍可查看用量，窗口显示“未配置”。REPL 每轮结束后显示 `ctx <used>/<window>`，`/context` 无参数读取同一份状态；修改窗口需要已有模型。
-4. **压缩：** 自动路径已调用同一套切点和摘要，阈值公式参考 Pi。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。一轮里最多自动压一次。手动 `/compact` 仅在 `used > window / 4` 时尝试同一套压缩；没有可压旧历史或刚压完没有新消息时明确提示。
+4. **压缩：** 自动路径已调用同一套切点和摘要。默认 `reserveTokens = 16384`，`keepRecentTokens = 20000`。磁盘 jsonl 保留全文；发给模型的是摘要 + 尾部。一轮里最多自动压一次。手动 `/compact` 仅在 `used > window / 4` 时尝试同一套压缩；没有可压旧历史或刚压完没有新消息时明确提示。
    - 一句 `prompt` 正常结束，且 `used > window - reserveTokens`：压缩，不重试。
    - `stopReason === "error"`，且 `errorMessage` 是上下文满了（“exceeds the context window” / “maximum context length” 这类句子）：丢掉这条报错的 assistant，压缩，再用当前 messages 重跑一轮。只试一次。再满就停，把错误留在屏幕上。
    - `stopReason === "stop"`，且这轮 `usage.input > window`：接口收下了超长输入。压缩，不重试，已经打出来的回复留下。
@@ -232,7 +231,7 @@ CLI 负责装配，TUI 负责交互与展示；真实 stdin 和终端输出始�
 
 `useFrameSnapshot` 将 TUI 的连续 REPL 通知在 16ms 窗口内合并，控制器和非 TTY 订阅保持同步；宿主也在 React 重排前合并根刷新请求。视窗准备在 React 提交之外执行，之后只提交与该排版请求匹配的帧。返回测量结果时校验对应的滚动偏移，避免较早的一帧覆盖新的滚轮输入。
 
-启动品牌使用 `WelcomeHeader → BrandMark → brand-art.ts`，固定 54×6 的完整阴影艺术字，青色立体闪电代表 I，方向为左上到右下；真彩下黄色／青色逐行明暗变化，闪电侧边单独变暗。画稿借鉴 Hermes 的阴影轮廓与明暗层次，字形自绘，不在运行时按字母表拼接。60／120 列使用同一份画稿；极窄时实际字符在进入 Ink 前按列数裁剪，各行固定一格高，窗口恢复后显示完整画稿。256／16 色与无色终端沿主题降级，没有终端图片协议依赖。
+启动品牌使用 `WelcomeHeader → BrandMark → brand-art.ts`，固定 54×6 的完整阴影艺术字，青色立体闪电代表 I，方向为左上到右下；真彩下黄色／青色逐行明暗变化，闪电侧边单独变暗。画稿为整体绘制的阴影轮廓与逐行明暗层次，不在运行时按字母表拼接。60／120 列使用同一份画稿；极窄时实际字符在进入 Ink 前按列数裁剪，各行固定一格高，窗口恢复后显示完整画稿。256／16 色与无色终端沿主题降级，没有终端图片协议依赖。
 
 ### 4.1 TUI 组件与数据边界
 
@@ -316,7 +315,7 @@ export class Harness {
 
 **现有框架：** 构造时先通过 `detectShellEnvironment()` 探测平台与 shell，再创建工具、系统提示和 Agent，允许模型未配置。macOS／Linux 保持 read/bash/edit/write；Windows 优先 PowerShell，检测到 Git Bash 时额外提供 bash。系统提示按 POSIX／Windows 分别生成，Windows 语法说明与实际 PowerShell 版本一致。shell 共用执行器、120 秒默认超时和有界输出排空，CMD 不参与 Bash 命令解释。`configureModel()` 在空闲时更新模型、偏好与凭据来源，保留消息、会话及订阅。`prompt()` 先检查模型并解析凭据，再调用 Agent；通过 `beforeModelRequest` 在首次请求和每次工具续接前检查压缩。`subscribe` 同时订阅 Agent 原始事件及 Harness 的压缩、最终结果事件；`prompt_end` 每次接受的 prompt 调用只发一次，确认全部恢复后的成败。`prompt()` 保持 `Promise<void>`；异常仍向调用方抛出，同时通过最终事件提供结果，REPL 避免重复报告。`abort` 取消本次 prompt、Agent 和摘要。`newSession` 调 `agent.reset()` 再换会话句柄，`resumeAt` 加载消息并重算用量，两者均不依赖模型。`manualCompact()` 保留空闲、用量门槛和压后无新消息的检查。思考 setters 校验并记录设置；请求前回调使用当次模型、思考和凭据快照，工具续接／摘要重试重新取 Key。
 
-**对照：** 角色可参考 Pi 的 `AgentSession`，API 采用本项目设计。extensions、队列和树导航不在当前版本范围；按本次任务需要阅读相关实现。
+**范围：** Harness 是装配、请求与收尾的入口。extensions、队列和树导航不在当前版本范围。
 
 ---
 
@@ -335,7 +334,7 @@ export class Harness {
 
 当前格式包含 settings 行，不包含树、lane 或 session_info。compaction / 用量相关行的读写也走这里，类型放在 `session.ts`。普通 CLI 传入统一的 `AppPaths`；`HarnessOptions.sessionsRoot?: string` 仅用于嵌入场景或测试中的自定义根目录。
 
-**对照：** `pi/packages/coding-agent/src/core/session-manager.ts` 的 `getDefaultSessionDirPath` 和 `_persist` 中延迟落盘的处理。当前借鉴目录组织和延迟建文件的思路；标题规则、线性格式和恢复交互由本项目确定。
+**设计：** 会话目录按统一项目路径分桶，会话文件延迟到第一次写入才落盘，避免只打开不用的空文件。
 
 ---
 
@@ -384,7 +383,7 @@ export class Harness {
 
 手动 `/compact` 只在用量过 1/4 时运行现有摘要；无旧历史或刚压完没有新消息时提示。成功追加 compaction，内存换成摘要＋保留尾部；失败不换历史。分支摘要、文件列表元数据和宽 length 恢复不在本版。三协议思考链已接通，摘要传入当前思考偏好，逐请求动态凭据与预算重新校验均已接通；摘要只收普通正文。
 
-**对照：** `pi/packages/agent/src/harness/compaction/compaction.ts` 的 `DEFAULT_COMPACTION_SETTINGS`、`shouldCompact`；`pi/packages/ai/src/utils/overflow.ts` 的 `isContextOverflow`：错误文本、`stop` 且 input 超窗、`length` 且输出为 0。当前不接 `isRecoverableLength`；显示和窗口配置采用本项目设计。
+**判定：** 溢出识别分三种情形——错误文本命中上下文超限、`stop` 且 input 超窗、`length` 且输出为 0；对应 `shouldCompact` 与 `isContextOverflow`。当前不做可恢复 length 分支；显示和窗口配置见上文。
 
 ---
 
@@ -418,11 +417,11 @@ Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正
 
 下表区分实现、review 与真实环境验证。不要在新对话重复搭建已完成的设置、协议或会话链；后续只按新增需求扩充。功能完成后验证，保持类型检查与构建通过。
 
-| 步 | 做哪些文件 | 完成标准 | 主要对照 |
+| 步 | 做哪些文件 | 完成标准 | 关键函数 |
 |---|---|---|---|
 | 3 | 上下文容量：窗口、usage、显示、自动压缩和溢出重试 | 代码与假 `StreamFn` 验证已完成；真实模型压缩验收待做 | `shouldCompact`；`isContextOverflow` |
 | 5 | 手动 `/compact` + 1/4 用量门槛 | 入口代码与假流验证完成；未过线不调模型，过线且有旧历史则生成摘要并落 `compaction`；待 review 和真实模型续聊验收 | 当前 `Harness.compact()`；`findCutIndex` |
-| 4+6 | 思考等级与 BYOK：约定功能与选定厂商范围已实现 | 模型请求、工具、设置恢复和压缩本地验证通过；真实接口范围见开发进度 | Kimi、CC Switch、Pi 与官方文档 |
+| 4+6 | 思考等级与 BYOK：约定功能与选定厂商范围已实现 | 模型请求、工具、设置恢复和压缩本地验证通过；真实接口范围见开发进度 | 各厂商官方文档 |
 | 7 | REPL 按 §7 验收 | 功能验证完成并记录未覆盖的网关差异 | — |
 
 session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions`）。
@@ -446,35 +445,3 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 测完删掉临时 jsonl 和手测写的文件。
 
 **公开试用评估：** v1.2 功能清单做完后，可以作为早期 CLI 试用版公开，不必等 v1.3 TUI；但发布前至少要建立可复现的测试框架并覆盖三种协议端到端验收，处理已知会影响正常使用的中断后工具配对、Windows bash 卡住和可恢复溢出错误提前显示问题。当前零散测试按用户要求不进入 Git。README 需要写清安装、配置示例、各协议能力与限制，以及工具会读写文件和执行命令；仓库还需明确许可证。以上是发布门槛，不表示这些问题当前已经解决。
-
----
-
-## 8. Pi 源码阅读入口
-
-按当前小点选择参考文件，无需一次通读整个 Pi。更完整的会话管理、TUI 或其他机制在实际需要时再展开；阅读范围不限制本项目未来的产品能力。参考位置以函数名定位，行号随 Pi 版本变化。
-
-当前相关入口：
-
-1. `session-manager.ts`：`getDefaultSessionDirPath`、`_persist` 延迟建文件
-2. `harness/compaction/compaction.ts`：默认常量和 `shouldCompact`
-3. 思考等级与 BYOK 参考同级新版 TS Kimi Code 的统一请求边界，以及 [CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) 的规则映射；Pi 的模型能力和协议处理作为补充参考
-4. 仓库里现有的 `src/agent/agent.ts`、`src/llm/openai-chat.ts`、`src/cli/main.ts`
-
----
-
-## 9. 和 Pi 的对应
-
-```
-这一版                            Pi（参考，不当规范）
-────────────────────────────────────────────────────
-src/harness/harness.ts            角色 ≈ AgentSession，API 自定
-src/harness/session.ts            项目分桶 / jsonl append 的思路；标题自定（10 字，写入 header）
-src/harness/context.ts            窗口 / 计量 / 显示（自定）
-src/harness/compaction.ts         shouldCompact + 默认阈值
-src/harness/tools/*               agent/harness/tools/*，实现按本项目需求调整
-src/harness/prompt.ts             本项目的系统提示
-思考等级与 BYOK                    模型能力、三协议适配与有限绑定，已实现
-cli/input/*                       新输入、完整附件草稿与撤销；参考 CC 输入链路
-cli/repl/*                        提交展开、命令分派、Harness 事件与 Ink 显示
-cli/main.ts                       Harness 装配；TTY 交互 / 非 TTY EOF 提交
-```

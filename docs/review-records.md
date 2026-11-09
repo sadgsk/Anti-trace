@@ -74,7 +74,7 @@ UNMATCHED tool calls     : c2,c3
 
 **建议方向**
 
-abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，照 `failToolCallsFromTruncatedMessage` 的形状抄；同时该 batch 之后不应再进入下一轮 LLM 调用。
+abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，形状与其他中断补全路径一致；同时该 batch 之后不应再进入下一轮 LLM 调用。
 
 **修复复核（2026-11-08）**
 
@@ -292,8 +292,8 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 | 平台 | Windows |
 | 项目版本 | v1.2（`package.json` `0.1.0`） |
 | 仓库快照 | `main` `8506419`，工作区干净 |
-| 评审范围 | `src/cli/input/prompt-draft.ts` 的 `preparePromptSubmission()`；`src/cli/input/prompt-input-controller.ts` 的图片引用创建；`src/harness/harness.ts::prompt()`；`src/llm/openai-chat.ts` 的图片序列化。对照本地 `claude-code-rev` 的 `src/history.ts::expandPastedTextRefs()`、`src/utils/processUserInput/processTextPrompt.ts` |
-| 评审方式 | 通读当前源码并与本地 `claude-code-rev` 逐处对照；未调用真实模型验证模型实际响应 |
+| 评审范围 | `src/cli/input/prompt-draft.ts` 的 `preparePromptSubmission()`；`src/cli/input/prompt-input-controller.ts` 的图片引用创建；`src/harness/harness.ts::prompt()`；`src/llm/openai-chat.ts` 的图片序列化 |
+| 评审方式 | 通读当前源码与调用链，逐处核对数据流；未调用真实模型验证模型实际响应 |
 
 **总体判断**
 
@@ -318,12 +318,12 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 - `prompt-draft.ts:63`（文本引用展开 `parts.push(content.text)`）与 `prompt-draft.ts:64`（图片只 `images.push(...)`，文本分支不产出）形成不对称：文本保留内容、图片只留顺序。
 - `harness.ts:100` —— `await this.agent.prompt(promptText, images)`，文本与图片作为两个并列参数下传，文本中无位置标记。
 - `openai-chat.ts:36` —— 图片被序列化为 `data:${mimeType};base64,...` 块，不带任何指向文本位置的标识。
-- 对照 `claude-code-rev/src/history.ts:79`（`expandPastedTextRefs` 注释：`Image refs are left alone — they become content blocks, not inlined text`）与 `processTextPrompt.ts:75-76`（`content: [...textContent, ...imageContentBlocks]`）：CC 的文本里**保留** `[Image #N]` 字面量，模型据此能看到图片在文本中的位置。本项目删掉了该字面量，位置随之丢失。
+- 当前实现把图片和文本分开传：`prompt-draft.ts:64` 只把图片加入 `images`，文本分支不产出，而文本里的 `[Image #N]` 占位符又被删除。模型收到的文本中没有任何位置标记，因此无法得知图片在原文中的位置。
 - **未验证**：未调用真实模型确认其是否真的“无法推断位置”；结论由代码路径直接得出。
 
 **建议方向**
 
-若要让模型知道图片位置，可选其一：① 提交时**不删**图片占位符，保留 `[Image #N]` 字面量随文本一起发（对齐 CC 的做法）；② 把占位符替换成可读的位置标记。两条都会改变发给模型的文本形态，需同时确认是否影响命令解析（单行斜杠命令判断）与压缩摘要。当前 `references` 只服务编辑器内部（原子编辑、提交展开），**不发送给模型**，因此无法靠它补位置信息。
+若要让模型知道图片位置，可选其一：① 提交时**不删**图片占位符，保留 `[Image #N]` 字面量随文本一起发；② 把占位符替换成可读的位置标记。两条都会改变发给模型的文本形态，需同时确认是否影响命令解析（单行斜杠命令判断）与压缩摘要。当前 `references` 只服务编辑器内部（原子编辑、提交展开），**不发送给模型**，因此无法靠它补位置信息。
 
 ---
 
@@ -388,7 +388,7 @@ abort 后给每个未执行的 tool call 补一条"已中断"的 toolResult，�
 
 2026-10-17 用户完成本轮修复 review，并要求提交推送。同步收录 /model 的用法／已加载模型键、成功确认和失败原因等简短反馈；完整诊断继续通过 /config 查看。最新 35 项恢复回归通过。
 
-- 根据用户 review 修正边界：**Harness 始终启动，模型配置不能控制会话生命周期。** 已先核对固定 TS Kimi `be7d5f5fea7800778e4660cd5f36780ba783bddd`：run-shell 先创建 Harness，配置服务将加载失败保留为诊断，resumeSession 不检查模型，发送消息／解析模型上下文时才检查。当前实现见 [架构书](./architecture.md)。
+- 已先核对本项目的启动、配置服务和会话恢复实现：run-shell 先创建 Harness，配置服务将加载失败保留为诊断，resumeSession 不检查模型，发送消息／解析模型上下文时才检查。当前实现见 [架构书](./architecture.md)。
 - `runCli()` 直接创建 Harness，再尝试加载 BYOK；`ByokRuntime` 只保存候选选择、有效配置与诊断，通过注入回调应用设置，不创建或持有 Harness。`ReplController` 必须接收 Harness 并保持同一个订阅。Agent 的 model 允许未配置，移除占位模型，`contextUsage()` 可返回未配置窗口。
 - 配置加载保留文件／JSON／schema、URL、引用和参数约束校验，可修正问题用 `ByokConfigError` 转成失败结果。完整校验后调用 `Harness.configureModel()`，应用成功才提交配置状态；坏候选不替换旧模型、凭据解析函数、消息或会话。命令不自动写回 JSON，重试沿用最近尝试的路径／选择；显式有效选择可覆盖失效默认项并给出警告。
 - `/new`、`/resume`、查看上下文与模型配置解耦；聊天／压缩等操作在 Harness 内部检查。缺模型或 prompt 所需凭据时，在消息／图片副作用之前报错。启动不解析环境 key、不执行请求思考编码、不探测远端；协议、编码、HTTP 401 等实际调用错误显示后恢复输入。prompt 与摘要共用凭据解析入口，普通工具续接保留本轮快照。外部终端设置环境变量不会自动更新当前进程。

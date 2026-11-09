@@ -4,7 +4,7 @@
 
 | 项 | 值 |
 |---|---|
-| 项目 | `e:\pi-harness\cli-agent`（与 `e:\pi-harness\pi` 并列） |
+| 项目 | `e:\pi-harness\cli-agent` |
 | 当前版本 | **v1.2** |
 | 阶段 | **Windows Shell 与分平台提示词已完成（2026-11-09），Windows／Linux／macOS × Node 22／24 六任务 CI 通过；既有 TUI 最终 Review 尾项保留。验证见下方本轮记录。** |
 | 架构书 | [architecture.md](./architecture.md) |
@@ -12,7 +12,6 @@
 | 最终 Review 提醒 | RV-001：检查 Shift+Tab、三种权限模式、工具执行前判断、审批与会话授权记忆的真实执行链路 |
 | 测试与 CI | [testing.md](./testing.md)：命令、隔离、覆盖范围、覆盖率门槛和后续维护 |
 | 问题记录 | [future-issues.md](./future-issues.md)：No.1 Windows Shell 与 No.2 回看闪烁已修复并回归；No.3 浅色主题待处理 |
-| 对照代码 | `e:\pi-harness\pi`、`e:\pi-harness\claude-code-rev`、新版 TS `e:\pi-harness\kimi-code`；[CC Switch v4.0.9](https://github.com/farion1231/cc-switch/tree/v4.0.9) |
 | 最后更新 | 2026-11-09 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
@@ -56,7 +55,7 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 | FB-006、013～014 | default／auto-edit／yolo 接入真实工具执行前审批；工具采用青色外框，回复采用灰色外框与黄色标题继续供试用；RV-001 权限模式最终 Review 待办保留 |
 | FB-007～012、016～018 | 模型、effort、思考／展示、会话和配置使用方向键二级界面；菜单隐藏参数语法，显式参数仍兼容。配置支持同文件新增模型、独立字段页、密钥遮挡、校验、原子保存和应用失败回滚 |
 | FB-015、024 | 长思考显式宽度与换行，历史／活跃消息共用实测视窗；显示层规范 Windows CRLF／CR、Diff 行终止符与输出行首，保留工具原始结果并修复卡片空白／边框错位 |
-| FB-020、025、027～029 | 经单行字标试验后，最终采用自绘 54×6 阴影艺术字，借鉴 Hermes 的轮廓与逐行明暗；青色立体闪电单独代表 I，方向为左上→右下。60／120 列保持同稿，极窄预裁剪，恢复窗口后完整显示 |
+| FB-020、025、027～029 | 经单行字标试验后，最终采用自绘 54×6 阴影艺术字，轮廓与逐行明暗手工排版；青色立体闪电单独代表 I，方向为左上→右下。60／120 列保持同稿，极窄预裁剪，恢复窗口后完整显示 |
 | FB-023 | /language 即时切换中文／English，菜单、配置、审批与提示集中翻译；偏好写入 .ant-trace/preferences.json，用户／模型／工具内容保留原文 |
 | FB-026 | 滚轮／PgUp／PgDn 与 Ctrl+O 共用消息 ID／消息内行位置锚定；展开、收起、流式追加与缩放保持阅读位置，Ctrl+End 返回最新并补齐期间生成的历史 |
 | No.2（2026-11-02） | 允许 Logo／空隙对应的消息内锚点为负数，避免跳回首条消息；同一 tick 只提交最新帧，同步更新中先覆盖再清尾，修复频繁闪烁与顶部回看卡住 |
@@ -70,7 +69,7 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 1. 默认围绕主流程说明输入、配套功能与输出。当前 TUI 按用户 2026-11-01 的新安排整体实现并统一验证，完成后由用户先试用、集中反馈，连续修改到满意后再最终 Review；不按单组件暂停，用户不用手动粘贴代码。
 2. 一个功能全部实现完再开始测试，不在功能做到一半插入探针或验收；验证方式和结果在功能完成后一起交代。
 3. 实现过程中发现问题（设计冲突、边界情况、影响面）当场说明，不要等写完、用户 review 完再补一句「这里有问题」。
-4. 带着写时，讲解应覆盖参考来源和本项目的取舍；有 Pi 对照时给出路径、函数名，自定义设计则直接说明理由。只有用户明确要求逐行解释某个函数时，才启用 [架构书 §0.4](./architecture.md#04-源码讲解方式) 的讲解标准；其他情况下按当前问题直接说明概念、逻辑或作用。
+4. 带着写时，讲解应覆盖设计理由和本项目的取舍；必要时给出本仓库路径和函数名，自定义设计则直接说明理由。只有用户明确要求逐行解释某个函数时，才启用 [架构书 §0.4](./architecture.md#04-源码讲解方式) 的讲解标准；其他情况下按当前问题直接说明概念、逻辑或作用。
 5. 每个文件和功能点尽量直接采用整体完成后的最终结构与行为，不为暂时通过测试写过渡文件、类型、接线或假实现。依赖紧密、单独实现需要大量过渡代码时，动手前说明并合并相关步骤。若确有依赖未实现而必须保留已知以后会替换的代码，必须在对应代码处注明“阶段性”、当前原因、替换条件／批次，并在交付中列出具体位置；不能只写在规划文档中，让用户重复 review 才发现。已确定的最终接口可预留并标明未实现；新增协议／规则属于扩充，不与替换已有逻辑混算。未来是否需要的重构尚未确定时，不能当作已知必改项或为此提前改代码。
 6. 用户问概念时先回答；是否同时修改代码按当次请求执行。未明确要求 `git commit` 时不做版本提交。
 7. 暂不处理的 bug 记录到 [future-issues.md](./future-issues.md)，沿用编号并写清环境、版本、现象和影响；已确认的原因或处理方向可以补充，并与待验证推测区分。
@@ -87,7 +86,7 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 4. 做完一个小点后，记录实际实现和验证结果，更新「阶段 / 最后更新」以及相关待办；整个里程碑完成后再勾选，不因已有占位就标完成。
 5. 版本收尾时保留本版本历史，由用户确定下一阶段目标，再同步架构书和新的版本待办。
 
-当前采用自己的 `Harness` 和功能设计。Pi 用作按需阅读的参考；具体运行行为以仓库源码为准。
+当前采用自己的 `Harness` 和功能设计；具体运行行为以仓库源码为准。
 
 ---
 
@@ -111,7 +110,7 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 
 **下一步：** 运行 npm start 复试现有 TUI，按架构书 §4 的交互验证配置、语言、审批、工具与历史回看；满意后完成最终代码 Review，明确检查 RV-001 权限执行链路。当前提交与推送已获用户授权；真实接口、具体终端／剪贴板和既有独立 review 尾项继续按实际反馈安排。
 
-**已有配置恢复：** [No.5 修复](./review-records.md#no5--模型配置问题会导致-cli-直接退出) 已完成用户 review，提交为 efe9cd4；第 03＋04 批的其他 review 待办继续保留。Chat 主流程为 `streamModel()` → `prepareChatRequest()`／`readSSE()`；配置恢复主流程为 `runCli()` 先创建 Harness → `ByokRuntime.reload()` 校验候选 → 回调 `Harness.configureModel()` → 提交配置状态。无配置可恢复会话，模型操作内部检查；修复无需重启，坏重载保留旧模型与会话。先核对了固定 TS Kimi 的启动、配置、恢复会话和请求入口，当前接线见架构书 §5.4／§5.5。本机真实 JSON 未改动，测试仅留本地。第 02 批 byok.ts 主体 review 尾项保留；05＋06、07＋08 完整协议已一起交付，待 review。本轮已经补齐思考命令、逐底层请求凭据、压缩设置与会话选择恢复。真实地区账户及原生终端覆盖仍有边界，手动压缩门槛保持 used > window/4。
+**已有配置恢复：** [No.5 修复](./review-records.md#no5--模型配置问题会导致-cli-直接退出) 已完成用户 review，提交为 efe9cd4；第 03＋04 批的其他 review 待办继续保留。Chat 主流程为 `streamModel()` → `prepareChatRequest()`／`readSSE()`；配置恢复主流程为 `runCli()` 先创建 Harness → `ByokRuntime.reload()` 校验候选 → 回调 `Harness.configureModel()` → 提交配置状态。无配置可恢复会话，模型操作内部检查；修复无需重启，坏重载保留旧模型与会话。先核对了启动、配置、恢复会话和请求入口的现有实现，当前接线见架构书 §5.4／§5.5。本机真实 JSON 未改动，测试仅留本地。第 02 批 byok.ts 主体 review 尾项保留；05＋06、07＋08 完整协议已一起交付，待 review。本轮已经补齐思考命令、逐底层请求凭据、压缩设置与会话选择恢复。真实地区账户及原生终端覆盖仍有边界，手动压缩门槛保持 used > window/4。
 
 **No.5 验证：** 恢复与相关回归报告 83 项全部通过，另有 Harness 7 项、上下文／压缩 6 项探针通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。覆盖 23 类加载／请求错误、模拟 TTY 无配置恢复旧会话、修复后保留历史、管道会话命令、缺模型／key 无副作用、摘要凭据重取、忙碌应用保护和本地 HTTP 401 恢复。当前命令见 README，修复行为见 review 记录 No.5。测试按现有约定仅留本地，真实模型与原生终端未手测。
 
@@ -151,15 +150,15 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 | 2026-10-24 | 新增 TUI 更新实施方案并同步本页与架构书入口；本轮仅更新文档，未修改源码。该计划在整体实现完成后于 2026-11-03 退役。 |
 | 2026-10-22 | 用户确认 BYOK 功能完成，授权提交当前源码并推送。删除两份 BYOK 专题文档，将退役路径加入 .gitignore；清理 README、架构、进度、review 记录和源码注释中的失效引用，同步中英文 README 的已完成功能与命令。保留配置示例；真实配置、本地测试、会话和构建产物继续忽略。既有 review 尾项及真实接口／跨平台验证范围保留。 |
 | 2026-10-21 | 按用户要求补齐其他两种协议的厂商适配：Responses 支持 DeepSeek、Kimi、GLM、Qwen、MiniMax 明文形状与 Grok 加密回传；Messages 支持五家兼容厂商的思考控制、可选签名、Bearer 和独立预算。处理字符串工具结果及图片分组，保留原生 OpenAI／Claude 检查与同源回传。核对官方文档，新增 19 个连接预设，共 36 个；同步示例、厂商指南和当前设计。新增 40 项本地 HTTP 场景、完整回归 163 项（图片文件另含 13 场景）、Harness 7 项、上下文 6 项、类型检查、构建及差异检查通过。测试仅留本地，本轮未读改真实配置、未调用真实接口、未提交。用户已看过 main／REPL，协议与 Harness 继续 review。 |
-| 2026-10-21 | 准备开源展示文档：重整中文 README，新增英文版及语言切换，明确“一句话需求驱动 agent 动态修改工具／CLI 等功能并热启动”为尚未实现的长期目标；区分已有能力、计划和验证边界。按用户反馈，预计架构图改用现有 main-flow 图的 Mermaid 分栏、节点和配色风格，统一英文标注，两版 README 共用同一张图；保留 Mermaid 源码和渲染配置。按用户选择添加 MIT 许可证，保留 Pi 来源部分的版权声明，并同步包许可元数据。本次未实现动态功能修改或热启动，既有功能 review 尾项不因此完成。 |
-| 2026-10-20 | 按用户授权合并完成 BYOK 10～13、09 与 14：设置／请求／摘要／恢复统一、17 个地区和协议连接预设、九家厂商有限模型规则、MiniMax reasoning_details 与 Gemini thought_signature。核对 Pi、Kimi、CC Switch 和官方文档，MiniMax 国内采用当前 api.minimax.cn。新增 22 项场景，相关 runner 回归共 123 项通过（图片文件另含 13 场景）；Harness 7 项、上下文压缩 6 项通过。实际 DeepSeek 关闭、思考工具往返和摘要成功；后续调用 fetch failed，整套实测不记通过。其他厂商仅本地协议验证。更新示例与各当前文档；真实配置未改、测试仅本地、未提交。 |
+| 2026-10-21 | 准备开源展示文档：重整中文 README，新增英文版及语言切换，明确“一句话需求驱动 agent 动态修改工具／CLI 等功能并热启动”为尚未实现的长期目标；区分已有能力、计划和验证边界。按用户反馈，预计架构图改用现有 main-flow 图的 Mermaid 分栏、节点和配色风格，统一英文标注，两版 README 共用同一张图；保留 Mermaid 源码和渲染配置。按用户选择添加 MIT 许可证，并同步包许可元数据。本次未实现动态功能修改或热启动，既有功能 review 尾项不因此完成。 |
+| 2026-10-20 | 按用户授权合并完成 BYOK 10～13、09 与 14：设置／请求／摘要／恢复统一、17 个地区和协议连接预设、九家厂商有限模型规则、MiniMax reasoning_details 与 Gemini thought_signature。核对厂商官方文档，MiniMax 国内采用当前 api.minimax.cn。新增 22 项场景，相关 runner 回归共 123 项通过（图片文件另含 13 场景）；Harness 7 项、上下文压缩 6 项通过。实际 DeepSeek 关闭、思考工具往返和摘要成功；后续调用 fetch failed，整套实测不记通过。其他厂商仅本地协议验证。更新示例与各当前文档；真实配置未改、测试仅本地、未提交。 |
 | 2026-10-19 | 用户阅读并串起 Enter 提交、模型请求／流式事件、工具执行与多轮结束的主流程，要求整理为 `main-flow.md` 并提交推送当前工作。新增主流程说明、三张 Mermaid 流程／时序图的源码及 SVG，README 与本页补入口；当前 Responses／Anthropic 实现、规则／配置和既有文档改动一并纳入本次提交。提交前类型检查、构建、101 项协议／配置／恢复／图片回归通过，主流程文档的 24 个本地链接及图形渲染已核对。原有 review 尾项和后续开发顺序保持；测试、真实配置、构建产物按约定仅留本地。 |
 | 2026-10-17 | 用户确认调整剩余 BYOK 执行计划：10＋11＋12＋13 合并为统一设置链路，完整实现／验收后分段 review；随后按需补 09 厂商规则，最后完成 14 整体验收。保留原编号作为职责索引，同步主施工路线、交付表、架构与 README，补充合并批的行为边界和验收标准。本次只更新文档，未继续实现或标记功能完成，既有 review 待办保持。 |
 | 2026-10-17 | 按用户授权一起完成 BYOK 05＋06、07＋08：Responses 无服务端会话依赖请求、reasoning／密文、工具与流解析；Anthropic 预算／自适应、签名／redacted-thinking、工具结果、累计 usage；统一入口及配置协议校验已接通。共用现有 Agent loop／SSE／JSONL，无新增依赖。两协议 30 项本地 HTTP 场景和 71 项既有 runner 回归通过，类型检查、构建及差异检查通过。示例和当前状态文档同步，待 review，未提交／推送；后续控制、动态凭据、压缩设置、会话选择及真实模型验收继续保留。 |
 | 2026-10-17 | 用户完成本轮 No.5 错误恢复及 /model 简短反馈的 review，明确要求提交并推送。本次提交收录当前修复源码及文档，并校正文档中的 Harness 可选模型／凭据、配置应用与未配置窗口接口示例；第 03＋04 批其他 review 和第 02 批主体尾项继续保留。按要求删除拆分基线时生成的三个 Python 脚本、定位文件和完整临时快照，补充一次性产物用后清理的协作约定。本地测试、真实配置和构建产物按既有约定保留本地。 |
 | 2026-10-17 | 用户 review 配置命令时要求精简 /model 反馈：无参数显示用法及已加载模型键，成功只确认目标模型并单独保留必要警告，失败只显示原因和 /config 详情入口。ByokRuntime 新增只读模型键列表及失败结果 reason，完整 describe 继续供 /config 和原有启动／重载诊断使用。更新既有恢复测试的输出预期，35 项恢复回归、类型检查、构建通过；手动验证无参数、成功、失败及随后查看完整状态。main 已由用户看完，REPL 仍在 review；未提交本次修改。 |
 | 2026-10-17 | 按用户要求，将修复 error 前的 BYOK 第 03＋04 批及对应文档拆分为基线提交 3398a75，并推送到 origin/main，方便 review 本次 No.5 修复。基线在独立临时快照通过类型检查、构建和 36 项相关回归；当前源码与拆分前逐文件哈希一致。ByokRuntime、ByokConfigError、Harness／Agent 解耦、REPL 恢复与本次文档留在工作区，未提交。测试、真实配置与构建产物均未纳入提交；此前主体 review 待办保持不变。 |
-| 2026-10-16 | 用户 review 指出首版 No.5 把配置边界扩大到了 Harness 生命周期，要求先参考 Kimi 后修正。核对本地固定 TS Kimi 的 createKimiHarness、ConfigService.load/replace、resumeSession、sendNormalUserInput 和 ProfileService.model：Harness 先创建，会话恢复不依赖模型，配置错误保留诊断，模型请求局部拦截。按此修改 main 先创建 Harness、ByokRuntime 仅加载／校验并回调应用；Agent 无配置明确为 undefined，移除假模型；REPL 始终持有 Harness，/new、/resume、查看上下文独立工作。缺模型／key 在请求副作用前报错，凭据按 prompt／摘要解析，协议与思考编码错误留在请求阶段。管道会话命令不因配置失败被提前退出。83 项回归、Harness 7 项和上下文／压缩 6 项探针、类型检查／构建／差异检查通过；同步所有当前文档及后续硬约定。下面首版“有效配置后才创建 Harness”的做法已被本条取代。未改真实配置、未调用真实模型、未提交。 |
+| 2026-10-16 | 用户 review 指出首版 No.5 把配置边界扩大到了 Harness 生命周期，要求先核对相关实现后修正。核对了启动、配置加载／替换、会话恢复与模型解析的现有实现：Harness 先创建，会话恢复不依赖模型，配置错误保留诊断，模型请求局部拦截。按此修改 main 先创建 Harness、ByokRuntime 仅加载／校验并回调应用；Agent 无配置明确为 undefined，移除假模型；REPL 始终持有 Harness，/new、/resume、查看上下文独立工作。缺模型／key 在请求副作用前报错，凭据按 prompt／摘要解析，协议与思考编码错误留在请求阶段。管道会话命令不因配置失败被提前退出。83 项回归、Harness 7 项和上下文／压缩 6 项探针、类型检查／构建／差异检查通过；同步所有当前文档及后续硬约定。下面首版“有效配置后才创建 Harness”的做法已被本条取代。未改真实配置、未调用真实模型、未提交。 |
 | 2026-10-16 | 按用户要求修复 review No.5 全类 BYOK 配置错误导致退出：增加 ByokConfigError 和 ByokRuntime.reload 可恢复边界；无配置也启动 TTY REPL，支持 /reload、/config、/model。候选完整校验后才创建／更新 Harness，失败保留旧配置、凭据、消息与会话；默认引用失效但显式选择有效时警告后继续。启动和重载都复用思考编码校验，不发远端探测。管道模式给出诊断与退出码 1。恢复测试覆盖 23 类错误、修复后继续、同一会话切换和本地 HTTP 401 后恢复；同步 README、架构书、BYOK build 与 review 记录，新增后续开发硬约定。未改真实配置、未调用真实模型、未提交。 |
 | 2026-10-16 | 用户重申避免中间态与重复 review：已核对本批及既有接线，在 byok.ts 的 Chat 配置限制、main.ts 的启动协议限制／静态凭据接线，以及 adapter.ts 的两个未实现协议入口处，就地注明当前限制和后续接通批次；rules.ts 明确现有配置的 Chat 语义应保留。同步协作约定及本批阶段性代码清单；本次只补注释与文档，不改运行行为，不为预算计算的潜在复用增加重构。 |
 | 2026-10-16 | 按用户授权合并实现 BYOK 03＋04：新增统一 streamModel，保留已有 StreamFn／Agent loop；rules.ts 使用同一 TypeBox schema 开放连接默认／模型覆盖的 adapter、明确预设与模板选择。Chat 实现五档 effort 顺序映射、真实关闭、仅开关／五档预算及输出校验；保留工具图片转换，解析字符串思考和有序正文，完整结束后附来源 replay，仅在请求副本回传同模型／连接／实际 endpoint 的完整片段。新增可复用 SSE 分帧，支持任意分块、UTF-8、CRLF／CR、多 data 行、usage-only、错误、截断与取消；缺 finish_reason 明确失败，失败／截断不附 replay、未完成工具调用不当成合法调用落盘。新增 15 项本地场景、配置 11 项、请求设置 9 项、图片 13 项和 Agent／loop 7 项通过，类型检查／构建通过；仅本地 HTTP SSE、假 key／假流与临时目录，未读或修改真实 byok.json、未调用真实模型。同步配置示例、README、架构与 build；按用户决定将 05＋06、07＋08 分别合并规划为完整 Responses／Anthropic 协议批次，尚未开始。03＋04 待 review，02 主体 review 尾项保留，未提交／推送。 |
@@ -169,34 +168,34 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 | 2026-10-15 | 继续 BYOK 第 02 批，新增 `loadByokConfig()`，以用户目录 JSON 或显式路径加载连接／模型目录、当前选择和五档偏好；结构与引用严格校验，默认缺文件沿用旧 `.env`，损坏或显式缺失不回退。凭据通过独立函数按目录键读取，环境变量优先于 cwd `.env`；接入 `runCli()`，保留已有程序化 `config`。新增模型 `endpoint?` 并接入 Chat 请求，完整地址不重复追加协议路径；未实现协议启动时明确报错。11 项本地配置行为验证、第一批 9 项及图片序列化 13 项通过，类型检查、构建与差异检查通过；只用临时目录、假 key 与本机 HTTP，无真实模型调用。更新示例及设计文档，新增测试继续只留本地；待 review，未提交／推送。 |
 | 2026-10-12 | 用户逐项 review BYOK 第 01 批后确认完成，要求提交并推送。同步 README、架构书和 build／进度文档的 review 状态与下一步；提交范围为第一批源码和文档，本地新增验证文件继续排除，第 02 批尚未开始。 |
 | 2026-10-12 | 按用户授权实现 BYOK 第 01 批，主流程为 `Agent.createLoopConfig()`。定义三协议、固定五档／独立开关、可选模型能力／输出设置和思考 replay 来源／JSON payload；Agent 初始偏好与模型快照接入 loop，显式 `prepareNextTurn` 保留模型覆盖并补思考覆盖，适配器仅收到请求选项。Harness 可传初始偏好，CLI 与 setter 仍未实现；当前 Chat 对未实现协议／明确思考控制在 HTTP 前报错，旧配置请求行为保持。9 项本地行为验证、既有 Agent 3 项／loop 4 项／图片序列化 13 项、类型检查和构建通过；新增测试只留本地，未读取真实 key／调用真实模型。同步 build、架构与 README，当前待 review，未 commit／推送。 |
-| 2026-10-12 | 用户确认输入迁移功能已完成，要求删除 `claude-code-input-architecture.md` 并提交推送剩余文档更新。退役施工计划，清理 README、架构书、进度页的失效链接和过时施工状态，保留历史与未覆盖的平台手测范围；纳入 BYOK build 和“按最终结构交付、依赖紧密时合并步骤”的协作约定。本轮仅文档变更，未实现 BYOK。 |
-| 2026-10-12 | 按用户要求整理 `byok-build.md`：固定五档与独立开关，适配器统一边界、三协议粗分类、共用兼容模板；新版 Kimi Code 参考请求流程，CC Switch 补规则与映射，一手厂商优先。施工路线分四块与建议小批次，要求每批说明主流程并停下 review，具体组织可随源码调整。确认 `E:\kimi-code` 为官方 TS 仓库、CLI 2.1.1／提交 `be7d5f5`，创建同级 `../kimi-code` 独立参考副本并保留原目录；此前 Python 路径不作为新版主要参考。同步 README 和架构入口。本轮只改文档、准备参考，未实现 BYOK、未提交 Git。 |
+| 2026-10-12 | 用户确认输入迁移功能已完成，要求删除当时的输入架构迁移文档并提交推送剩余文档更新。退役施工计划，清理 README、架构书、进度页的失效链接和过时施工状态，保留历史与未覆盖的平台手测范围；纳入 BYOK build 和“按最终结构交付、依赖紧密时合并步骤”的协作约定。本轮仅文档变更，未实现 BYOK。 |
+| 2026-10-12 | 按用户要求整理 `byok-build.md`：固定五档与独立开关，适配器统一边界、三协议粗分类、共用兼容模板；请求流程与规则映射按厂商文档整理，一手厂商优先。施工路线分四块与建议小批次，要求每批说明主流程并停下 review，具体组织可随源码调整。确认同时阅读的厂商文档版本与接口说明，整理成独立参考笔记并保留原文档；此前的旧版材料不作为主要依据。同步 README 和架构入口。本轮只改文档、准备参考，未实现 BYOK、未提交 Git。 |
 | 2026-10-07 | 用户 review 后要求删除旧输入 `src/cli/input/stash/` 和不用的 `src/cli/utils/image.ts`，提交并推送本轮功能，明确不提交任何测试文件。生产依赖检查确认只有旧 stash 使用同步 image，保留新 `image-paste.ts` 与 Harness 的图片工具。删除六个旧源码和 `test:input:stash` 脚本；本轮六个新增测试及 PTY 辅助只留本地，基础 `test:input` 恢复原五个已跟踪文件，68 项复测通过。类型检查、构建与差异检查也通过。此前本机完整 115 项扩展验收记录保留；旧归档测试退役，不作为当前运行命令。 |
 | 2026-10-07 | 按用户要求一次性实现剩余输入第 6–8 批：新增 `PromptDraft`、`PromptInputController`、`PromptInput`，统一文字/可信引用/真实图片与撤销重做；长文本展开一次，原子引用移动删除，手打标签不复活附件。新增 `ReplController.submit()`、`startTerminalRepl()` 和 `runCli()`，恢复所有既有斜杠命令、会话选择、busy 门槛、流式/工具显示、中断退出及非 TTY EOF；Ink 统一交互输出。补齐 Harness 全程及摘要取消，覆盖生成结束到自动压缩的空档，中断摘要不改历史、不落盘，下一轮可继续。纳入持久解析器回归，新增草稿/组件/REPL/入口和真实 POSIX PTY 验收。`test:input` 115 项、类型检查、构建及差异检查通过；本地 HTTP SSE 验证真实 PNG Base64、长文本还原、会话及压缩续聊。未调用真实模型/读取真实剪贴板，Windows/Linux 原生终端和具体应用仍需手测。代码留待用户 review，未提交本轮修改。 |
 | 2026-10-07 | 用户 review 确认输入迁移第 5 批，并要求提交推送。提交前复跑 `npm run test:input`，68 项通过；`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。同步当前状态与迁移计划；图片附件草稿、占位符、撤销及 REPL/Harness 接线仍按第 6–8 批继续。 |
 | 2026-10-06 | 按用户要求一次性完成输入迁移第 5 批，待 review。新增主流程 `PasteHandler.handleInput()`：明确粘贴、超过 800 字符的输入块、图片路径与 pending 连续片段进入 100 ms 缓冲；同步 pending 覆盖缓冲及全部异步读取，粘贴同批 Enter 不抢先提交，编辑动作与文本/图片结果按事件顺序交付。新增 `image-paste.ts` 的保序路径解析、异步文件/剪贴板读取、2000 边长缩放；失败图片路径和其他正文原样保留，空 macOS 图片粘贴独立处理，防止立即打字吞掉附件。快捷键集中映射 `input:paste-image`（Windows Alt+V，其他平台 Ctrl+V），允许换绑。宿主 stop、EOF、close、错误和信号退出通知控制器清理，草稿替换/停止通过 generation 丢弃旧结果。新增持久粘贴及图片测试，更新原有延迟粘贴行为测试；`npm run test:input` 68 项、`npm run typecheck`、`npm run build`、`git diff --check` 通过。验证使用模拟 TTY、注入图片 reader 和 PATH 假剪贴板命令，未读真实剪贴板、未调用模型。图片完整草稿、长文本占位、撤销、REPL 和真实跨终端/平台验收仍属于第 6–8 批；未提交 Git。 |
 | 2026-10-05 | 按用户要求取消输入框的历史召回。删除 `text-input-history.ts`，清理控制器的历史列表、草稿备份、`onHistory` 回调和 `replaceHistory()` 接口；Up/Down 直接调用当前文本的纯编辑操作，首末显示行保持光标原位。同步移除相关测试和第 6 批的输入历史规划，保留完整草稿撤销的计划。更新行移动边界和状态替换验证，`npm run test:input` 35 项通过，`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。 |
-| 2026-10-05 | 按本次“未完成就继续，完成后提交推送”的要求收尾输入迁移第 4 批。新增同步主流程 `TextInputController.handleAction()`、文本历史、`useTextInput`、`BaseTextInput` 和独立宿主适配器；补齐 Enter/换行、编辑快捷键、历史草稿光标恢复、resize 和提交快照。参考 CC `useTextInput`、`BaseTextInput`、`useArrowKeyHistory`，以同步控制器避免同批文字加 Enter 读取旧状态。修复 Unicode 协议文字/小键盘数字丢失，显示投影处理孤立代理和单独零宽字素；宿主在回调停止后丢弃同批剩余事件，回调异常时恢复 raw mode 并清理监听。新增持久 `npm run test:input`：36 项行为测试通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。通过真实 Ink 加模拟 TTY 验证，未调用模型。第 5–8 批及最终真实终端手测仍待推进，`main.ts` 未恢复交互。 |
+| 2026-10-05 | 按本次“未完成就继续，完成后提交推送”的要求收尾输入迁移第 4 批。新增同步主流程 `TextInputController.handleAction()`、文本历史、`useTextInput`、`BaseTextInput` 和独立宿主适配器；补齐 Enter/换行、编辑快捷键、历史草稿光标恢复、resize 和提交快照。新增同步控制器，避免同批文字加 Enter 读取旧状态。修复 Unicode 协议文字/小键盘数字丢失，显示投影处理孤立代理和单独零宽字素；宿主在回调停止后丢弃同批剩余事件，回调异常时恢复 raw mode 并清理监听。新增持久 `npm run test:input`：36 项行为测试通过；`npm run typecheck`、`npm run build`、`git diff --check` 通过。通过真实 Ink 加模拟 TTY 验证，未调用模型。第 5–8 批及最终真实终端手测仍待推进，`main.ts` 未恢复交互。 |
 | 2026-10-05 | 为架构书 §0.4 补充适用前提：只有明确要求逐行解释某个函数时才启用，其他情况下忽略该格式，直接回答当前问题；同步进度页协作约定。 |
 | 2026-10-05 | 按用户确认的讲解方式，在架构书新增 §0.4：保留原代码，每行解释紧跟对应代码行；自然语言直接说明参数、变量、条件、状态变化与调用效果，仅补充理解所需的语法；每段说明用途，必要时用具体数值演示参数传递。进度页协作约定改为链接该节，后续对话沿用。 |
-| 2026-10-05 | 继续第 4 批，完善主流程 `applyTextInputAction()`：上下移动操作要求调用方传入 `availableColumns`，经 `moveVerticalCursor()` 依次生成布局、定位当前行列、寻找相邻行字素边界并返回状态；首末行保持光标。新增 `text-input-layout.ts` 的 `layoutTextInput()` 与行列互转函数，以原始 UTF-16 下标关联显示列；参考 CC `Cursor.up/down` 和 `MeasuredText`。本项目按字素满列折行并保留空白，软折行共享下标归下一行；Tab 显示按 4 列制表位、窄行限制到可用宽度，控制字符及超宽字素只在显示层用 `�` 替代，CRLF 和原文不改写。将已有 `string-width 8.3.0` 列为直接依赖。`npm run typecheck`、`npm run build` 通过；第 4 批完整前不做行为探针，当前小批待用户 review，尚未接输入组件或真实终端。 |
-| 2026-10-03 | 按用户要求取消每批最多三个函数的限制，改为每批必须新增或完善一个主流程函数，配套功能函数、类型和接线不计数量；同步进度、架构书与输入迁移计划。继续第 4 批，新增纯编辑主流程 `applyTextInputAction()` 及 `TextInputAction`，统一调用插入、左右移动和前后删除；新增 `moveCursor()`、`deleteText()`，按完整字素移动/删除，支持跨换行，删除后重新校正光标边界。参考 CC `Cursor.left/right/backspace/del`，不引入终端按键判断或屏幕测量。`npm run typecheck`、`npm run build` 通过；第 4 批完整前不做行为探针。本批已由用户逐段 review 并要求提交，上下行、Enter、历史与输入组件仍待后续完成。 |
-| 2026-10-03 | 第 3 批分发器经用户逐段 review 后，按要求进入第 4 批。第一小点新增 `src/cli/input/text-input-state.ts` 的 `TextInputState`、`getGraphemeBoundaries()`、`createTextInputState()` 和 `insertText()`：文本保持原样，光标按 UTF-16 下标及字素边界处理，支持初始状态和光标处插入；返回新状态，不读取事件或渲染。参考 CC `Cursor.fromText`、`insert` / `modifyText`、`MeasuredText.getGraphemeBoundaries`，采用纯函数作为后续 React 输入状态的编辑基础。`npm run typecheck`、`npm run build` 通过；按约定，第 4 批完整后再做行为探针。当前插入小点待 review，移动、删除、输入组件及 REPL 尚未实现或接线。 |
-| 2026-10-03 | 新输入第 3 批第二小点：新增 `src/cli/input/input-dispatcher.ts`，实现 `eventToKeystroke()`、`InputDispatcher.configure()` 和 `dispatch()`。焦点目标以稳定 symbol 身份区分组件，按焦点到 Global 的顺序解析并按命中上下文调用动作；单字符 text 参与快捷键匹配，完整粘贴及多字符块原样交给焦点输入。同步管理 pending：组件或配置改变时清空、接错后续键时重新独立匹配、Esc 取消、按 CC 的 1 秒有效期在下次输入时检查过期；响应和鼠标不打断组合键。参考 CC `use-input.ts`、`ChordInterceptor`、`KeybindingSetup.setPendingChord` 和 `useKeybinding.ts`，通过集中分发避免依赖多个监听器的注册顺序。第 3 批逻辑完整实现后，10 个一次性内存行为探针、`npm run typecheck` 和 `npm run build` 通过；探针未写入仓库，未接真实终端或模型。当前小点待 review，确认后进入第 4 批编辑器与基础组件，`npm start` 仍不可对话。 |
-| 2026-10-02 | 新输入第 3 批第一小点：新增 `src/cli/input/keybindings.ts`，实现 `matchesKeystroke()`、`matchesChord()` 和 `resolveKeybinding()`。键名及 Ctrl/Alt/Shift/Meta 精确匹配；调用方按焦点上下文到 Global 排序，同上下文的相同绑定以后置配置为准；连续组合键返回 pending、完成或取消，null 覆盖不会单独留下长组合键前缀。默认映射覆盖提交、换行及中断动作名，未执行业务动作。参考 CC `match.ts` 和 `resolver.ts::resolveKeyWithChordState`，使用独立类型避开还原源码的 `keys` / `chord` 等声明差异。`npm run typecheck` 和 `npm run build` 通过；焦点、普通文字事件适配和动作分发未接入，行为探针待第 3 批完整实现后进行，当前小点已由用户逐段 review 并要求提交。 |
-| 2026-09-30 | 新输入第 2 批完成：`TerminalInputParser.feed()` 以 `StringDecoder` 保留跨 chunk UTF-8，缓冲不完整转义与 bracketed paste；`parseKey()` 保留按键名及 Ctrl/Alt/Shift/Meta，CSI u、modifyOtherKeys、CSI/SS3 均可解析；`startTerminalHost()` 将唯一 stdin 回调转发为事件，50 ms 恢复不完整普通转义、500 ms 恢复进行中的粘贴。终端响应和鼠标事件不流入文字。对照 CC `tokenize.ts`、`parseMultipleKeypresses`、`InputEvent`；本机参考仓库位置与文档原相对路径不同，HEAD 一致。`npm run typecheck`、`npm run build` 和被忽略目录中的临时探针 6 例通过。焦点、快捷键、编辑器及 REPL 尚未接入，`npm start` 仍不可对话。 |
-| 2026-09-29 | 新输入第 1 批完成：浅克隆 `oboard/claude-code-rev` 到并列目录，HEAD 为文档中的 `3b0498a`；核对其 `src/ink/components/App.tsx` 的 raw mode、stdin 与 bracketed paste 生命周期。项目用 React 19 + Ink 6.5.1 渲染，Ink 接虚拟输入流，`TerminalHost` 独占真实 stdin 的原始字节并管理终端模式。`npm run typecheck`、`npm run build` 通过；本机临时测试 2 例通过，按用户要求不入库。按键解析与 REPL 接线尚未实现，CLI 仍不可对话。 |
-| 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增当时的 Claude Code 输入架构迁移计划（现已完成并退役，历史内容可从 Git 查看），后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
+| 2026-10-05 | 继续第 4 批，完善主流程 `applyTextInputAction()`：上下移动操作要求调用方传入 `availableColumns`，经 `moveVerticalCursor()` 依次生成布局、定位当前行列、寻找相邻行字素边界并返回状态；首末行保持光标。新增 `text-input-layout.ts` 的 `layoutTextInput()` 与行列互转函数，以原始 UTF-16 下标关联显示列。本项目按字素满列折行并保留空白，软折行共享下标归下一行；Tab 显示按 4 列制表位、窄行限制到可用宽度，控制字符及超宽字素只在显示层用 `�` 替代，CRLF 和原文不改写。将已有 `string-width 8.3.0` 列为直接依赖。`npm run typecheck`、`npm run build` 通过；第 4 批完整前不做行为探针，当前小批待用户 review，尚未接输入组件或真实终端。 |
+| 2026-10-03 | 按用户要求取消每批最多三个函数的限制，改为每批必须新增或完善一个主流程函数，配套功能函数、类型和接线不计数量；同步进度、架构书与输入迁移计划。继续第 4 批，新增纯编辑主流程 `applyTextInputAction()` 及 `TextInputAction`，统一调用插入、左右移动和前后删除；新增 `moveCursor()`、`deleteText()`，按完整字素移动/删除，支持跨换行，删除后重新校正光标边界。不引入终端按键判断或屏幕测量。`npm run typecheck`、`npm run build` 通过；第 4 批完整前不做行为探针。本批已由用户逐段 review 并要求提交，上下行、Enter、历史与输入组件仍待后续完成。 |
+| 2026-10-03 | 第 3 批分发器经用户逐段 review 后，按要求进入第 4 批。第一小点新增 `src/cli/input/text-input-state.ts` 的 `TextInputState`、`getGraphemeBoundaries()`、`createTextInputState()` 和 `insertText()`：文本保持原样，光标按 UTF-16 下标及字素边界处理，支持初始状态和光标处插入；返回新状态，不读取事件或渲染。采用纯函数作为后续 React 输入状态的编辑基础。`npm run typecheck`、`npm run build` 通过；按约定，第 4 批完整后再做行为探针。当前插入小点待 review，移动、删除、输入组件及 REPL 尚未实现或接线。 |
+| 2026-10-03 | 新输入第 3 批第二小点：新增 `src/cli/input/input-dispatcher.ts`，实现 `eventToKeystroke()`、`InputDispatcher.configure()` 和 `dispatch()`。焦点目标以稳定 symbol 身份区分组件，按焦点到 Global 的顺序解析并按命中上下文调用动作；单字符 text 参与快捷键匹配，完整粘贴及多字符块原样交给焦点输入。同步管理 pending：组件或配置改变时清空、接错后续键时重新独立匹配、Esc 取消、按 1 秒有效期在下次输入时检查过期；响应和鼠标不打断组合键。通过集中分发避免依赖多个监听器的注册顺序。第 3 批逻辑完整实现后，10 个一次性内存行为探针、`npm run typecheck` 和 `npm run build` 通过；探针未写入仓库，未接真实终端或模型。当前小点待 review，确认后进入第 4 批编辑器与基础组件，`npm start` 仍不可对话。 |
+| 2026-10-02 | 新输入第 3 批第一小点：新增 `src/cli/input/keybindings.ts`，实现 `matchesKeystroke()`、`matchesChord()` 和 `resolveKeybinding()`。键名及 Ctrl/Alt/Shift/Meta 精确匹配；调用方按焦点上下文到 Global 排序，同上下文的相同绑定以后置配置为准；连续组合键返回 pending、完成或取消，null 覆盖不会单独留下长组合键前缀。默认映射覆盖提交、换行及中断动作名，未执行业务动作。使用独立类型定义按键与组合键。`npm run typecheck` 和 `npm run build` 通过；焦点、普通文字事件适配和动作分发未接入，行为探针待第 3 批完整实现后进行，当前小点已由用户逐段 review 并要求提交。 |
+| 2026-09-30 | 新输入第 2 批完成：`TerminalInputParser.feed()` 以 `StringDecoder` 保留跨 chunk UTF-8，缓冲不完整转义与 bracketed paste；`parseKey()` 保留按键名及 Ctrl/Alt/Shift/Meta，CSI u、modifyOtherKeys、CSI/SS3 均可解析；`startTerminalHost()` 将唯一 stdin 回调转发为事件，50 ms 恢复不完整普通转义、500 ms 恢复进行中的粘贴。终端响应和鼠标事件不流入文字。`npm run typecheck`、`npm run build` 和被忽略目录中的临时探针 6 例通过。焦点、快捷键、编辑器及 REPL 尚未接入，`npm start` 仍不可对话。 |
+| 2026-09-29 | 新输入第 1 批完成：先核对终端 raw mode、stdin 与 bracketed paste 的生命周期设计。项目用 React 19 + Ink 6.5.1 渲染，Ink 接虚拟输入流，`TerminalHost` 独占真实 stdin 的原始字节并管理终端模式。`npm run typecheck`、`npm run build` 通过；本机临时测试 2 例通过，按用户要求不入库。按键解析与 REPL 接线尚未实现，CLI 仍不可对话。 |
+| 2026-09-29 | 按用户决定停止旧输入方案：五个实现文件归档到 `src/cli/input/stash/`，旧 REPL 输入循环和图片暂存从 `main.ts` 移除，`npm start` 明确报暂不可用。新增当时的输入架构迁移计划（现已完成并退役，历史内容可从 Git 查看），后续按源码链路逐批实现并等待 review。验证：类型检查通过、归档输入 31 个测试通过、启动入口以非零状态报告不可用。新输入尚未实现。 |
 | 2026-09-26 | 为多行代码粘贴提前发送的问题接入新的终端输入底层：raw mode 与 bracketed paste 解析输出独立的文本、按键、粘贴事件；`PasteBurst` 为无标记的快速输入提供时间判断兜底；`DraftEditor` 独立维护可编辑多行草稿；`CliPrompt` 暂时负责 CLI 显示与 Enter 提交，支持 Ctrl+J / 可辨别的 Shift+Enter 换行、`/paste` 后 Ctrl+D 退出安全粘贴、原有图片快捷键与斜杠命令。非 TTY 管道在 EOF 交付完整文本。输入测试、类型检查、构建、macOS 伪终端请求体与 SIGTERM 清理验证及独立代码 review 已通过。慢速无标记粘贴存在不可判别边界；实际 Windows / WebStorm / Terminal.app 手测待做。 |
-| 2026-09-26 | 思考等级与 BYOK 改为同一项待设计功能，不再按原第 4、6 步分别实现。规划要求模型能力与请求映射可在配置中调整，兼顾不同协议和网关差异，并设计明确反馈及有限重试或兜底；避免新厂商都要在核心代码追加特例。具体档位、能力信息来源、映射形状和重试条件待进一步对照 Kimi Code 等实现后决定。本次只更新规划文档，未改实现。 |
+| 2026-09-26 | 思考等级与 BYOK 改为同一项待设计功能，不再按原第 4、6 步分别实现。规划要求模型能力与请求映射可在配置中调整，兼顾不同协议和网关差异，并设计明确反馈及有限重试或兜底；避免新厂商都要在核心代码追加特例。具体档位、能力信息来源、映射形状和重试条件待进一步核对厂商文档后决定。本次只更新规划文档，未改实现。 |
 | 2026-09-26 | 用户调整施工顺序，先接简单的手动入口。`Harness.manualCompact()` 在 `used > window / 4` 时调用现有 `compact()`，否则直接返回；无新消息时不重复压缩。REPL 加 `/compact` 与结果提示，摘要包装不再声称已耗尽上下文。验证：`npm run typecheck` 通过；一次性假 `StreamFn` 探针覆盖恰好 1/4、超过 1/4 但只有一轮、成功摘要和 JSONL 恢复、压后重复调用；PTY 里 `/compact` 的低用量提示正常。未调用真实模型，当前步骤等用户 review 后再继续。 |
 | 2026-09-25 | 按当前源码纠正第 3 步状态：默认窗口 `256000`；摘要保留原上下文和 tools，在末尾加指令，工具调用则重试；自动压缩和溢出恢复已接通，假 `StreamFn` 探针已通过，真实模型压缩验收暂缓。v1.2 新增思考等级之后的手动 `/compact` 与最小 BYOK 三协议（OpenAI Chat Completions、Anthropic Messages、OpenAI Responses）；v1.3 安排 TUI。这里只记录需求和现状，新增功能尚未动手。 |
-| 2026-09-25 | 会话存储继续使用线性 JSONL。本地的追加、列表和恢复需求不引入 SQLite；会话树、`/tree`、树状 fork 和 Pi v4 session 迁移明确不做。 |
+| 2026-09-25 | 会话存储继续使用线性 JSONL。本地的追加、列表和恢复需求不引入 SQLite；会话树、`/tree` 和树状 fork 明确不做。 |
 | 2026-09-24 | 第 3 步第一小点：窗口 + 估算用量 + 显示。`Model.contextWindow` 设为必填；`env.ts` 读 `OPENAI_CONTEXT_WINDOW`（缺省 `128000`，非正整数回退缺省）并导出 `DEFAULT_CONTEXT_WINDOW`；`context.ts` 增加 `estimateMessagesTokens`；`Harness` 接通 `setContextWindow` / `contextUsage`，`usedTokens` 在 `prompt` 后重算、`newSession` 归零、`resumeAt` 按加载的 messages 重算；`main.ts` 启动打印 `ctx window`，新增 `/context`（无参数打 `ctx used/window`，带正整数改窗口）和每轮后的 `ctx used/window`。`agent.ts` 的 `DEFAULT_MODEL` 补占位 `contextWindow: 0`，注释说明 Harness 永远传入真模型。验证：`npm run typecheck`、`npm run test:images`（13 例）、`npm run probe:session` 均通过；`probe-harness` 原「未接上的方法 throw」用例改为「仍未接上」（只剩 `setThinkingLevel` / `compact`），并新增用例 6 覆盖窗口/用量/`newSession`/`resumeAt`。压缩、接口 usage 解析、上下文探针和 §7 端到端验收未做。 |
 | 2026-09-24 | 第 3 步第二小点：接口 usage。`AssistantMessage` 加可选 `usage?: { input; output; totalTokens? }`；`openai-chat.ts` 请求体加 `stream_options: { include_usage: true }`，并在 `choice` 判断之前解析流末尾的 usage 块，字段只改名 `prompt_tokens`→`input`、`completion_tokens`→`output`，`input` 不扣缓存；`harness.ts` 的 `prompt` 优先取最后一条 assistant 的 `input + output`，取不到回退 `estimateMessagesTokens`（新增私有 `usageFromLastAssistant`）。验证：`npm run typecheck`、`probe:session`、`test:images` 通过；`fake-stream.ts` 增加可选 `usage`，`probe-harness` 新增用例 7 覆盖「有 usage 取 input+output」「无 usage 回退估算」「上一条有 usage 但本条没有时不沿用旧值」。真实网关已实测（`test/probe-usage.ts`，deepseek）：HTTP 200，接受 `stream_options`，返回 usage，字段为 `prompt_tokens`/`completion_tokens`/`total_tokens`；端到端 `streamOpenAIChat` 写出 `{"input":32,"output":19,"totalTokens":51}`。注意 deepseek 把 usage 与 `finish_reason` 放在同一块（`choices` 非空），标准 OpenAI 是空 `choices` 的独立块，先读 usage 的顺序兼容两种。附带发现：deepseek-flash 返回 `reasoning_content`（第 4 步可用）。 |
 | 2026-09-24 | 第 3 步第一小点的两个决定。（1）`ctx` 显示统一成 `used/window` 一种形状：启动打 `ctx 0/<window>`，`/context`、`/context <n>` 之后和每轮结束都打 `ctx <used>/<window>`，不再出现单独的 `ctx window=`。（2）`Model.contextWindow` 保持必填。理由是按 BYOK 考虑：宽松留给配置层（`env.ts` 的 `parseContextWindow` 缺省 / 回退），严格留在运行时类型，下游（`contextUsage`，以后的压缩）不必写 `??`；用户在用 BYOK 配模型时基本都会填窗口。「配置层可省、运行时必有」两件事现在就已同时成立。 |
 | 2026-09-22 | 图文关联修复通过本地验收：`npm run test:images` 的 13 个用例、`npm run typecheck` 均通过；另以 mock fetch 独立验证 48 种组合，覆盖同名工具、不同图片 MIME、真实 user/assistant 边界、冻结输入和重复请求。含图工具结果保留来源及内容顺序，整批 tool 回复后再发送附件；普通 user 同样保序。独立组合检查为一次性内存脚本，未写入仓库；未调用真实模型，未修复中断配对问题。 |
-| 2026-09-22 | 文档整理：明确目标为可开源的产品级个人 agent；Pi 为参考，功能按用户设计；框架可先搭好并预留入口，每次实现几个相关函数供 review。架构书保存当前状态与后续目标，本页保留历史与当前待办。同步记录容量基础函数已存在但未接通；不改变既定 v1.2 目标，不代表图片修复或其他代码功能已完成。 |
+| 2026-09-22 | 文档整理：明确目标为可开源的产品级个人 agent；功能按用户设计；框架可先搭好并预留入口，每次实现几个相关函数供 review。架构书保存当前状态与后续目标，本页保留历史与当前待办。同步记录容量基础函数已存在但未接通；不改变既定 v1.2 目标，不代表图片修复或其他代码功能已完成。 |
 | 2026-09-22 | 剪贴板三平台都先读位图，没有再读文件路径。只缩小临时副本，不动用户原文件。 |
 | 2026-09-22 | 用户消息可以带图片。Windows `Alt+V`、macOS/Linux `Ctrl+V` 读剪贴板，最长边缩到 2000，和文字放进同一条 user。没有图片的消息仍按纯文字发送。 |
 | 2026-09-22 | 图片发出去之前把最长边缩到 2000。仍不看模型是否收图片。 |
@@ -228,7 +227,7 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 
 ## v1.1（已闭合代码；§7 手测未做）
 
-做了什么：按 Pi harness 加上 `read` / `write` / `edit`，装配进 REPL。`bash` 留下。探针：`probe-read` / `probe-write` / `probe-edit`。§7 REPL 手测未勾，不挡 v1.2。
+做了什么：按自有 harness 加上 `read` / `write` / `edit`，装配进 REPL。`bash` 留下。探针：`probe-read` / `probe-write` / `probe-edit`。§7 REPL 手测未勾，不挡 v1.2。
 
 | 步 | 内容 | 状态 |
 |---|---|---|
@@ -246,10 +245,10 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 | 2026-09-16 | 闭合代码阶段，开 v1.2。§7 手测仍未做。 |
 | 2026-09-15 | 装配：`main.ts` 挂上 read/bash/edit/write；`prompt.ts` 写清四个工具用途；`index.ts` 导出三个 create 函数。 |
 | 2026-09-15 | 写入 `createEditTool` + `probe-edit.ts`：一处成功、0 次 / 2 次 throw、两项不重叠、abort。prepareArguments / 换行归一 / diff 后一刀。 |
-| 2026-09-14 | 拿掉 `resolveCwdPath` 的工作区铁墙：对齐 Pi，相对 `cwd` resolve 即可，不因在 cwd 外 throw。 |
+| 2026-09-14 | 拿掉 `resolveCwdPath` 的工作区铁墙：相对 `cwd` resolve 即可，不因在 cwd 外 throw。 |
 | 2026-09-14 | 写入 `createReadTool`（文本第一刀）+ `probe-read.ts`：小文件带行号、缺文件 throw、超大截断、abort。图片后一刀。 |
 | 2026-09-14 | `resolveCwdPath` 去掉剥 `@`：这边还没有 `@` mention，留给后一刀。 |
-| 2026-09-14 | 非独立工具辅助改名：`path.ts` → `path-utils.ts`，对齐 Pi 的 `path-utils.ts`。函数未改。 |
+| 2026-09-14 | 非独立工具辅助改名：`path.ts` → `path-utils.ts`。函数未改。 |
 | 2026-09-14 | 写入 `resolveCwdPath`：resolve 到 cwd、越界 throw、abort throw。 |
 | 2026-09-13 | 开 v1.1。架构书收成一份，施工从 `path.ts` 起。 |
 
@@ -276,22 +275,22 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 | 日期 | 发生了什么 |
 |---|---|
 | 2026-09-09 | 建 `cli-agent/`，写下 v1 架构书。源码未开工。进度文档建立。 |
-| 2026-09-09 | 装好工程脚手架：`package.json`、`tsconfig.json`、依赖。代写的 `src/types.ts` 已撤回；源码改由用户对照 Pi 自己写。 |
+| 2026-09-09 | 装好工程脚手架：`package.json`、`tsconfig.json`、依赖。代写的 `src/types.ts` 已撤回；源码改由用户自己写。 |
 | 2026-09-09 | 建了空的 `src/types.ts`，内容未写。 |
 | 2026-09-09 | `types.ts` 补全：AgentContext、Loop hook、AgentLoopConfig、AgentState、AgentEvent。`tsc --noEmit` 通过。 |
 | 2026-09-11 | 建了空的 `src/llm/event-stream.ts`，内容未写。 |
 | 2026-09-11 | 用户写完 `event-stream.ts`（EventStream + AssistantMessageEventStream）。下一步 openai-chat。 |
 | 2026-09-11 | 建了空的 `src/llm/openai-chat.ts`。 |
-| 2026-09-11 | 写入 `openai-chat.ts`：v1 切片（fetch + SSE，不抄 Pi 的 retry/compat/thinking）。 |
-| 2026-09-11 | 按用户要求清空 `openai-chat.ts`，改由用户对照 Pi 逐函数重写。 |
-| 2026-09-11 | 写下「带着写」四段格式（做什么 / 给出代码 / Pi 对照行号 / 相对 Pi 的改动），换对话沿用，用户不必再说明。 |
+| 2026-09-11 | 写入 `openai-chat.ts`：v1 切片（fetch + SSE，不做 retry/compat/thinking）。 |
+| 2026-09-11 | 按用户要求清空 `openai-chat.ts`，改由用户逐函数重写。 |
+| 2026-09-11 | 写下「带着写」四段格式（做什么 / 给出代码 / 设计理由 / 本项目的改动），换对话沿用，用户不必再说明。 |
 | 2026-09-11 | 代码改为 append：只给新增片段和要改的那几行，禁止整文件覆盖贴。 |
 | 2026-09-11 | 按用户要求：一次一个函数、实现一次就定稿不再改；`openai-chat.ts` 改回第一次粘贴的壳。 |
 | 2026-09-11 | 协作改为：聊天讲解后由助手写入源码，用户不用粘贴；未明确说 `git commit` 时不要做版本提交。 |
 | 2026-09-12 | 建 `test/probe-llm.ts`，用环境变量读 key，不把密钥写进仓库。 |
 | 2026-09-12 | 增加 `.env` / `.env.example` 和 `src/env.ts`；v1 配置为 key + baseUrl + model。 |
 | 2026-09-12 | 修 SSE 空 buffer 误 break。探针：纯文本「好」+ echo toolCall 通过。 |
-| 2026-09-12 | env 改为 Pi 形状：`auth.json` 存 key，`models.json` 存 baseUrl/model；不再解析 `.env`。 |
+| 2026-09-12 | env 改为 `auth.json` 存 key，`models.json` 存 baseUrl/model；不再解析 `.env`。 |
 | 2026-09-12 | 按用户要求先退回 `.env` 测试；auth.json / models.json 以后产品化再加。 |
 | 2026-09-12 | 写完 `bash.ts`。`test/probe-bash.ts`：echo hello、exit 1 不抛错、abort throw，均通过。 |
 | 2026-09-12 | 第 5 步先写入 `createFakeStreamFn`；按用户要求放到 `test/fake-stream.ts`，不进 `src/`。 |

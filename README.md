@@ -126,4 +126,4 @@ npm start
 
 ## 许可证
 
-[MIT](LICENSE)。项目部分基础代码参考并改写自 [Pi](https://github.com/earendil-works/pi)，相关代码保留原有版权和许可声明。
+[MIT](LICENSE)。
