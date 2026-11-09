@@ -8,7 +8,7 @@
 
 1. 核对 tag、`package.json` 和 `package-lock.json` 中的版本；确认该提交已包含在 `main` 中。
 2. 复用 CI，完成 Windows、Linux、macOS × Node 22、24 的类型检查、构建、测试和覆盖率检查。
-3. 在独立 Ubuntu runner 上重新安装锁定依赖，执行 `npm pack`，由 `prepack` 自动构建。
+3. 在独立 Ubuntu runner 上重新安装锁定依赖，执行 `npm pack`，由 `prepack` 清理旧 `dist` 后重新构建，避免把已删除源码的历史产物打入包。
 4. 检查安装包内容，仅安装生产依赖，实际启动 `ati` 和 `anti-trace` 执行 `/new`。
 5. 使用 npm Trusted Publishing（OIDC）上传刚才验证过的同一个 `.tgz` 安装包。
 
