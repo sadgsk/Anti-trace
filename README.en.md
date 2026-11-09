@@ -1,155 +1,129 @@
 # Anti-trace
 
-[中文](README.md) | **English**
+[![MIT License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/anti-trace)](https://www.npmjs.com/package/anti-trace)
+[![CI](https://github.com/sadgsk/Anti-trace/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sadgsk/Anti-trace/actions/workflows/ci.yml)
+[![Release](https://github.com/sadgsk/Anti-trace/actions/workflows/release.yml/badge.svg)](https://github.com/sadgsk/Anti-trace/actions/workflows/release.yml)
+<br>
+[Quick start](#quick-start) · [Documentation](#documentation) · [Issues](https://github.com/sadgsk/Anti-trace/issues) · [中文](README.md)
 
-Anti-trace is an AI coding agent that runs in your terminal. It can read and edit code, execute shell commands, find project files, and decide what to do next based on the results. Bring your own API credentials to connect a model provider through OpenAI Chat Completions, OpenAI Responses, or Anthropic Messages.
+Anti-trace is an AI coding assistant for your terminal. It reads and edits project files, runs builds and tests, and follows up on tool results. Connect a supported model provider with your own API key and review commands, output, and diffs in the terminal.
 
-![Anti-trace proposed architecture: the existing agent foundation, planned feature changes, validation, and hot restart](docs/assets/target-architecture.svg)
+## Install
 
-## What it can do
+Requires Node.js 22 or newer.
 
-- **Understand a project:** read source files, trace module relationships, and explain code.
-- **Write and change code:** implement features, fix bugs, refactor code, or write documentation from your instructions.
-- **Run development tasks:** use the shell to find files, run builds and tests, and investigate problems using command output.
-- **Continue previous work:** save project conversations and restore them with `/resume`; track context usage and compact conversation history.
-- **Work with text and images:** multiline editing, long-text pasting, image input, and draft undo/redo.
+```sh
+npm install -g anti-trace
+```
+
+`ati` and `anti-trace` launch the same CLI. Shell tools use Bash on macOS and Linux. On Windows, Anti-trace prefers PowerShell 7 and falls back to Windows PowerShell 5.1. Git for Windows also enables Git Bash. If Anti-trace cannot find a custom installation, set `ANTI_TRACE_GIT_BASH_PATH` to the absolute path of Git for Windows' `bin\bash.exe`.
 
 ## Quick start
 
-You need Node.js 22 or newer and API credentials for your chosen model provider.
+1. Open a terminal in your project directory and launch Anti-trace.
+
+   ```sh
+   cd your-project
+   ati
+   ```
+
+2. Enter `/config` and choose **Add configuration**. Fill in the configuration file name, provider API URL, API key, model ID, and API protocol. Set the context window for your model and optionally set an output limit. Choose **Save and use configuration** or press `Ctrl+S`.
+3. Enter your first task.
+
+   ```text
+   Find this project's entry points and test commands, and explain how its main modules fit together.
+   ```
+
+Once a model is configured, you can also pipe in a single prompt. The CLI reads standard input as one message, processes it, and exits. Pipe mode blocks tools that require interactive approval.
 
 ```sh
-git clone https://github.com/sadgsk/Anti-trace.git
-cd Anti-trace
-npm install
+echo "Explain the entry points in this project." | ati
 ```
 
-Copy [byok.example.json](byok.example.json) to `~/.anti-trace/profiles/local/configs/main.json` in your home directory (create the directories first) and configure:
+## Key features
 
-- The connection's API key and service URL.
-- The model ID, context window, and output limit.
-- `currentModel`: the model configuration key to use.
+- **File and shell tools.** Read, create, and edit files. Use the shell to search the project, build, and run tests. Shell commands default to a 120-second timeout. Long output is shortened in the transcript, with the full output saved for later reads.
+- **Terminal UI.** Stream responses with Markdown, syntax highlighting, tables, tool cards, and diffs. Type `/` to open the command menu or `@` to find and complete workspace file paths. Edit multiline drafts with undo and redo, and switch between English and Chinese with `/language`.
+- **Image input.** Paste a path to an image file or use `Alt+V` (Windows) or `Ctrl+V` (macOS and Linux) to try reading an image from the clipboard. Supported formats include PNG, JPEG, GIF, and WebP. Clipboard support depends on the terminal and system tools, and the selected model must accept images.
+- **Sessions and context.** Save conversations and attachments per project and continue with `/resume`. The status line shows context usage. Anti-trace can compact older messages automatically, and `/compact` lets you request compaction manually.
 
-The default `main` entry contains a placeholder URL and model ID. Replace them before making a model request. Then start the CLI:
+## Permissions and approvals
 
-```sh
-npm start
-```
+Reads are allowed by default. Writes, edits, and shell commands prompt for approval. You can approve once, allow for the current session, or deny with feedback. File changes can be previewed as diffs before approval. A session approval for file changes covers subsequent file writes and edits, while a shell approval applies to the same command in the same tool.
 
-To register the equivalent local commands `ati` and `anti-trace`, run these commands from this repository:
+| Mode | Behavior |
+| --- | --- |
+| Default | Ask before writes, edits, and shell commands |
+| `auto-edit` | Allow writes and edits automatically and ask before shell commands |
+| `yolo` | Allow all tool calls automatically |
 
-```sh
-npm run build
-npm link
-```
+Press `Shift+Tab` to cycle through modes, or launch with `ati --auto-edit` or `ati --yolo`. Tools run with the current user's system permissions.
 
-You can then run `ati` or `anti-trace` from any working directory; that directory becomes the CLI's cwd, while model configuration is loaded from your user data directory. `CLI_AGENT_CONFIG` can explicitly select another JSON file. The commands run the compiled `dist` files, so run `npm run build` again after source changes; linking again is unnecessary. `npm link` registers the commands locally and does not publish to npm.
+## Model configuration
 
-macOS and Linux use Bash. Windows prefers PowerShell 7, falling back to Windows PowerShell 5.1. Installing Git for Windows also enables the Bash tool for Bash scripts and POSIX commands. For a custom Git installation, set `ANTI_TRACE_GIT_BASH_PATH` to the absolute path of its `bin\bash.exe` before startup. You can launch Anti-trace from CMD or PowerShell; each tool selects its own interpreter. Commands default to a 120-second timeout.
+Use `/config` to create, select, and edit configuration files. Each file can define multiple models, which you can switch between with `/model`. Anti-trace supports these APIs.
 
-Describe a task directly in the conversation, for example:
-
-```text
-Explain this project's entry points and main modules.
-Fix this function's handling of empty input and add a test.
-Run the build, investigate the errors, and update the relevant code.
-```
-
-The agent reads files, edits code, and runs commands as needed. These actions affect your project files directly; use a recoverable copy for initial evaluation.
-
-## Model providers
-
-Use BYOK JSON to configure your own model service:
-
-| API | Configuration value |
-|---|---|
+| API | JSON `api` value |
+| --- | --- |
 | OpenAI Chat Completions | `openai-completions` |
 | OpenAI Responses | `openai-responses` |
 | Anthropic Messages | `anthropic-messages` |
 
-Models reference a connection through `connection`; `currentModel` selects a key in `models`. Set `apiKey` directly or use `apiKeyEnv` to reference a process environment variable.
+You can also copy the [example configuration](byok.example.json) to `~/.anti-trace/profiles/local/configs/main.json`. Replace the example URL, key, and model ID, then set `contextWindow` and optionally `maxOutputTokens` for your model. Each entry in `models` references a connection in `connections`, and `currentModel` is the key of the selected model entry.
 
-The user data root defaults to `~/.anti-trace`; override it with `ANTI_TRACE_HOME`. Model configurations and `/config` creations use `profiles/local/configs/`. The `local` profile is the current local user; the code accepts a `profileId` for future user separation without implementing login.
+- Set either `apiKey` or `apiKeyEnv` for each connection. `apiKeyEnv` refers to an environment variable available to the CLI process. You can also use a connection from the [provider presets example](byok.providers.example.json).
+- Set `baseUrl` to the API root, including any required version prefix such as `/v1`. Put a full inference URL in `endpoint` when needed.
+- Startup checks `CLI_AGENT_CONFIG`, the project's last selection, the user's default selection, and the sole valid configuration in the config directory, in that order. When several valid configurations are available on first launch, choose one with `/config`.
+- Local data lives in `~/.anti-trace` by default. Override it with `ANTI_TRACE_HOME`. Model configurations are stored in `profiles/local/configs/`. Conversations, attachments, and long tool output are grouped by working directory under `profiles/local/projects/`.
 
-Startup selects an explicit `CLI_AGENT_CONFIG`, the project's last selection, the user's default selection, or the sole valid configuration, in that order. Multiple configurations without a saved selection require `/config`. Explicit configuration/model choices update the user default; reopening a project does not overwrite that default with its project selection. Missing saved paths warn and fall back; invalid explicit paths fail. Workspace `byok.json`, `.env` and old storage directories are not automatically read.
+## Commands and shortcuts
 
-```text
-~/.anti-trace/
-├── preferences.json                     # Machine-wide language preference
-└── profiles/local/
-    ├── configs/                         # Model connection configuration
-    ├── default-model.json               # Default selection for new projects
-    └── projects/<SHA-256 of workspace>/
-        ├── project.json                 # Workspace path
-        ├── last-model.json              # Project model/config selection
-        ├── sessions/                    # Conversations and image attachments
-        └── tool-results/                # Complete tool output
-```
-
-Selection files contain only configuration paths and model keys. Conversations and tool output are separated by workspace and profile, while language is shared on this machine. File operations and shells keep the startup cwd. Image conversion uses the system temporary directory. Old conversations are not migrated; existing files remain untouched.
-
-Anthropic Messages defaults to `32000` when `maxOutputTokens` is omitted, capped at the configured `contextWindow` if it is smaller. An explicit output limit takes precedence.
-
-Include any required version prefix in `baseUrl`, such as `/v1`. Alternatively, select connection presets and models from the [provider configuration example](byok.providers.example.json), then set the corresponding API key environment variables. The example includes 36 connection options across nine providers, with explicit rules for supported protocols, regions, and models.
-
-## Common commands
-
-Type `/` to open the command menu; use arrows to select, Enter to confirm, Tab to complete and Esc to return. Model, effort, thinking, thinking display, session resume and configuration commands open selection screens without typed arguments. Explicit arguments remain compatible. Input starts at the bottom; use the mouse wheel or PgUp/PgDn to review history, Ctrl+End to return to the latest output, and Shift+drag to select text.
+Type `/` and keep typing to filter the command menu. Use the arrow keys to select, `Enter` to confirm, `Tab` to complete, and `Esc` to close.
 
 | Command | Purpose |
-|---|---|
-| `/help` | Show help |
-| `/new` | Start a new session |
-| `/resume` | Select and restore a session with arrow keys |
-| `/model` | Select from models in the current configuration |
-| `/config` | Choose, add or edit configurations; add models to one file and edit each field on a separate page |
-| `/reload` | Reload model configuration |
-| `/thinking` | Select reasoning on/off |
-| `/effort` | Select low/medium/high/xhigh/max with arrow keys |
-| `/thinking-display` | Select the default reasoning text visibility |
-| `/language` | Switch between Chinese and English and remember the preference |
-| `/context [positive integer]` | View or adjust the context window |
-| `/compact` | Attempt manual context compaction |
+| --- | --- |
+| `/help` | Show commands and shortcuts |
+| `/new` / `/resume` | Start a session or resume one for the current project |
+| `/config [path]` | Manage configurations or load a specific JSON file |
+| `/model [model key]` | Select a model from the current configuration |
+| `/reload` | Reload the current configuration |
+| `/thinking [on\|off\|default]` | Enable reasoning, disable it, or use the provider default |
+| `/effort` | Select `low`, `medium`, `high`, `xhigh`, or `max`. The effect depends on the model and API |
+| `/thinking-display [on\|off]` | Choose whether reasoning text starts expanded |
+| `/context [positive integer]` / `/compact` | Inspect or adjust the context window, or request compaction |
+| `/language [zh\|en]` | Switch and remember the interface language |
 | `/exit` | Exit |
 
-The complete TUI is ready for trial; see the [architecture and interaction notes](docs/architecture.md#4-分层) and [progress record](docs/progress.md) for validation and remaining work. It includes Markdown, code and tables, tool cards and diffs, permission approval, file completion with `@`, and attachment indicators. Ctrl+O expands/collapses content at the current reading position, or opens the latest tool when following live output; Shift+Tab cycles permission modes. Use `npm start -- --auto-edit` or `npm start -- --yolo` to choose a startup mode explicitly.
+| Shortcut | Action |
+| --- | --- |
+| `Enter` / `Shift+Enter` or `Alt+Enter` | Submit / insert a newline |
+| `Ctrl+Z` / `Ctrl+Y` or `Ctrl+Shift+Z` | Undo / redo draft changes |
+| `Ctrl+C` | Interrupt generation or clear the draft. Exit when idle with an empty draft |
+| `Ctrl+O` | Expand or collapse tool output and reasoning text |
+| Scroll wheel or `PgUp` / `PgDn` / `Ctrl+End` | Browse history / return to the latest output |
 
-Enter submits. Shift/Alt+Enter, or a backslash followed by Enter, inserts a newline. Ctrl+C interrupts generation or clears the draft; when idle with an empty draft, it exits. Ctrl+Z undoes; Ctrl+Y redoes. Shortcut recognition depends on the terminal.
+Shortcut support depends on the terminal.
 
-`/reload` reloads model configuration while preserving the current model selection and reasoning preferences. `/new` inherits the current settings; `/resume` resolves saved model references against the loaded catalog. The reasoning display switch only affects display, not model requests.
+## Development
 
-## Project direction
+```sh
+git clone https://github.com/sadgsk/Anti-trace.git
+cd Anti-trace
+npm ci
+npm start
+```
 
-The project is in early development. Its long-term goal is to let users describe a feature in natural language, have the agent modify its own tools or CLI interface, and apply those changes through a hot restart.
+`npm test` runs the offline tests. `npm run check` runs type checks, tests, and a build. Branch pushes and pull requests trigger GitHub Actions CI on Windows, macOS, and Linux with Node.js 22 and 24.
 
-This capability has not been implemented. The diagram above shows the proposed design. Current work focuses on the underlying model integration, tool execution, sessions, and context management.
+Pushing a `vX.Y.Z` version tag triggers the npm release workflow. It checks that the tag matches the package version and that the commit is in `main`, then publishes after CI and package installation checks pass.
 
-- [ ] Dynamically modify tools, the CLI interface, and other capabilities from natural-language requests.
-- [ ] Validate capability changes and load them through a hot restart.
-- [x] Provider presets, reasoning controls, and the unified settings workflow.
-- [ ] Improve TUI interaction in v1.3.
-- [x] Establish reproducible offline tests and Windows/Linux/macOS CI.
-- [ ] Expand real-model and native-terminal acceptance checks.
-- [ ] Fix remaining issues with tool pairing and context-overflow error display.
+## Documentation
 
-## Known limitations
-
-- Windows requires a working PowerShell or Git Bash installation. Without Git Bash, only PowerShell is exposed. An invalid explicit Bash path produces a configuration error. See [future-issues.md](docs/future-issues.md).
-- Premature display of recoverable context-overflow errors still needs work. Interrupted tool-batch pairing was fixed in the TUI implementation; see the [review records](docs/review-records.md).
-- Local HTTP SSE and macOS POSIX PTY verification records exist. Coverage of real models, clipboards, and other terminal platforms remains incomplete.
-- Formal tests live in `tests/`. Run `npm test` for offline tests or `npm run check` for type checks, tests and a build. See the [testing guide](docs/testing.md) for commands, coverage and the three-platform CI matrix. Real-model checks have a separate explicit entry point.
-
-## Development documentation and origins
-
-The detailed development documents are currently in Chinese.
-
-- [Development progress](docs/progress.md): current status, pending work, and development history.
-- [Architecture](docs/architecture.md): module responsibilities and design.
-- [Testing and CI](docs/testing.md): commands, test authoring, isolation, coverage and the CI matrix (Chinese).
-- [npm releases](docs/releases.md): connect npm to GitHub and publish stable releases using version tags (Chinese).
-
-The project started by studying and referencing [Pi](https://github.com/earendil-works/pi). Some foundational code was adapted from Pi. Anti-trace uses its own `Harness` and feature design, and does not currently depend on Pi runtime packages.
+- [Testing and CI](docs/testing.md)
+- [npm release process](docs/releases.md)
+- [Architecture and implementation notes](docs/architecture.md)
 
 ## License
 
-[MIT](LICENSE). Portions derived from Pi retain their original copyright and license notice.
+[MIT](LICENSE). Portions adapted from [Pi](https://github.com/earendil-works/pi) retain their original copyright and license notices.
