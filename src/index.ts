@@ -17,5 +17,9 @@ export { detectShellEnvironment, type ShellEnvironment, type PowerShellConfig } 
 export { createEditTool } from "./harness/tools/edit.ts";
 export { createReadTool } from "./harness/tools/read.ts";
 export { createWriteTool } from "./harness/tools/write.ts";
+export { createSkillTool } from "./harness/tools/skill.ts";
+export { SkillRuntime } from "./harness/skills/runtime.ts";
+export { SkillRegistry } from "./harness/skills/registry.ts";
+export type { SkillDefinition, SkillSnapshot, SkillDiagnostic } from "./harness/skills/types.ts";
 export { buildSystemPrompt, type BuildSystemPromptOptions } from "./harness/prompt.ts";
 export type * from "./types.ts";

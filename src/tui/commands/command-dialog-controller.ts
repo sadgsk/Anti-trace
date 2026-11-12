@@ -8,6 +8,7 @@ export interface ConfigFormState extends DialogBase { kind: "form"; fields: read
 export type CommandDialogState =
 	| (DialogBase & { kind: "picker"; choices: readonly CommandChoice[]; selected: number; horizontal: boolean })
 	| ConfigFormState
+	| (DialogBase & { kind: "input"; field: ConfigField; selected: number })
 	| (DialogBase & { kind: "field"; field: ConfigField; selected: number; form: ConfigFormState });
 
 /** All modal input uses the host's existing dispatcher. Field drafts commit only on Enter. */
@@ -17,13 +18,14 @@ export class CommandDialogController {
 	private acceptChoice?: (id: string) => void;
 	private saveForm?: (values: Record<string, string>) => void;
 	private goBack?: () => void;
+	private acceptInput?: (value: string) => void;
 	readonly editor = new TextInputController({ availableColumns: 60, multiline: false });
 	readonly target: InputTarget = { id: Symbol("command-dialog"), context: "CommandDialog", actions: {
-		...Object.fromEntries(Object.keys(this.editor.target.actions ?? {}).map(action => [action, () => { if (this.state?.kind === "field" && !this.state.field.options) this.editor.handleAction(action); }])),
+		...Object.fromEntries(Object.keys(this.editor.target.actions ?? {}).map(action => [action, () => { if ((this.state?.kind === "field" || this.state?.kind === "input") && !this.state.field.options) this.editor.handleAction(action); }])),
 		"dialog:previous": () => this.move(-1), "dialog:next": () => this.move(1),
 		"dialog:left": () => this.adjust(-1), "dialog:right": () => this.adjust(1),
 		"dialog:accept": () => this.accept(), "dialog:cancel": () => this.cancel(), "dialog:save": () => this.save(),
-	}, onInput: event => { if (this.state?.kind === "field" && !this.state.field.options) this.editor.handleInput(event); } };
+	}, onInput: event => { if ((this.state?.kind === "field" || this.state?.kind === "input") && !this.state.field.options) this.editor.handleInput(event); } };
 	getSnapshot = () => this.state;
 	subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 	openPicker(options: { title: string; description?: string; choices: readonly CommandChoice[]; selectedId?: string; horizontal?: boolean; onAccept: (id: string) => void; onBack?: () => void }): void {
@@ -36,8 +38,12 @@ export class CommandDialogController {
 		this.set({ kind: "form", title: options.title, description: options.description, fields: options.fields, selected: 0 });
 	}
 	setColumns(columns: number): void { this.editor.setAvailableColumns(Math.max(1, columns - 7)); }
+	openInput(options: { title: string; description?: string; placeholder?: string; onAccept: (value: string) => void; onBack?: () => void }): void {
+		this.clearEditor(); this.acceptInput = options.onAccept; this.acceptChoice = undefined; this.saveForm = undefined; this.goBack = options.onBack;
+		this.set({ kind: "input", selected: 0, title: options.title, description: options.description, field: { key: "value", label: options.title, value: "", placeholder: options.placeholder } });
+	}
 	showError(error: unknown): void { if (this.state) this.set({ ...this.state, error: error instanceof Error ? error.message : String(error) }); }
-	close(): void { this.state = null; this.acceptChoice = undefined; this.saveForm = undefined; this.goBack = undefined; this.clearEditor(); this.publish(); }
+	close(): void { this.state = null; this.acceptChoice = undefined; this.acceptInput = undefined; this.saveForm = undefined; this.goBack = undefined; this.clearEditor(); this.publish(); }
 	cancel(): void {
 		if (this.state?.kind === "field") { const form = this.state.form; this.clearEditor(); this.set(form); return; }
 		const back = this.goBack; this.close(); back?.();
@@ -50,11 +56,12 @@ export class CommandDialogController {
 	}
 	private adjust(direction: number): void {
 		if (this.state?.kind === "picker") { if (this.state.horizontal) this.move(direction); return; }
-		if (this.state?.kind !== "field") return;
+		if (this.state?.kind !== "field" && this.state?.kind !== "input") return;
 		if (this.state.field.options) this.move(direction); else this.editor.handleAction(direction < 0 ? "input:left" : "input:right");
 	}
 	private accept(): void {
 		if (!this.state || this.editor.pasteHandler.isPending()) return;
+		if (this.state.kind === "input") { try { this.acceptInput?.(this.editor.getState().text); } catch (error) { this.showError(error); } return; }
 		if (this.state.kind === "field") {
 			const { field, form, selected } = this.state, value = field.options ? field.options[selected]! : this.editor.getState().text;
 			this.clearEditor(); this.set({ ...form, error: undefined, fields: form.fields.map(item => item === field ? { ...item, value } : item) }); return;

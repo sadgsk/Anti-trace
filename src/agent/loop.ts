@@ -16,10 +16,12 @@ import type {
 	Context,
 	StreamFn,
 	ToolResultMessage,
+	UserMessage,
 } from "../types.ts";
 
 type ExecutedToolCallBatch = {
 	messages: ToolResultMessage[];
+	newMessages?: UserMessage[];
 	terminate: boolean;
 };
 
@@ -108,6 +110,13 @@ async function runLoop(
 			for (const result of toolResults) {
 				currentContext.messages.push(result);
 				newMessages.push(result);
+			}
+			// All tool results must precede injected context in Chat, Responses and Messages.
+			if (!signal?.aborted) for (const injected of executedToolBatch.newMessages ?? []) {
+				currentContext.messages.push(injected);
+				newMessages.push(injected);
+				await emit({ type: "message_start", message: injected });
+				await emit({ type: "message_end", message: injected });
 			}
 		}
 
@@ -313,6 +322,7 @@ async function executeToolCallsSequential(
 
 	return {
 		messages,
+		newMessages: finalizedCalls.flatMap(call => call.isError ? [] : call.result.newMessages ?? []),
 		terminate: shouldTerminateToolBatch(finalizedCalls),
 	};
 }

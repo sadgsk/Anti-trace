@@ -38,18 +38,18 @@ test("P09 shows six commands, required arguments, overflow, shortcuts and a coun
 	for (const name of ["new", "resume", "model", "thinking", "effort"]) assert.match(frame, new RegExp(`/${name}`));
 	assert.doesNotMatch(frame, /\/exit/);
 	assert.match(frame, /\/model.*打开模型选择/); assert.doesNotMatch(frame, /\[需参数\]/);
-	assert.match(frame, /还有 7 条/);
-	assert.match(frame, /↑↓ 选择  Enter 确认  Tab 补全  Esc 收起.*1\/13/);
+	assert.match(frame, /还有 8 条/);
+	assert.match(frame, /↑↓ 选择  Enter 确认  Tab 补全  Esc 收起.*1\/14/);
 	assert.match(frame, /╭/);
 	assert.match(frame, /│❯.*│/);
 });
 
 test("scrolling keeps the last selected command visible with its global position", async () => {
-	const frame = await renderMenu(state(12), 80, 12);
+	const frame = await renderMenu(state(13), 80, 12);
 	assert.match(frame, /❯ \/exit/);
 	assert.doesNotMatch(frame, /\/help/);
-	assert.match(frame, /上方 7 条 · 下方 0 条/);
-	assert.match(frame, /13\/13/);
+	assert.match(frame, /上方 8 条 · 下方 0 条/);
+	assert.match(frame, /14\/14/);
 });
 
 test("filtered commands remove the overflow hint and required parameters retain their badge", async () => {
@@ -71,12 +71,12 @@ test("empty results retain the dismiss action and render a zero counter", async 
 test("rendered output fits both dimensions from tiny terminals to wide screens", async () => {
 	for (const columns of [1, 5, 20, 39, 40, 80, 120]) {
 		for (const rows of [1, 2, 6, 7, 12]) {
-			const frame = await renderMenu(state(12), columns, rows);
+			const frame = await renderMenu(state(13), columns, rows);
 			assert.ok(frame.split("\n").length <= rows, `${columns}×${rows}: height ${frame.split("\n").length}`);
 			for (const line of frame.split("\n")) assert.ok(stringWidth(line) <= columns, `${columns}×${rows}: ${line}`);
 			assert.match(frame, /❯/, `${columns}×${rows}: selected item disappeared`);
 			if (columns >= 20) assert.match(frame, /\/exit/);
-			if (rows >= 2 && columns >= 5) assert.match(frame, /13\/13/);
+			if (rows >= 2 && columns >= 5) assert.match(frame, /14\/14/);
 		}
 	}
 });

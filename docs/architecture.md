@@ -85,6 +85,7 @@ startLine(index + segment.length);
 | 协议适配 | 上层使用 streamModel；已实现 Chat、Responses、Anthropic 的请求、思考、工具与图文转换。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
 | 思考等级与 BYOK | 三协议、统一设置、逐请求凭据、压缩、会话选择恢复和思考显示均已接通；九家厂商有限绑定与 36 个连接预设已完成，既有 review 尾项保留 |
+| Skills | 用户／项目发现、统一 `skill` 工具、`/skill` 二级菜单、参数展开、权限和会话／压缩恢复已接入；本轮验证见 progress，尚未提交 |
 
 **这一版（v1.2）的既定目标：**
 
@@ -124,7 +125,7 @@ Agent / loop（已有，不改职责）
 
 新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 先装配 Harness，再尝试加载配置，最后选择 TTY 交互或非 TTY EOF 提交。`ByokRuntime.reload()` 只负责候选配置的加载、校验与应用；通过 main 注入的回调调用现有 `Harness.configureModel()`，不持有或创建 Harness。无配置时 Agent 的 model 为 `undefined`，工具、消息和会话管理照常工作；具体模型操作内部检查配置。`/reload` 重试最近的路径与选择，`/config [路径]` 查看状态或更换文件，`/model <模型键>` 选择本次运行的模型；失败候选与当前生效配置分别保存，设置成功应用后才提交配置状态。重载不重建 Harness、Agent、会话或订阅。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
 
-**命令与界面：** `command-registry.ts` 统一定义 13 条命令，供识别、帮助和菜单使用。`PromptSuggestionsController` 提供 / 命令与 @ 文件补全。模型／effort／思考／思考展示／恢复会话／配置管理／语言无参数时进入 `CommandDialogController` 管理的二级界面，经同一 `InputDispatcher` 接管模态输入；确认调用真实 `ByokRuntime`／`Harness` 接口。`ConfigProfiles` 提供配置发现、表单映射、校验与原子保存，应用失败回滚文件。`ReplScreen` 在单一视窗中组合历史与活跃消息，输入框固定底部。具体职责与交互见 §4。
+**命令与界面：** `command-registry.ts` 统一定义 14 条命令，供识别、帮助和菜单使用。`PromptSuggestionsController` 提供 / 命令与 @ 文件补全。模型／effort／思考／思考展示／恢复会话／配置管理／语言无参数时进入 `CommandDialogController` 管理的二级界面，经同一 `InputDispatcher` 接管模态输入；确认调用真实 `ByokRuntime`／`Harness` 接口。`ConfigProfiles` 提供配置发现、表单映射、校验与原子保存，应用失败回滚文件。`ReplScreen` 在单一视窗中组合历史与活跃消息，输入框固定底部。具体职责与交互见 §4。
 
 磁盘采用按项目分桶的线性会话，格式为：
 
@@ -175,6 +176,16 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 ---
 
+### Skills 的运行结构
+
+`Harness` 持有 `SkillRuntime`，装配统一的 `skill` 工具；`loader` 发现并缓存 SKILL.md，`registry` 管理定义与诊断，`runtime` 处理参数和调用快照。项目技能目录固定为 `cwd/.anti-trace/skills/`，不向父目录扫描；用户目录为应用根目录下的 `skills/`（默认 `~/.anti-trace/skills/`），跨项目和 profile 共用；同名技能项目优先。Harness 用同一组实际目录装配注册表和系统提示词，创建默认项目级，用户指定个人／跨项目时写用户目录。提示词始终提供目录和基本格式，因此空技能集合也支持通过既有文件工具创建首个技能。没有可供模型调用的技能时不暴露 `skill` 工具和初始技能列表。
+
+`/skill` 是固定一级命令，二级菜单从技能集合动态生成；`/skill <name> [args]` 支持显式和管道调用。用户选择和模型调用共用 `SkillRuntime.prepare()`。目录在模型请求前作为 `isMeta` 用户消息注入，只含名称与描述；工具激活后通过通用 `AgentToolResult.newMessages` 注入正文。loop 先完成整批工具结果，再追加上下文消息，三种协议沿用普通工具／文本编码。
+
+程序生成的消息保留在 JSONL，但不进入用户气泡和会话命名。已调用技能按名称保留最近展开结果；恢复会话从原始消息重建，压缩通过 `CompactionEntry.skillMessages` 保存预算内正文（每个约 5000 tokens，总量最多 25000，且受当前窗口限制）。每次请求前检查目录，自动压缩后再补齐一次，确保首次续接即包含最新技能列表；补充消息同步落盘，已保留的目录不重复添加。错误超限恢复先识别刚压缩上下文，再补目录，避免重复压缩。工具预授权只在本轮有效，不从历史恢复。
+
+权限支持普通工具名的 `allowed-tools`，模型调用带授权的技能需审批；手动选择明确使用其本轮授权。暂不支持的 Claude 扩展（fork、Hooks、路径条件、动态 Shell、专属模型／effort及命令匹配授权）产生加载诊断，不作为可用技能展示。没有模型配置时发现、菜单和重载照常工作。
+
 ## 3. 文件职责与待接通部分
 
 | 文件 | 职责与状态 |
@@ -183,6 +194,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/harness/session.ts` | cwd 分桶、jsonl 持久化、命名、列表和恢复；已有 compaction 行读写结构 |
 | `src/harness/tools/*`、`src/harness/prompt.ts` | 工具实现与系统提示；图片识别和缩放辅助位于 `tools/image.ts` |
 | `src/harness/context.ts` | 已有 `estimateTokens` / `estimateMessagesTokens`；后续承接摘要用量等上下文容量逻辑 |
+| `src/harness/skills/*`、`tools/skill.ts` | 技能发现／解析／登记、共享展开、目录披露、调用快照与模型工具入口 |
 | `src/harness/compaction.ts` | 阈值、溢出判断、切点、摘要与包装；本地 HTTP 摘要/持久化/续聊已验证，真实模型验收暂缓 |
 | `src/cli/ink/terminal-host.ts`、`terminal-input.ts` | 第 1–2 批宿主与解析：真实 stdin 的唯一读取者，管理 raw mode 和 bracketed paste，并将字节解析为终端事件；Ink 只负责渲染 |
 | `src/cli/input/keybindings.ts`、`input-dispatcher.ts` | 快捷键纯解析、默认编辑/撤销/图片映射、REPL 退出覆盖与焦点分发；已接入真实组件和运行入口 |

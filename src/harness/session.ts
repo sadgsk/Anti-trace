@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { AgentMessage, ImageContent, SessionSettings } from "../types.ts";
+import type { AgentMessage, ImageContent, SessionSettings, UserMessage } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { extensionForImageMimeType } from "./tools/image.ts";
 import { canonicalWorkspace, ensureProjectDirectory, getAppPaths, projectIdForCwd, type AppPaths } from "../storage/app-paths.ts";
@@ -33,6 +33,7 @@ export interface CompactionEntry {
 	type: "compaction";
 	summary: string;
 	keptMessages: AgentMessage[];
+	skillMessages?: UserMessage[];
 	tokensBefore?: number;
 	/** Recovery superseded the failed assistant immediately before this boundary. */
 	replacesError?: boolean;
@@ -99,7 +100,7 @@ export function appendEntry(session: SessionFile, entry: SessionEntry): void {
 		if (session.header.name === undefined) {
 			let userText = "";
 			for (const item of session.entries) {
-				if (item.type !== "message" || item.message.role !== "user") {
+				if (item.type !== "message" || item.message.role !== "user" || item.message.isMeta) {
 					continue;
 				}
 				userText = item.message.content
@@ -201,6 +202,7 @@ export function loadSession(filePath: string): LoadedSession {
 			if (
 				firstUserText.length === 0 &&
 				message.role === "user" &&
+				!message.isMeta &&
 				Array.isArray(message.content)
 			) {
 				firstUserText = message.content
@@ -215,6 +217,7 @@ export function loadSession(filePath: string): LoadedSession {
 		if (row.type === "compaction") {
 			const compaction = parsed as CompactionEntry;
 			if (typeof compaction.summary !== "string" || !Array.isArray(compaction.keptMessages)
+				|| (compaction.skillMessages !== undefined && (!Array.isArray(compaction.skillMessages) || compaction.skillMessages.some(message => message?.role !== "user" || message.isMeta !== true || !Array.isArray(message.content))))
 				|| (compaction.replacesError !== undefined && typeof compaction.replacesError !== "boolean")) {
 				throw new Error(`Invalid compaction entry in ${filePath}`);
 			}
@@ -222,6 +225,7 @@ export function loadSession(filePath: string): LoadedSession {
 				type: "compaction",
 				summary: compaction.summary,
 				keptMessages: compaction.keptMessages,
+				...(compaction.skillMessages ? { skillMessages: compaction.skillMessages } : {}),
 				tokensBefore: compaction.tokensBefore,
 				...(compaction.replacesError ? { replacesError: true } : {}),
 			});
@@ -233,7 +237,7 @@ export function loadSession(filePath: string): LoadedSession {
 					content: [{ type: "text", text: compaction.summary }],
 					timestamp: Number.isNaN(headerTime) ? 0 : headerTime,
 				},
-				...compaction.keptMessages,
+				...(compaction.skillMessages ?? []), ...compaction.keptMessages,
 			);
 		}
 	}

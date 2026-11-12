@@ -16,6 +16,7 @@ export function messageText(message: AgentMessage | undefined): string {
 
 export function createTestHarness(t: TestContext, steps: readonly ResponseStep[] = [], options: {
 	model?: Model; unconfigured?: boolean; tools?: AgentTool[];
+	appHome?: string; profileId?: string;
 } = {}) {
 	const root = tempWorkspace(t, async () => {
 		harness.abort();
@@ -25,7 +26,7 @@ export function createTestHarness(t: TestContext, steps: readonly ResponseStep[]
 	const scripted = createScriptedModel(steps);
 	const sessionsRoot = join(root, "sessions");
 	const harness = new Harness({
-		cwd: root, sessionsRoot, streamFn: scripted.streamFn,
+		cwd: root, sessionsRoot, streamFn: scripted.streamFn, appHome: options.appHome, profileId: options.profileId,
 		...(options.unconfigured ? {} : { model: structuredClone(options.model ?? testModel), apiKey: "test-only-key" }),
 	});
 	if (options.tools) harness.agent.state.tools = options.tools;

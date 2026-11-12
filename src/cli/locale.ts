@@ -6,6 +6,12 @@ export type UiLanguage = "zh" | "en";
 
 // Source phrases are keys, keeping protocol/model/user content outside the UI dictionary.
 const english: Record<string, string> = {
+	"选择并使用技能": "Choose and use a skill", "选择技能": "Select skill", "重新加载技能": "Reload skills", "查看技能加载问题": "View skill loading issues",
+	"选择技能后执行；带参数提示的技能会先填写参数。": "Select a skill to run. Skills with an argument hint ask for arguments first.",
+	"尚无可手动调用的技能。": "No manually invocable skills are available.", "当前入口未提供技能管理。": "Skill management is unavailable in this entry point.",
+	"当前入口未提供技能执行。": "Skill execution is unavailable in this entry point.",
+	"[技能名 参数|--reload]": "[skill arguments|--reload]",
+	"用法：/skill <技能名> [参数]；/skill --reload 重新加载。": "Usage: /skill <name> [arguments]; /skill --reload to reload.",
 	"存在多个模型配置，请用 /config 选择配置文件。": "Multiple model configurations are available; use /config to choose a file.",
 	"选择语言": "Interface language", "切换 CLI 界面语言，不改变对话内容。": "Choose the CLI language. Conversation content stays as written.",
 	"查看命令和快捷键": "Commands and shortcuts", "开始新会话": "Start a new session", "恢复已有会话": "Resume a session",
@@ -88,6 +94,7 @@ const english: Record<string, string> = {
 	"滚轮 / PgUp/PgDn 回看 · Ctrl+End 回到最新 · Shift+拖动选择文字": "Wheel / PgUp/PgDn review · Ctrl+End latest · Shift+drag select text",
 };
 const patterns: Array<[RegExp, (...args: string[]) => string]> = [
+	[/^已加载 (\d+) 个技能。$/, n => `Loaded ${n} skills.`],
 	[/^… 还有 (\d+) 条$/, n => `… ${n} more`], [/^… 上方 (\d+) 条 · 下方 (\d+) 条$/, (a,b) => `… ${a} above · ${b} below`],
 	[/^已切换到 (.+)。$/, name => `Switched to ${name}.`], [/^思考等级已设为 (.+)。$/, level => `Thinking effort set to ${level}.`],
 	[/^已恢复会话：(.+)$/, name => `Resumed session: ${name}`], [/^(.+)必须为正整数。$/, label => `${translate(label, "en")} must be a positive integer.`],

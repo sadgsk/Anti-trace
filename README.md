@@ -48,6 +48,33 @@ echo "Explain the entry points in this project." | ati
 - **图片输入。** 粘贴图片文件路径，或用 `Alt+V`（Windows）和 `Ctrl+V`（macOS／Linux）尝试读取剪贴板图片。支持 PNG、JPEG、GIF 和 WebP，剪贴板读取取决于终端和系统工具，所选模型也须支持图片输入。
 - **会话与上下文。** 按项目保存对话和图片附件，用 `/resume` 继续之前的会话。状态栏显示上下文用量，长会话可自动压缩旧内容，也可用 `/compact` 手动尝试压缩。
 
+## Skills
+
+用 `/skill` 打开技能二级菜单；带参数提示的技能先填写参数，再执行。也可输入 `/skill review 当前分支`；`/skill --reload` 显示加载结果和诊断。具体技能不会成为一级命令。
+
+项目技能放在 `cwd/.anti-trace/skills/<name>/SKILL.md`，只读取当前工作目录，不向父目录查找。用户技能放在 `~/.anti-trace/skills/<name>/SKILL.md`（随 `ANTI_TRACE_HOME` 改变，跨项目和 profile 共用）。同名技能项目优先。
+
+系统提示词会提供这两个实际目录和文件格式，即使当前还没有技能也会提供。可以直接在对话中要求创建技能，默认写入项目目录；要求个人或跨项目使用时写入用户目录，使用现有文件／Shell 工具创建，下一次模型请求前自动发现。
+
+```markdown
+---
+name: review
+description: 审查代码修改。当用户要求检查代码或寻找回归时使用。
+argument-hint: "[审查范围]"
+---
+
+审查范围：$ARGUMENTS
+读取当前修改及相关调用方，报告可确认的问题、严重程度和文件位置。
+```
+
+名称须与目录一致，使用小写字母、数字和连字符；描述和正文必填。附属脚本、参考资料和模板可放在同目录，由模型使用已有工具访问。支持 `$ARGUMENTS`、`$0`、`$ARGUMENTS[0]`、`arguments` 命名参数，以及 `${CLAUDE_SKILL_DIR}`、`${CLAUDE_SESSION_ID}`。
+
+用现有文件／Shell 工具即可创建技能。打开菜单和每次模型请求前都会重新发现技能。模型先收到名称和描述，调用统一的 `skill` 工具后才收到完整说明。`disable-model-invocation: true` 禁止模型调用；`user-invocable: false` 隐藏手动入口。正文随会话保存，压缩后按预算恢复。
+
+`allowed-tools` 支持 `read`、`edit`、`write`、`bash`、`powershell` 的名称或列表（兼容对应首字母大写名称），仅本轮有效。模型选择带授权的技能需要审批；用户手动选择表示使用该技能声明的本轮授权。恢复会话不恢复授权。其他操作沿用现有权限策略。
+
+当前支持 inline 技能。不支持命令匹配授权、动态 Shell 注入、路径条件、专属模型／effort、fork、Hooks 和插件来源；依赖这些能力的技能会显示加载诊断。
+
 ## 权限与审批
 
 默认允许读取文件。写入、编辑和 Shell 命令会弹出审批，可以允许一次、在本会话内授权，或拒绝并给出修改意见。审批时可预览待写入的文件差异。会话授权对文件修改类操作生效，Shell 授权仅匹配同一工具中的相同命令。
@@ -93,6 +120,7 @@ echo "Explain the entry points in this project." | ati
 | `/thinking-display [on\|off]` | 设置思考文本是否默认展开 |
 | `/context [正整数]` / `/compact` | 查看或调整上下文窗口，或尝试压缩上下文 |
 | `/language [zh\|en]` | 切换并记住界面语言 |
+| `/skill [技能名 参数\|--reload]` | 技能二级菜单、执行技能或重新加载 |
 | `/exit` | 退出 |
 
 | 快捷键 | 用途 |

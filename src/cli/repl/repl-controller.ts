@@ -1,6 +1,6 @@
 import type { Harness, HarnessEvent, HarnessDisplayState } from "../../harness/harness.ts";
 import type { SessionListItem } from "../../harness/session.ts";
-import type { AgentMessage, ThinkingLevel } from "../../types.ts";
+import type { AgentMessage, ImageContent, ThinkingLevel } from "../../types.ts";
 import { THINKING_LEVELS } from "../../llm/rules.ts";
 import { preparePromptSubmission, type PromptDraft } from "../input/prompt-draft.ts";
 import { previewToolResult } from "../render.ts";
@@ -13,11 +13,13 @@ import { CommandDialogController } from "../../tui/commands/command-dialog-contr
 import type { ProfileEdit } from "../../config/config-profiles.ts";
 import { UiLocale, type UiLanguage } from "../locale.ts";
 import type { TranscriptAnchor, ViewportMetrics } from "../../tui/viewport-state.ts";
+import { createPromptDraft } from "../input/prompt-draft.ts";
 
 export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
 	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">
 	& Partial<Pick<Harness, "setThinkingLevel" | "setThinkingEnabled" | "describeSettings" | "settingsWarning"
-		| "getDisplayState" | "getSessionMessages" | "getSessionHistory" | "setBeforeToolCall">>;
+		| "getDisplayState" | "getSessionMessages" | "getSessionHistory" | "setBeforeToolCall"
+		| "getSkills" | "reloadSkills" | "invokeSkill" | "getSkillPermissionTools" | "getActiveSkillTools">>;
 
 export interface ReplEntry { readonly id: number; readonly text: string; readonly kind?: "user" | "thinking" }
 export interface ReplSnapshot {
@@ -87,7 +89,8 @@ export class ReplController {
 		this.locale = options.locale ?? new UiLocale(options.cwd ?? process.cwd(), options.interactive ?? false);
 		this.unsubscribeLocale = this.locale.subscribe(() => this.update({ renderEpoch: this.snapshot.renderEpoch + 1 }));
 		this.harness = options.harness;
-		this.permissions = new PermissionPolicy(options.cwd ?? process.cwd(), options.interactive ?? false, options.permissionMode);
+		this.permissions = new PermissionPolicy(options.cwd ?? process.cwd(), options.interactive ?? false, options.permissionMode,
+			this.harness.getSkillPermissionTools ? { permissionTools: name => this.harness.getSkillPermissionTools!(name), activeTools: () => this.harness.getActiveSkillTools?.() ?? [] } : undefined);
 		this.restorePermissionHook = this.harness.setBeforeToolCall?.(this.permissions.beforeToolCall);
 		this.snapshot = { ...this.snapshot, modelStatus: this.harness.describeSettings?.(), display: this.readDisplay() };
 		this.unsubscribe = this.harness.subscribe(event => this.handleEvent(event));
@@ -108,11 +111,12 @@ export class ReplController {
 	}
 
 	/** Expand references once, then route one accepted snapshot to a command or Harness. */
-	async submit(draft: PromptDraft): Promise<boolean> {
+	async submit(draft: PromptDraft, skillImages?: ImageContent[]): Promise<boolean> {
 		if (!this.canSubmit(draft)) return false;
 		this.interrupted = false;
 		this.promptResultReceived = false;
-		const { text, images } = preparePromptSubmission(draft);
+		const { text, images: draftImages } = preparePromptSubmission(draft);
+		const images = skillImages ?? draftImages;
 		this.update({ busy: true, error: undefined, expanded: false, scrollOffset: 0, viewingHistory: false, reviewAnchor: undefined, phase: "thinking", startedAt: Date.now(), lastEventAt: Date.now(), outputChars: 0 });
 		try {
 			this.options.onAccept?.();
@@ -123,7 +127,7 @@ export class ReplController {
 			}
 			const parsed = parseSlashCommand(text);
 			if (parsed) {
-				await this.runCommand(parsed.command, parsed.argument);
+				await this.runCommand(parsed.command, parsed.argument, images);
 			} else {
 				this.write(`> ${draft.text}`, "user", "info", false, draft.references.map(ref => ref.label));
 				await this.harness.prompt(text, images.length > 0 ? images : undefined);
@@ -216,12 +220,33 @@ export class ReplController {
 		this.update({ display: this.readDisplay() });
 	}
 
-	private async runCommand(definition: SlashCommandDefinition, argument: string): Promise<void> {
+	private async runCommand(definition: SlashCommandDefinition, argument: string, images?: ImageContent[]): Promise<void> {
 		const command = definition.name;
 		if (command === "language" && !argument && !this.options.interactive) { this.write(`language ${this.locale.getSnapshot()}`); return; }
 		if (command === "language" && argument) {
 			if (argument !== "zh" && argument !== "en") { this.write("用法：/language [zh|en]"); return; }
 			this.locale.setLanguage(argument); this.write("语言已切换。"); return;
+		}
+		if (command === "skill") {
+			const snapshot = this.harness.reloadSkills?.() ?? this.harness.getSkills?.();
+			if (!snapshot) throw new Error("当前入口未提供技能管理。");
+			if (argument === "--reload") {
+				this.write(`已加载 ${snapshot.skills.length} 个技能。`);
+				for (const diagnostic of snapshot.diagnostics) this.write(`${diagnostic.path}: ${diagnostic.message}`, undefined, "warning");
+				return;
+			}
+			if (!argument) {
+				if (this.options.interactive) this.openSkillMenu(images);
+				else this.write([...snapshot.skills.filter(skill => skill.userInvocable).map(skill => `${skill.name} · ${skill.description}`),
+					...snapshot.diagnostics.map(item => `${item.path}: ${item.message}`), "用法：/skill <技能名> [参数]；/skill --reload 重新加载。"].join("\n"));
+				return;
+			}
+			const match = /^(\S+)(?:\s+([\s\S]*))?$/u.exec(argument)!;
+			if (!this.harness.invokeSkill) throw new Error("当前入口未提供技能执行。");
+			this.write(`> /skill ${argument}`, "user", "info", false);
+			await this.harness.invokeSkill(match[1]!, match[2] ?? "", images);
+			this.writeContext();
+			return;
 		}
 		if (this.options.interactive && !argument && this.openCommandDialog(command)) return;
 		if (!definition.argumentHint && argument.length > 0) {
@@ -307,6 +332,25 @@ export class ReplController {
 		action();
 		this.dialogs.close();
 		this.update({ display: this.readDisplay(), modelStatus: this.harness.describeSettings?.() });
+	}
+
+	private openSkillMenu(images?: ImageContent[]): void {
+		const snapshot = this.harness.reloadSkills?.() ?? this.harness.getSkills?.();
+		if (!snapshot) throw new Error("当前入口未提供技能管理。");
+		const skills = snapshot.skills.filter(skill => skill.userInvocable);
+		const run = (name: string, args = "") => { this.dialogs.close(); void this.submit(createPromptDraft(`/skill ${name}${args ? ` ${args}` : ""}`), images); };
+		this.dialogs.openPicker({ title: "选择技能", description: skills.length ? "选择技能后执行；带参数提示的技能会先填写参数。" : "尚无可手动调用的技能。",
+			choices: [...skills.map(skill => ({ id: skill.name, label: skill.name, literal: true, descriptionLiteral: true,
+				description: `${skill.description} · ${skill.source}${skill.allowedTools.length ? ` · allowed-tools: ${skill.allowedTools.join(", ")}` : ""}` })),
+				{ id: ":reload", label: "重新加载技能" }, ...(snapshot.diagnostics.length ? [{ id: ":diagnostics", label: "查看技能加载问题" }] : [])],
+			onAccept: id => {
+				if (id === ":reload") { this.openSkillMenu(images); return; }
+				if (id === ":diagnostics") { this.dialogs.showError(snapshot.diagnostics.map(item => `${item.path}: ${item.message}`).join("\n")); return; }
+				const skill = skills.find(item => item.name === id)!;
+				if (skill.argumentHint || skill.argumentNames.length) this.dialogs.openInput({ title: skill.name, description: skill.argumentHint || skill.argumentNames.join(" "),
+					onAccept: args => run(id, args), onBack: () => this.openSkillMenu(images) });
+				else run(id);
+			} });
 	}
 
 	private openCommandDialog(command: string): boolean {

@@ -10,11 +10,14 @@ test("paths are stable, lazy, share user configuration and separate projects and
 	const a = getAppPaths({ cwd, appHome }), b = getAppPaths({ cwd: join(cwd, "other"), appHome });
 	assert.deepEqual(getAppPaths({ cwd: join(cwd, "."), appHome }), a);
 	assert.equal(a.configsDir, b.configsDir); assert.equal(a.preferencesFile, b.preferencesFile);
+	assert.equal(a.userSkillsDir, join(appHome, "skills"));
+	assert.equal(a.userSkillsDir, b.userSkillsDir);
 	assert.notEqual(a.sessionsDir, b.sessionsDir); assert.notEqual(a.projectSelectionFile, b.projectSelectionFile);
 	const other = getAppPaths({ cwd, appHome, profileId: "user-a" });
 	assert.notEqual(a.configsDir, other.configsDir); assert.notEqual(a.sessionsDir, other.sessionsDir);
 	assert.notEqual(a.defaultSelectionFile, other.defaultSelectionFile);
 	assert.equal(a.preferencesFile, other.preferencesFile);
+	assert.equal(a.userSkillsDir, other.userSkillsDir);
 	assert.equal(existsSync(appHome), false);
 	ensureProjectDirectory(a);
 	assert.deepEqual(JSON.parse(readFileSync(a.projectInfoFile, "utf8")), { version: 1, cwd: a.cwd });
@@ -25,7 +28,9 @@ test("explicit appHome wins over the environment and environment roots are evalu
 	try {
 		process.env.ANTI_TRACE_HOME = join(cwd, "environment");
 		assert.equal(getAppPaths({ cwd }).appRoot, resolve(cwd, "environment"));
+		assert.equal(getAppPaths({ cwd }).userSkillsDir, resolve(cwd, "environment", "skills"));
 		assert.equal(getAppPaths({ cwd, appHome: join(cwd, "explicit") }).appRoot, resolve(cwd, "explicit"));
+		assert.equal(getAppPaths({ cwd, appHome: join(cwd, "explicit") }).userSkillsDir, resolve(cwd, "explicit", "skills"));
 		process.env.ANTI_TRACE_HOME = " "; assert.throws(() => getAppPaths({ cwd }), /empty/);
 	} finally { process.env.ANTI_TRACE_HOME = original; }
 });

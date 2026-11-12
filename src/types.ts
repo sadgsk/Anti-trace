@@ -84,6 +84,9 @@ export interface UserMessage {
 	role: "user";
 	content:(TextContent | ImageContent)[];
 	timestamp: number; // Unix timestamp in milliseconds
+	/** Program-generated context, retained on disk but hidden from user-message UI. */
+	isMeta?: boolean;
+	metadata?: Record<string, JsonValue>;
 }
 
 export interface AssistantMessage {
@@ -197,6 +200,8 @@ export interface AgentToolResult<T = unknown> {
 	content: (TextContent | ImageContent)[];
 	/** Arbitrary structured details for logs or UI rendering. */
 	details: T;
+	/** Added after the complete tool-result batch, preserving protocol call/result pairing. */
+	newMessages?: UserMessage[];
 	/**
 	 * Hint that the agent should stop after the current tool batch.
 	 * Early termination only happens when every finalized tool result in the batch sets this to true.

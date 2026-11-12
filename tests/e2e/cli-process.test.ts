@@ -8,6 +8,7 @@ import { tempWorkspace } from "../support/fixtures.ts";
 import { chatResponse, createHttpFixture } from "../support/http-server.ts";
 import { getAppPaths } from "../../src/storage/app-paths.ts";
 import { listSessions } from "../../src/harness/session.ts";
+import { writeSkill } from "../support/skills.ts";
 
 async function cli(t: TestContext, cwd: string, input: string, env: NodeJS.ProcessEnv = {}, fromCmd = false) {
 	const args = [
@@ -39,6 +40,32 @@ function configure(root: string, url: string) {
 		models: { main: { connection: "local", id: "test", contextWindow: 128000, maxOutputTokens: 2048 } },
 	}));
 }
+
+test("standalone CLI lists skills without a model and manually loads a skill with parameters", async t => {
+	const root = tempWorkspace(t); writeSkill(root, "review", "E2E_SKILL_SCOPE=$ARGUMENTS");
+	const listing = await cli(t, root, "/skill");
+	assert.equal(listing.code, 0); assert.match(listing.stdout, /review/);
+	const http = await createHttpFixture(t, (_request, response) => { response.writeHead(200, { "content-type": "text/event-stream" }).end(chatResponse("SKILL_MANUAL_OK")); });
+	configure(root, http.url);
+	const result = await cli(t, root, "/skill review current diff");
+	assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /SKILL_MANUAL_OK/);
+	assert.match(JSON.stringify(http.requests[0]!.body), /E2E_SKILL_SCOPE=current diff/);
+});
+
+test("standalone CLI exposes the unified tool and handles an actual model skill call", async t => {
+	const root = tempWorkspace(t); writeSkill(root, "review", "E2E_MODEL_SKILL_INSTRUCTIONS");
+	const http = await createHttpFixture(t, (_request, response, index) => {
+		response.writeHead(200, { "content-type": "text/event-stream" });
+		if (!index) response.end(`data: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: "load", function: { name: "skill", arguments: '{"skill":"review"}' } }] }, finish_reason: "tool_calls" }] })}\n\ndata: [DONE]\n\n`);
+		else response.end(chatResponse("SKILL_MODEL_OK"));
+	});
+	configure(root, http.url);
+	const result = await cli(t, root, "Review this task");
+	assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /SKILL_MODEL_OK/);
+	assert.equal(http.requests.length, 2);
+	assert.doesNotMatch(JSON.stringify(http.requests[0]!.body), /E2E_MODEL_SKILL_INSTRUCTIONS/);
+	assert.match(JSON.stringify(http.requests[1]!.body), /E2E_MODEL_SKILL_INSTRUCTIONS/);
+});
 
 test("a fresh CLI process accepts pipe input, uses local HTTP and exits successfully", async (t) => {
 	const root = tempWorkspace(t);

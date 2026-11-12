@@ -60,7 +60,7 @@ function fixture(overrides: Partial<ReplHarness> = {}) {
 test("registry supplies every parser entry and every help entry", async () => {
 	const f = fixture();
 	try {
-		assert.equal(new Set(SLASH_COMMANDS.map(command => command.name)).size, 13);
+		assert.equal(new Set(SLASH_COMMANDS.map(command => command.name)).size, 14);
 		for (const command of SLASH_COMMANDS) {
 			assert.equal(parseSlashCommand(` /${command.name} `)?.command.name, command.name);
 		}
@@ -96,7 +96,7 @@ test("menu starts hidden, opens with slash, filters, and closes on deletion", ()
 		assert.equal(f.menu.getSnapshot().open, false);
 		f.type("/");
 		assert.equal(f.menu.getSnapshot().open, true);
-		assert.equal(f.menu.getSnapshot().items.length, 13);
+		assert.equal(f.menu.getSnapshot().items.length, 14);
 		f.type("th");
 		assert.deepEqual(f.menu.getSnapshot().items.map(item => item.name), ["thinking", "thinking-display"]);
 		assert.equal(f.prompt.getDraft().text, "/th");
@@ -283,7 +283,7 @@ test("Ink menu bounds its viewport, scrolls to the last item and renders an empt
 		assert.match(frame(), /\/help/); assert.doesNotMatch(frame(), /\/exit/);
 		assert.equal(frame().split("\n").length, 4);
 		f.press("up"); await delay();
-		assert.match(frame(), /\/exit/); assert.match(frame(), /13\/13/);
+		assert.match(frame(), /\/exit/); assert.match(frame(), /14\/14/);
 		stdout.columns = 20; app.rerender(createElement(PromptSuggestions, { controller: f.menu, availableRows: 2 }));
 		await delay(); assert.equal(frame().split("\n").length, 2);
 		f.type("unknown"); await delay(); assert.match(frame(), /无匹配命令/);
@@ -309,9 +309,9 @@ test("terminal host shows no command list at startup and connects slash navigati
 		stdin.write("/con"); stdin.write("\t"); assert.equal(terminal.prompt.getDraft().text, "/context ");
 		stdin.write("1234"); stdin.write("\r"); await delay(); assert.equal(calls.context, 1234);
 		stdin.write("/"); stdin.write("\x1b[A");
-		assert.equal(terminal.suggestions.getSnapshot().selectedIndex, 12);
+		assert.equal(terminal.suggestions.getSnapshot().selectedIndex, 13);
 		stdout.columns = 24; stdout.rows = 10; stdout.emit("resize"); await delay();
-		assert.equal(terminal.suggestions.getSnapshot().selectedIndex, 12);
+		assert.equal(terminal.suggestions.getSnapshot().selectedIndex, 13);
 		stdin.write("\x1b"); await delay(); assert.equal(terminal.suggestions.getSnapshot().open, false);
 		assert.equal(terminal.prompt.getDraft().text, "/");
 		stdin.write("\x03"); assert.equal(terminal.prompt.getDraft().text, "");

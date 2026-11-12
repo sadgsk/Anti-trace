@@ -1,6 +1,6 @@
 import { Agent } from "../agent/agent.ts";
 import { ByokConfigError } from "../config/errors.ts";
-import type { AgentContext, AgentEvent, AgentMessage, AssistantMessage, BeforeModelRequestContext, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences } from "../types.ts";
+import type { AgentContext, AgentEvent, AgentMessage, AgentTool, AssistantMessage, BeforeModelRequestContext, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences, UserMessage } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { validateModelThinking } from "../llm/adapter.ts";
 import {
@@ -32,6 +32,11 @@ import { createEditTool } from "./tools/edit.ts";
 import { createReadTool } from "./tools/read.ts";
 import { createWriteTool } from "./tools/write.ts";
 import { getAppPaths, type AppPaths, type StorageOptions } from "../storage/app-paths.ts";
+import { skillDirectories } from "./skills/loader.ts";
+import { SkillRegistry } from "./skills/registry.ts";
+import { SkillRuntime } from "./skills/runtime.ts";
+import { createSkillTool } from "./tools/skill.ts";
+import type { SkillDirectory } from "./skills/types.ts";
 
 export interface HarnessModelSettings {
 	model: Model;
@@ -65,6 +70,11 @@ export interface HarnessDisplayState {
 
 export class Harness {
 	readonly agent: Agent;
+	private readonly skills: SkillRuntime;
+	private readonly skillPaths: readonly SkillDirectory[];
+	private readonly skillTool: AgentTool;
+	private readonly shells: ShellEnvironment;
+	private generatedPrompt: string;
 	private readonly cwd: string;
 	private readonly sessionStorage: SessionStorage;
 	private session!: SessionFile;
@@ -86,12 +96,17 @@ export class Harness {
 	constructor(options: HarnessOptions) {
 		const paths = options.paths ?? getAppPaths(options);
 		const shells = options.shellEnvironment ?? getShellEnvironment();
+		this.shells = shells;
+		this.skillPaths = skillDirectories(options.cwd, paths.userSkillsDir);
+		this.skills = new SkillRuntime(new SkillRegistry(this.skillPaths));
+		this.skillTool = createSkillTool(this.skills, () => this.session.header.id, () => this.agent.state.tools.map(tool => tool.name));
 		const tools = [
 			createReadTool(options.cwd),
 			...(shells.powershell ? [createPowerShellTool(options.cwd, shells.powershell, paths)] : []),
 			...(shells.bash ? [createBashTool(options.cwd, shells.bash, paths)] : []),
 			createEditTool(options.cwd),
 			createWriteTool(options.cwd),
+			...(this.skills.registry.modelSkills().length ? [this.skillTool] : []),
 		];
 		this.cwd = options.cwd;
 		this.sessionStorage = options.sessionsRoot ?? paths;
@@ -106,6 +121,7 @@ export class Harness {
 				systemPrompt: buildSystemPrompt({
 					cwd: options.cwd,
 					toolNames: tools.map((tool) => tool.name),
+					skillDirectories: this.skillPaths,
 					platform: shells.platform,
 					powerShellVersion: shells.powershell?.majorVersion,
 				}),
@@ -114,6 +130,7 @@ export class Harness {
 				tools,
 			},
 		});
+		this.generatedPrompt = this.agent.state.systemPrompt;
 		if (options.model) this.agent.getApiKey = this.createRequestSettings(false).getApiKey;
 		this.newSession();
 		this.agent.subscribe((event) => {
@@ -121,6 +138,7 @@ export class Harness {
 				return;
 			}
 			appendEntry(this.session, { type: "message", message: event.message });
+			this.skills.accept(event.message);
 			if (event.message.role === "assistant") {
 				this.usageBaseline = event.message.usage && this.requestKey ? { message: event.message, key: this.requestKey } : undefined;
 				this.usedTokens = event.message.usage ? event.message.usage.input + event.message.usage.output : estimateContextTokens(this.liveContext());
@@ -129,7 +147,35 @@ export class Harness {
 	}
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
+		return this.submitPrompt(text, images);
+	}
+
+	async invokeSkill(name: string, args = "", images?: ImageContent[]): Promise<void> {
+		return this.submitPrompt(`/skill ${name}${args ? ` ${args}` : ""}`, images, { name, args });
+	}
+
+	getSkills() { return this.skills.registry.getSnapshot(); }
+	reloadSkills() { this.assertIdle(); this.refreshSkills(); return this.getSkills(); }
+	getSkillPermissionTools(name: string) { return this.skills.getPermissionTools(name); }
+	getActiveSkillTools() { return this.skills.getAllowedTools(); }
+
+	private refreshSkills(context?: AgentContext): void {
+		this.skills.registry.reload();
+		const tools = (context?.tools ?? this.agent.state.tools).filter(tool => tool.name !== "skill");
+		if (this.skills.registry.modelSkills().length) tools.push(this.skillTool);
+		const currentPrompt = context?.systemPrompt ?? this.agent.state.systemPrompt;
+		const systemPrompt = currentPrompt === this.generatedPrompt
+			? buildSystemPrompt({ cwd: this.cwd, toolNames: tools.map(tool => tool.name), skillDirectories: this.skillPaths, platform: this.shells.platform, powerShellVersion: this.shells.powershell?.majorVersion }) : currentPrompt;
+		if (currentPrompt === this.generatedPrompt) this.generatedPrompt = systemPrompt;
+		this.agent.state.tools = tools;
+		this.agent.state.systemPrompt = systemPrompt;
+		if (context) { context.tools = tools; context.systemPrompt = systemPrompt; }
+	}
+
+	private async submitPrompt(text: string, images?: ImageContent[], invocation?: { name: string; args: string }): Promise<void> {
 		this.assertIdle();
+		this.skills.beginTurn();
+		this.refreshSkills();
 		// Own the entire prompt, including the gap between an agent turn and its summary/retry.
 		const controller = new AbortController();
 		this.promptController = controller;
@@ -156,11 +202,13 @@ export class Harness {
 			// A restored session may have fallen back to the active catalog. Persist the
 			// effective settings before new messages, without rewriting its earlier history.
 			this.recordSettings(this.settings);
-			result = await this.runPrompt(text, images, controller.signal, settings);
+			const instruction = invocation ? this.skills.prepare(invocation.name, invocation.args, "user", this.session.header.id, this.agent.state.tools.map(tool => tool.name)) : undefined;
+			result = await this.runPrompt(text, images, controller.signal, settings, instruction);
 		} catch (error) {
 			result = { status: controller.signal.aborted ? "aborted" : "error", message: error instanceof Error ? error.message : String(error) };
 			throw error;
 		} finally {
+			if (result.status !== "success") this.skills.beginTurn();
 			try {
 				await this.emitDisplay({ type: "prompt_end", result }, controller.signal);
 			} finally {
@@ -170,7 +218,7 @@ export class Harness {
 		}
 	}
 
-	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal, settings: ModelRequestSettings): Promise<PromptResult> {
+	private async runPrompt(text: string, images: ImageContent[] | undefined, signal: AbortSignal, settings: ModelRequestSettings, instruction?: UserMessage): Promise<PromptResult> {
 		// Images stay in context as real blocks (so the model sees them right away) and are also
 		// written next to the session jsonl, so the model can `read` one back after compaction
 		// replaces that part of the history with a summary.
@@ -180,7 +228,7 @@ export class Harness {
 			const note = `[Attached image(s) saved at: ${paths.join(", ")}]`;
 			promptText = promptText.length > 0 ? `${promptText}\n\n${note}` : note;
 		}
-		await this.agent.prompt(promptText, images, settings);
+		await this.agent.prompt(promptText, images, settings, instruction ? [instruction] : []);
 		const effectiveSettings = this.requestSettings ?? settings;
 		if (signal.aborted) return { status: "aborted", message: "已中断。" };
 		const lastMessage = this.agent.state.messages.at(-1);
@@ -230,11 +278,22 @@ export class Harness {
 		return estimateContextTokens(context);
 	}
 
+	private appendSkillCatalog(context: AgentContext, contextWindow: number): void {
+		const catalog = this.skills.catalog(context.messages, contextWindow);
+		if (!catalog) return;
+		context.messages.push(catalog);
+		appendEntry(this.session, { type: "message", message: catalog });
+	}
+
 	private async prepareModelRequest(request: BeforeModelRequestContext, agentSignal?: AbortSignal): Promise<AgentContext | undefined> {
 		if (!this.promptController) return undefined;
 		const signal = agentSignal ? AbortSignal.any([this.promptController.signal, agentSignal]) : this.promptController.signal;
 		signal.throwIfAborted();
-		this.activeUserMessage ??= [...request.context.messages].reverse().find(message => message.role === "user");
+		this.activeUserMessage ??= [...request.context.messages].reverse().find(message => message.role === "user" && !message.isMeta);
+		const justCompacted = this.justCompacted?.length === request.context.messages.length
+			&& this.justCompacted.every((message, index) => message === request.context.messages[index]);
+		this.refreshSkills(request.context);
+		this.appendSkillCatalog(request.context, request.model.contextWindow);
 		const key = JSON.stringify([request.model, request.context.systemPrompt,
 			request.context.tools?.map(({ name, description, parameters }) => ({ name, description, parameters }))]);
 		this.requestKey = key;
@@ -242,11 +301,15 @@ export class Harness {
 		this.usedTokens = this.estimateRequestUsage(request.context, key);
 		// A forced recovery already compacted this exact history; don't summarize it again
 		// before giving the model a chance to produce a new response.
-		if (this.justCompacted?.length === request.context.messages.length && this.justCompacted.every((message, index) => message === request.context.messages[index])) return undefined;
-		if (!shouldCompact(this.usedTokens, request.model.contextWindow, DEFAULT_COMPACTION_SETTINGS)) return undefined;
+		if (justCompacted) return request.context;
+		if (!shouldCompact(this.usedTokens, request.model.contextWindow, DEFAULT_COMPACTION_SETTINGS)) return request.context;
 		try {
 			const messages = await this.compactContext(request.context, signal, this.requestSettings);
-			return messages ? { ...request.context, messages } : undefined;
+			if (!messages) return request.context;
+			const context = { ...request.context, messages };
+			this.appendSkillCatalog(context, request.model.contextWindow);
+			this.usedTokens = this.estimateRequestUsage(context, key);
+			return context;
 		} catch (error) {
 			this.preparationFailed = true;
 			throw error;
@@ -287,6 +350,7 @@ export class Harness {
 	newSession(): void {
 		this.assertIdle();
 		this.agent.reset();
+		this.skills.reset();
 		this.usedTokens = 0;
 		this.usageBaseline = undefined;
 		this.justCompacted = undefined;
@@ -323,6 +387,7 @@ export class Harness {
 		touchSession(item.filePath);
 		this.agent.reset();
 		this.agent.state.messages = loaded.messages;
+		this.skills.restore(loaded.entries.flatMap(entry => entry.type === "message" ? [entry.message] : []));
 		this.session = {
 			path: item.filePath,
 			header: loaded.header,
@@ -517,6 +582,7 @@ export class Harness {
 			signal.throwIfAborted();
 			const headerTime = Date.parse(this.session.header.timestamp);
 			const replacement = (kept: AgentMessage[]) => {
+				const skillMessages = this.skills.retainedMessages(kept, Math.min(25_000, Math.max(0, Math.floor((request.model.contextWindow - DEFAULT_COMPACTION_SETTINGS.reserveTokens) / 4))));
 				const wrappedSummary = buildCompactSummaryMessage(summary, {
 					transcriptPath: this.session.path, recentMessagesPreserved: kept.length > 0,
 					suppressFollowup: Boolean(this.promptController),
@@ -525,8 +591,8 @@ export class Harness {
 					role: "user" as const,
 					content: [{ type: "text" as const, text: wrappedSummary }],
 					timestamp: Number.isNaN(headerTime) ? 0 : headerTime,
-				}, ...kept];
-				return { wrappedSummary, compactedMessages };
+				}, ...skillMessages, ...kept];
+				return { wrappedSummary, compactedMessages, skillMessages };
 			};
 			let next = replacement(keptMessages);
 			if (estimateMessagesTokens(next.compactedMessages) >= originalTokens) {
@@ -535,12 +601,13 @@ export class Harness {
 				keptMessages = retained(messages.length);
 				next = replacement(keptMessages);
 			}
-			const { wrappedSummary, compactedMessages } = next;
+			const { wrappedSummary, compactedMessages, skillMessages } = next;
 			if (estimateMessagesTokens(compactedMessages) >= originalTokens) throw new Error("Compaction did not reduce the context.");
 			appendEntry(this.session, {
 				type: "compaction",
 				summary: wrappedSummary,
 				keptMessages,
+				...(skillMessages.length ? { skillMessages } : {}),
 				tokensBefore: this.usedTokens,
 				...(options.replacesError ? { replacesError: true } : {}),
 			});

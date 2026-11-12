@@ -48,6 +48,33 @@ echo "Explain the entry points in this project." | ati
 - **Image input.** Paste a path to an image file or use `Alt+V` (Windows) or `Ctrl+V` (macOS and Linux) to try reading an image from the clipboard. Supported formats include PNG, JPEG, GIF, and WebP. Clipboard support depends on the terminal and system tools, and the selected model must accept images.
 - **Sessions and context.** Save conversations and attachments per project and continue with `/resume`. The status line shows context usage. Anti-trace can compact older messages automatically, and `/compact` lets you request compaction manually.
 
+## Skills
+
+Open `/skill` for a second-level picker, use `/skill review current branch` to invoke directly, or `/skill --reload` for diagnostics. Skills with argument hints ask for arguments first. Individual skills do not become top-level commands.
+
+Store project skills at `cwd/.anti-trace/skills/<name>/SKILL.md`; discovery uses only the current working directory, without walking its parents. Store user skills at `~/.anti-trace/skills/<name>/SKILL.md` (relative to `ANTI_TRACE_HOME`, shared across projects and profiles). Project definitions override user definitions.
+
+The system prompt supplies both resolved directories and the file format, even before any skills exist. Ask in chat to create a skill: project storage is the default; personal or cross-project skills use user storage. Existing file/shell tools create the files, which are discovered before the next model request.
+
+```markdown
+---
+name: review
+description: Review changes. Use when asked to inspect a diff or find regressions.
+argument-hint: "[scope]"
+---
+
+Review scope: $ARGUMENTS
+Read changes and callers, then report confirmed issues with severity and locations.
+```
+
+Names must match their directories and use lowercase letters, numbers and hyphens. Description and instructions are required. Bundle scripts/references/assets alongside the file. Use existing file or shell tools to create skills. Discovery refreshes when opening the picker and before each model request.
+
+The model first receives names/descriptions; the unified `skill` tool loads selected instructions. Supports `$ARGUMENTS`, positional and named `arguments`, `${CLAUDE_SKILL_DIR}`, `${CLAUDE_SESSION_ID}`, `disable-model-invocation` and `user-invocable`. Instructions persist through session restore and budgeted compaction.
+
+`allowed-tools` accepts plain `read`, `edit`, `write`, `bash`, `powershell` names or lists (including title-case aliases). Model calls with grants require approval; manual invocation applies declared grants for that turn. Grants do not survive session restore. Other operations use the existing policy.
+
+Only inline skills are supported. Command-pattern grants, inline shell injection, path conditions, skill-specific models/effort, fork, hooks and plugin sources report loading diagnostics.
+
 ## Permissions and approvals
 
 Reads are allowed by default. Writes, edits, and shell commands prompt for approval. You can approve once, allow for the current session, or deny with feedback. File changes can be previewed as diffs before approval. A session approval for file changes covers subsequent file writes and edits, while a shell approval applies to the same command in the same tool.
@@ -93,6 +120,7 @@ Type `/` and keep typing to filter the command menu. Use the arrow keys to selec
 | `/thinking-display [on\|off]` | Choose whether reasoning text starts expanded |
 | `/context [positive integer]` / `/compact` | Inspect or adjust the context window, or request compaction |
 | `/language [zh\|en]` | Switch and remember the interface language |
+| `/skill [name arguments\|--reload]` | Open the skill picker, invoke a skill, or reload |
 | `/exit` | Exit |
 
 | Shortcut | Action |

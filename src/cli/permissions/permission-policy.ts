@@ -10,16 +10,18 @@ export const isShellTool = (name: string) => name === "bash" || name === "powers
 const commandKey = (name: string, args: Record<string, unknown>) => JSON.stringify([name, String(args.command)]);
 export interface PermissionRequest { id: string; name: string; args: Record<string, unknown>; hunks?: StructuredDiffHunk[]; previewError?: string }
 export interface PermissionSnapshot { mode: PermissionMode; request: PermissionRequest | null; selectedIndex: number; editingFeedback: boolean }
+export interface SkillPermissionAccess { permissionTools(name: string): readonly string[] | undefined; activeTools(): readonly string[] }
 
 export class PermissionPolicy {
 	private snapshot: PermissionSnapshot;
 	private readonly listeners = new Set<() => void>();
 	private readonly allowedCommands = new Set<string>();
+	private readonly allowedSkills = new Set<string>();
 	private allowEdits = false;
 	private pending?: (result: BeforeToolCallResult | undefined) => void;
 	readonly feedback = new TextInputController({ availableColumns: 60 });
 	readonly target: InputTarget;
-	constructor(private readonly cwd: string, private readonly interactive: boolean, mode: PermissionMode = "default") {
+	constructor(private readonly cwd: string, private readonly interactive: boolean, mode: PermissionMode = "default", private readonly skills?: SkillPermissionAccess) {
 		this.snapshot = { mode, request: null, selectedIndex: 0, editingFeedback: false };
 		this.target = { id: Symbol("permission"), context: "Permission", actions: {
 			...this.feedback.target.actions,
@@ -36,16 +38,19 @@ export class PermissionPolicy {
 	subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 	private update(change: Partial<PermissionSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; for (const listener of this.listeners) listener(); }
 	private allowed(name: string, args: Record<string, unknown>) {
-		return name === "read" || this.snapshot.mode === "yolo" || ((name === "edit" || name === "write") && (this.snapshot.mode === "auto-edit" || this.allowEdits))
+		return name === "read" || this.snapshot.mode === "yolo" || this.skills?.activeTools().includes(name)
+			|| (name === "skill" && this.skills && (!(this.skills.permissionTools(String(args.skill))?.length) || this.allowedSkills.has(this.skillKey(args))))
+			|| ((name === "edit" || name === "write") && (this.snapshot.mode === "auto-edit" || this.allowEdits))
 			|| (isShellTool(name) && this.allowedCommands.has(commandKey(name, args)));
 	}
+	private skillKey(args: Record<string, unknown>): string { return JSON.stringify([args.skill, this.skills?.permissionTools(String(args.skill))]); }
 	cycleMode(): void {
 		const modes: PermissionMode[] = ["default", "auto-edit", "yolo"];
 		this.update({ mode: modes[(modes.indexOf(this.snapshot.mode) + 1) % modes.length]! });
 		const request = this.snapshot.request;
 		if (request && this.allowed(request.name, request.args)) this.decide("allow");
 	}
-	resetSession(): void { this.cancel(); this.allowEdits = false; this.allowedCommands.clear(); }
+	resetSession(): void { this.cancel(); this.allowEdits = false; this.allowedCommands.clear(); this.allowedSkills.clear(); }
 	move(direction: number): void { this.update({ selectedIndex: (this.snapshot.selectedIndex + direction + 3) % 3 }); }
 	accept(): void {
 		if (this.snapshot.editingFeedback) { this.decide("deny"); return; }
@@ -58,6 +63,7 @@ export class PermissionPolicy {
 		if (decision === "session") {
 			if (["edit", "write"].includes(request.name)) this.allowEdits = true;
 			else if (isShellTool(request.name)) this.allowedCommands.add(commandKey(request.name, request.args));
+			else if (request.name === "skill") this.allowedSkills.add(this.skillKey(request.args));
 		}
 		const settle = this.pending; this.pending = undefined;
 		const reason = this.feedback.getSnapshot().state.text.trim() || "用户拒绝执行此工具。";
@@ -71,7 +77,7 @@ export class PermissionPolicy {
 		if (signal?.aborted) return { block: true, reason: "已中断。" };
 		if (this.allowed(name, args)) return undefined;
 		if (!this.interactive) return { block: true, reason: "非交互模式无法请求权限；请在终端审批，或显式使用 --yolo。" };
-		const request: PermissionRequest = { id: context.toolCall.id, name, args };
+		const request: PermissionRequest = { id: context.toolCall.id, name, args: name === "skill" ? { ...args, allowedTools: this.skills?.permissionTools(String(args.skill)) ?? [] } : args };
 		if (name === "edit" || name === "write") {
 			try {
 				const path = resolve(this.cwd, String(args.path));

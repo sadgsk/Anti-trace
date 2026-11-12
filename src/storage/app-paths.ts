@@ -9,6 +9,7 @@ export interface AppPaths {
 	profileId: string;
 	profileRoot: string;
 	configsDir: string;
+	userSkillsDir: string;
 	preferencesFile: string;
 	defaultSelectionFile: string;
 	projectId: string;
@@ -44,7 +45,7 @@ export function getAppPaths(options: StorageOptions & { cwd: string }): AppPaths
 	const projectRoot = join(profileRoot, "projects", projectId);
 	return {
 		appRoot, profileId, profileRoot, cwd, projectId, projectRoot,
-		configsDir: join(profileRoot, "configs"), preferencesFile: join(appRoot, "preferences.json"),
+		configsDir: join(profileRoot, "configs"), userSkillsDir: join(appRoot, "skills"), preferencesFile: join(appRoot, "preferences.json"),
 		defaultSelectionFile: join(profileRoot, "default-model.json"),
 		projectInfoFile: join(projectRoot, "project.json"), projectSelectionFile: join(projectRoot, "last-model.json"),
 		sessionsDir: join(projectRoot, "sessions"), toolResultsDir: join(projectRoot, "tool-results"),

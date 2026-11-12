@@ -9,6 +9,7 @@ import { ReadToolView } from "../tools/ReadToolView.tsx";
 import { EditToolView } from "../tools/EditToolView.tsx";
 import { WriteToolView } from "../tools/WriteToolView.tsx";
 import { BashToolView } from "../tools/BashToolView.tsx";
+import { SkillToolView } from "../tools/SkillToolView.tsx";
 import { GroupedToolUseView } from "../tools/GroupedToolUseView.tsx";
 import { ToolUseCard } from "../tools/ToolUseCard.tsx";
 import { toolText } from "../tools/tool-result.ts";
@@ -40,6 +41,7 @@ export function TranscriptItemView({ item, expanded, thinkingDisplay, columns, l
 		: <AssistantTextMessage key={block.index} text={block.text} columns={columns} maxLines={live ? maxLines ?? 12 : undefined} />)}</Box>;
 	const props = { item, expanded, columns, live };
 	if (item.name === "read") return <ReadToolView {...props} />;
+	if (item.name === "skill") return <SkillToolView {...props} />;
 	if (item.name === "edit") return <EditToolView {...props} />;
 	if (item.name === "write") return <WriteToolView {...props} />;
 	if (item.name === "bash" || item.name === "powershell") return <BashToolView {...props} />;

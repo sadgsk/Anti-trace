@@ -173,9 +173,9 @@ export class Agent {
 		this._state.errorMessage = undefined;
 	}
 
-	async prompt(text: string, images?: ImageContent[], settings?: ModelRequestSettings): Promise<void> {
+	async prompt(text: string, images?: ImageContent[], settings?: ModelRequestSettings, additionalMessages: readonly AgentMessage[] = []): Promise<void> {
 		const config = this.createLoopConfig(settings);
-		const messages = this.normalizePromptInput(text, images);
+		const messages = [...this.normalizePromptInput(text, images), ...additionalMessages];
 		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
 				messages,

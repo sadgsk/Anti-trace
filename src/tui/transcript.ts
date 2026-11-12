@@ -19,7 +19,7 @@ export function projectMessages(messages: readonly AgentMessage[], nextId: () =>
 	const result: TranscriptItem[] = [];
 	const tools = new Map<string, ToolUseItem>();
 	for (const message of messages) {
-		if (message.role === "user") result.push({ id: nextId(), kind: "user", timestamp: message.timestamp,
+		if (message.role === "user" && !message.isMeta) result.push({ id: nextId(), kind: "user", timestamp: message.timestamp,
 			text: message.content.filter(b => b.type === "text").map(b => b.text).join("\n"),
 			attachments: message.content.filter(b => b.type === "image").map((_, index) => `[Image #${index + 1}]`) });
 		if (message.role === "assistant") {
