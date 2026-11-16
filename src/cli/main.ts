@@ -37,32 +37,36 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 	let byok: ByokRuntime | undefined;
 	let startupMessage: string | undefined;
 	let warnings: string[] = [];
-	if (!harness) {
-		const sessionHarness = new Harness({ cwd, paths, sessionsRoot: options.sessionsRoot, streamFn: streamModel,
-			resolveModel: reference => byok!.resolveModel(reference) });
-		harness = sessionHarness;
-		byok = new ByokRuntime({ cwd, paths, configPath: options.configPath, model: options.model }, config => {
-			sessionHarness.configureModel({ model: config.model, modelRef: { configPath: config.configPath, modelKey: config.currentModel },
-				thinking: config.thinking, getApiKey: config.getApiKey });
-		}, () => sessionHarness.settings);
-		const result = byok.reload();
-		startupMessage = result.message;
-		if (result.ok) warnings = result.warnings;
-	}
-	if (streams.stdin.isTTY && streams.stdout.isTTY) {
-		const terminal = startTerminalRepl({ harness, byok, cwd, locale, permissionMode: options.permissionMode, startupMessage: byok?.hasConfig ? warnings.join("\n") || undefined : startupMessage,
-			streams: streams as unknown as TerminalStreams });
-		await terminal.done;
-		return 0;
-	}
-	if (streams.stdin.isTTY) {
-		streams.stderr.write(locale.t("交互输入需要 TTY 输出；请在终端运行，或通过管道提供完整输入。") + "\n");
-		return 1;
-	}
-	// A pipe may contain a session command; config diagnostics must not prevent its execution.
-	if (byok && !byok.hasConfig) streams.stderr.write(`${locale.t(startupMessage ?? "")}\n`);
-	for (const warning of warnings) streams.stderr.write(`${locale.t(warning)}\n`);
-	return runPipe(harness, streams, byok, options.permissionMode, cwd, locale);
+	let ownedHarness: Harness | undefined;
+	try {
+		if (!harness) {
+			const sessionHarness = new Harness({ cwd, paths, sessionsRoot: options.sessionsRoot, streamFn: streamModel,
+				resolveModel: reference => byok!.resolveModel(reference) });
+			harness = sessionHarness;
+			ownedHarness = sessionHarness;
+			byok = new ByokRuntime({ cwd, paths, configPath: options.configPath, model: options.model }, config => {
+				sessionHarness.configureModel({ model: config.model, modelRef: { configPath: config.configPath, modelKey: config.currentModel },
+					thinking: config.thinking, getApiKey: config.getApiKey });
+			}, () => sessionHarness.settings);
+			const result = byok.reload();
+			startupMessage = result.message;
+			if (result.ok) warnings = result.warnings;
+		}
+		if (streams.stdin.isTTY && streams.stdout.isTTY) {
+			const terminal = startTerminalRepl({ harness, byok, cwd, locale, permissionMode: options.permissionMode, startupMessage: byok?.hasConfig ? warnings.join("\n") || undefined : startupMessage,
+				streams: streams as unknown as TerminalStreams });
+			await terminal.done;
+			return 0;
+		}
+		if (streams.stdin.isTTY) {
+			streams.stderr.write(locale.t("交互输入需要 TTY 输出；请在终端运行，或通过管道提供完整输入。") + "\n");
+			return 1;
+		}
+		// A pipe may contain a session command; config diagnostics must not prevent its execution.
+		if (byok && !byok.hasConfig) streams.stderr.write(`${locale.t(startupMessage ?? "")}\n`);
+		for (const warning of warnings) streams.stderr.write(`${locale.t(warning)}\n`);
+		return await runPipe(harness, streams, byok, options.permissionMode, cwd, locale);
+	} finally { await ownedHarness?.close(); }
 }
 
 async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRuntime, permissionMode?: PermissionMode, cwd = process.cwd(), locale?: UiLocale): Promise<number> {

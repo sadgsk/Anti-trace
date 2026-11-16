@@ -12,10 +12,15 @@ test("paths are stable, lazy, share user configuration and separate projects and
 	assert.equal(a.configsDir, b.configsDir); assert.equal(a.preferencesFile, b.preferencesFile);
 	assert.equal(a.userSkillsDir, join(appHome, "skills"));
 	assert.equal(a.userSkillsDir, b.userSkillsDir);
+	assert.equal(a.mcpConfigFile, join(a.profileRoot, "mcp.json"));
+	assert.equal(a.mcpConfigFile, b.mcpConfigFile); assert.equal(a.mcpStateDir, b.mcpStateDir);
+	assert.equal(a.projectMcpConfigFile, join(a.cwd, ".anti-trace", "mcp.json"));
 	assert.notEqual(a.sessionsDir, b.sessionsDir); assert.notEqual(a.projectSelectionFile, b.projectSelectionFile);
 	const other = getAppPaths({ cwd, appHome, profileId: "user-a" });
 	assert.notEqual(a.configsDir, other.configsDir); assert.notEqual(a.sessionsDir, other.sessionsDir);
 	assert.notEqual(a.defaultSelectionFile, other.defaultSelectionFile);
+	assert.notEqual(a.mcpConfigFile, other.mcpConfigFile); assert.notEqual(a.mcpStateDir, other.mcpStateDir);
+	assert.equal(a.projectMcpConfigFile, other.projectMcpConfigFile);
 	assert.equal(a.preferencesFile, other.preferencesFile);
 	assert.equal(a.userSkillsDir, other.userSkillsDir);
 	assert.equal(existsSync(appHome), false);

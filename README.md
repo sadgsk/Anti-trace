@@ -114,6 +114,7 @@ argument-hint: "[审查范围]"
 | `/new` / `/resume` | 开始新会话或恢复当前项目的已有会话 |
 | `/config [路径]` | 管理配置，或直接加载指定 JSON 文件 |
 | `/model [模型键]` | 从当前配置中选择模型 |
+| `/mcp` | 管理 MCP 服务器、连接与能力目录 |
 | `/reload` | 重新读取当前配置 |
 | `/thinking [on\|off\|default]` | 开启、关闭模型思考，或使用服务商默认值 |
 | `/effort` | 选择思考档位，支持 `low`、`medium`、`high`、`xhigh`、`max`，实际效果取决于模型与接口 |
@@ -132,6 +133,37 @@ argument-hint: "[审查范围]"
 | 滚轮或 `PgUp` / `PgDn` / `Ctrl+End` | 回看对话 / 返回最新输出 |
 
 快捷键能否被识别取决于终端。
+
+## MCP 服务器管理
+
+运行 `npm start` 后输入 `/mcp`，可新增、编辑、信任、连接、停用或删除服务器，以及查看 Tools、Resources、URI Templates 和 Prompts 的定义。这个入口不需要模型配置。新增时先选择保存范围和传输方式：
+
+- 当前项目：`<cwd>/.anti-trace/mcp.json`，需要显式信任才能启动或连接。
+- 所有项目：`~/.anti-trace/profiles/local/mcp.json`。项目中的同名服务器整条覆盖用户配置。
+
+用户配置和私有状态的根目录随 `ANTI_TRACE_HOME` 改变，并按 profile 隔离。项目配置可以提交到 Git；凭据只引用环境变量。OAuth 凭据、信任和本机启停状态保存在用户私有目录 `~/.anti-trace/profiles/local/mcp/`。例如项目配置可写为：
+
+```json
+{
+  "version": 1,
+  "mcpServers": {
+    "local": { "type": "stdio", "command": "node", "args": ["/absolute/path/server.mjs"] },
+    "remote": {
+      "type": "http",
+      "url": "https://your-server.example/mcp",
+      "auth": { "type": "bearer", "tokenEnv": "MCP_ACCESS_TOKEN" }
+    }
+  }
+}
+```
+
+替换示例命令和地址后，使用 `/mcp trust local` 信任项目项、`/mcp reconnect local` 连接、`/mcp tools local` 查看工具定义。OAuth 服务器使用 `"auth": { "type": "oauth" }`，通过 `/mcp login <server>` 在浏览器中授权；也支持预注册的 `clientId`、`clientSecretEnv`、`scopes`、`callbackPort`。修改文件后执行 `/mcp reload`；坏配置保留上次生效配置。
+
+stdio 和 Streamable HTTP 均自动探测协议版本，优先使用新版，按 SDK 的兼容规则回退旧版握手；无需配置 `legacy / modern`。旧 HTTP+SSE 专用传输不在本轮范围。管道可以使用 `printf '/mcp list' | npm start`，信任、配置表单和交互式登录需要终端。
+
+Windows 的 stdio 进程管理需要系统 Windows PowerShell 与 Job Object；禁用 PowerShell／Add-Type 的环境会报告连接失败。
+
+当前完成服务器接入与管理，模型调用 MCP 工具、资源／提示模板进入对话将在后续两块接入。详细字段与边界见 [MCP 设计](docs/mcp-design.md)。会话沿用统一存储中的 `profiles/local/projects/<项目ID>/sessions/`，不另建 `~/sessions/`。
 
 ## 开发
 

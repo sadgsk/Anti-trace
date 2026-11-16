@@ -114,6 +114,7 @@ Type `/` and keep typing to filter the command menu. Use the arrow keys to selec
 | `/new` / `/resume` | Start a session or resume one for the current project |
 | `/config [path]` | Manage configurations or load a specific JSON file |
 | `/model [model key]` | Select a model from the current configuration |
+| `/mcp` | Manage MCP servers, connections and catalogs |
 | `/reload` | Reload the current configuration |
 | `/thinking [on\|off\|default]` | Enable reasoning, disable it, or use the provider default |
 | `/effort` | Select `low`, `medium`, `high`, `xhigh`, or `max`. The effect depends on the model and API |
@@ -132,6 +133,37 @@ Type `/` and keep typing to filter the command menu. Use the arrow keys to selec
 | Scroll wheel or `PgUp` / `PgDn` / `Ctrl+End` | Browse history / return to the latest output |
 
 Shortcut support depends on the terminal.
+
+## MCP server management
+
+Start the CLI and enter `/mcp` to add, edit, trust, connect, disable or remove servers and inspect Tools, Resources, URI Templates and Prompts. Model configuration is not required. Choose a scope and transport when adding a server:
+
+- Current project: `<cwd>/.anti-trace/mcp.json`. Explicit trust is required before starting or connecting.
+- All projects: `~/.anti-trace/profiles/local/mcp.json`. A project entry replaces the entire user entry with the same name.
+
+User configuration and private state follow `ANTI_TRACE_HOME` and are isolated by profile. Project configuration can be committed to Git; reference credentials through environment variables. OAuth credentials, trust and local enable/disable overrides live in the private user directory `~/.anti-trace/profiles/local/mcp/`. Example:
+
+```json
+{
+  "version": 1,
+  "mcpServers": {
+    "local": { "type": "stdio", "command": "node", "args": ["/absolute/path/server.mjs"] },
+    "remote": {
+      "type": "http",
+      "url": "https://your-server.example/mcp",
+      "auth": { "type": "bearer", "tokenEnv": "MCP_ACCESS_TOKEN" }
+    }
+  }
+}
+```
+
+Replace the example command and URL, then use `/mcp trust local`, `/mcp reconnect local`, and `/mcp tools local`. For OAuth, configure `"auth": { "type": "oauth" }` and run `/mcp login <server>` to authorize in your browser. Pre-registered `clientId`, `clientSecretEnv`, `scopes` and `callbackPort` are also supported. Run `/mcp reload` after editing files; invalid candidates retain the last valid configuration.
+
+Both stdio and Streamable HTTP automatically probe protocol support, preferring the modern protocol and using the SDK's legacy handshake fallback. No `legacy / modern` setting is needed. The old dedicated HTTP+SSE transport is outside this release. Pipes can run `printf '/mcp list' | npm start`; trust, configuration forms and interactive login require a terminal.
+
+On Windows, stdio process management requires system Windows PowerShell and Job Objects. Environments that disable PowerShell or Add-Type report a connection failure.
+
+Server management is implemented. Model tool invocation and adding resources/prompts to conversations are the next two implementation blocks. See the [MCP design](docs/mcp-design.md). Sessions use `profiles/local/projects/<project ID>/sessions/` inside the unified application home.
 
 ## Development
 

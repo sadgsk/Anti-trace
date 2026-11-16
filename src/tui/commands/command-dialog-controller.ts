@@ -4,7 +4,7 @@ import { createTextInputState } from "../../cli/input/text-input-state.ts";
 export interface CommandChoice { id: string; label: string; description?: string; current?: boolean; literal?: boolean; descriptionLiteral?: boolean }
 export interface ConfigField { key: string; label: string; value: string; secret?: boolean; placeholder?: string; options?: readonly string[] }
 interface DialogBase { title: string; description?: string; error?: string }
-export interface ConfigFormState extends DialogBase { kind: "form"; fields: readonly ConfigField[]; selected: number }
+export interface ConfigFormState extends DialogBase { kind: "form"; fields: readonly ConfigField[]; selected: number; saveLabel?: string }
 export type CommandDialogState =
 	| (DialogBase & { kind: "picker"; choices: readonly CommandChoice[]; selected: number; horizontal: boolean })
 	| ConfigFormState
@@ -33,9 +33,9 @@ export class CommandDialogController {
 		this.set({ kind: "picker", title: options.title, description: options.description, choices: options.choices,
 			selected: Math.max(0, options.choices.findIndex(item => item.id === options.selectedId || (!options.selectedId && item.current))), horizontal: options.horizontal ?? false });
 	}
-	openForm(options: { title: string; description?: string; fields: readonly ConfigField[]; onSave: (values: Record<string, string>) => void; onBack: () => void }): void {
+	openForm(options: { title: string; description?: string; fields: readonly ConfigField[]; saveLabel?: string; onSave: (values: Record<string, string>) => void; onBack: () => void }): void {
 		this.clearEditor(); this.acceptChoice = undefined; this.saveForm = options.onSave; this.goBack = options.onBack;
-		this.set({ kind: "form", title: options.title, description: options.description, fields: options.fields, selected: 0 });
+		this.set({ kind: "form", title: options.title, description: options.description, fields: options.fields, selected: 0, saveLabel: options.saveLabel });
 	}
 	setColumns(columns: number): void { this.editor.setAvailableColumns(Math.max(1, columns - 7)); }
 	openInput(options: { title: string; description?: string; placeholder?: string; onAccept: (value: string) => void; onBack?: () => void }): void {

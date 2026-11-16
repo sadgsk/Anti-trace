@@ -11,7 +11,7 @@ export function CommandDialog({ controller, columns, rows }: { controller: Comma
 	if (!state) return null;
 	const width = Math.max(1, columns - 4), count = Math.max(1, rows - (state.error ? 10 : 8));
 	const choices: readonly CommandChoice[] = state.kind === "picker" ? state.choices : state.kind === "input" ? [] : state.kind === "field" ? (state.field.options ?? []).map(id => ({ id, label: id, current: id === state.field.value }))
-		: [...state.fields.map(field => ({ id: field.key, label: field.label, description: field.secret ? field.value ? "••••••••" : t(field.placeholder ?? "未填写") : field.value ? field.options ? t(field.value) : field.value : t(field.placeholder ?? "未填写"), descriptionLiteral: true })), { id: ":save", label: "保存并使用此配置" }];
+		: [...state.fields.map(field => ({ id: field.key, label: field.label, description: field.secret ? field.value ? "••••••••" : t(field.placeholder ?? "未填写") : field.value ? field.options ? t(field.value) : field.value : t(field.placeholder ?? "未填写"), descriptionLiteral: true })), { id: ":save", label: state.saveLabel ?? "保存并使用此配置" }];
 	const start = Math.max(0, Math.min(state.selected - Math.floor(count / 2), choices.length - count));
 	const horizontal = state.kind === "picker" && state.horizontal && columns >= 54;
 	return <ThemedBox flexDirection="column" borderStyle="round" color="accent" width={columns} paddingX={1} flexShrink={0}>

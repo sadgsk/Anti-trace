@@ -12,7 +12,8 @@
 | 最终 Review 提醒 | RV-001：检查 Shift+Tab、三种权限模式、工具执行前判断、审批与会话授权记忆的真实执行链路 |
 | 测试与 CI | [testing.md](./testing.md)：命令、隔离、覆盖范围、覆盖率门槛和后续维护 |
 | 问题记录 | [future-issues.md](./future-issues.md)：No.1 Windows Shell 与 No.2 回看闪烁已修复并回归；No.3 浅色主题待处理 |
-| 最后更新 | 2026-11-13 |
+| MCP 新增工作 | 第一块服务器接入与管理已实现，第二、三块待实施；见下方记录。 |
+| 最后更新 | 2026-11-16 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -103,6 +104,22 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 当前采用自己的 `Harness` 和功能设计；具体运行行为以仓库源码为准。
 
 ---
+
+## MCP 第一块：服务器接入与管理（2026-11-16）
+
+远端同步：按用户要求 fetch 后，main 从 `c114679` 快进到 `d3fcd00`，合入 14 个提交（包含统一存储、ati/npm 入口和 Skills）。本地 MCP 改动已恢复并与远端接线合并。用户明确选择沿用远端目录，撤回此前 `~/sessions/` 方案；MCP 用户配置／私有状态进入统一 profile，项目共享文件采用 `.anti-trace/mcp.json`。
+
+主流程 `McpRuntime.connectServerAndDiscover(serverId, signal)`：读取有效配置及来源，检查启用与信任，复用／建立有期限的连接，自动协商协议，再获取完整工具目录。`acquireBinding` 提供固定连接 generation、配置／授权身份和目录 revision 的真实协议调用接口；单服务器失败保留诊断，不阻止其他连接。
+
+- 配置位于 `~/.anti-trace/profiles/local/mcp.json` 和 `<cwd>/.anti-trace/mcp.json`；同名项目项整条覆盖用户项。校验、默认值、外部修改检测、原子保存和坏候选保留旧配置已实现。共享项目配置可提交 Git；私有凭据、信任及启停覆盖位于用户 `~/.anti-trace/profiles/local/mcp/`。
+- 官方客户端和 core 固定为 `2.4.0`；stdio 与 Streamable HTTP 使用 SDK `versionNegotiation: { mode: "auto" }`，不提供协议模式配置项。实现 Bearer／环境变量头及 OAuth 发现、注册／预注册、PKCE、state／issuer 校验、私有保存、刷新与登出。
+- Tools／Resources／Templates／Prompts 支持分页、重复标识／游标检查、接收上限和独立目录状态；旧版通知与新版订阅均使对应 binding 失效。`callTool` 使用绑定的工具定义，避免 SDK 自动切换目录后重放业务调用。
+- `/mcp` 复用注册表、REPL 与现有弹窗；选择保存范围和 stdio／HTTP，编辑写回来源，删除覆盖项有恢复用户配置提示。管道可查看／连接／重载／启停；交互式信任、配置表单和 OAuth 登录使用 TTY。中英文入口已接线。
+- Harness 持有 Runtime，CLI 在 `finally` 等待自己创建的 Harness 关闭。连接、请求、登录回调可取消，stdio 探测与正式连接均有进程所有权及清理；POSIX 使用进程组，Windows 使用系统 PowerShell 启动器及 kill-on-close Job Object，覆盖 SDK 直接终止探针的路径。资源只由其所有者关闭，嵌入者负责关闭传入的 Harness。
+
+验证：合并后的源码／测试类型检查、构建与 `git diff --check` 通过。全量覆盖率检查 547 项，542 项通过、5 项平台条件跳过、0 项失败；行／语句覆盖率 91.11%，分支 86.51%，函数 91.99%。已覆盖断线错误分类、超大 stdio 帧、共享目录等待者超时、统一存储 profile 隔离，以及探针和正式连接的后代进程清理。安装包预检确认 CLI、MCP Runtime／stdio host 和远端 Skills 均包含在发布文件中。测试服务仅存在于 `tests/`，不依赖真实模型或账户。
+
+边界：本机为 macOS／Node 24；Windows／Linux 本轮 MCP 实机及 CI 尚未运行，外部真实 MCP／OAuth 账户尚未验收。第二块模型工具适配、审批与结果显示，以及第三块资源／模板草稿入口没有提前接入。源码和测试已写入，未做 Git 提交。
 
 ## v1.2（当前）
 

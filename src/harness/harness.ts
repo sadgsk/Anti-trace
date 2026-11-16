@@ -37,6 +37,7 @@ import { SkillRegistry } from "./skills/registry.ts";
 import { SkillRuntime } from "./skills/runtime.ts";
 import { createSkillTool } from "./tools/skill.ts";
 import type { SkillDirectory } from "./skills/types.ts";
+import { McpRuntime } from "../mcp/runtime.ts";
 
 export interface HarnessModelSettings {
 	model: Model;
@@ -75,6 +76,14 @@ export class Harness {
 	private readonly skillTool: AgentTool;
 	private readonly shells: ShellEnvironment;
 	private generatedPrompt: string;
+	readonly mcp: McpRuntime;
+	private closing?: Promise<void>;
+	private readonly activeWork = new Set<Promise<void>>();
+	private trackWork(): () => void {
+		let done!: () => void;
+		const work = new Promise<void>(resolve => { done = resolve; }); this.activeWork.add(work);
+		return () => { done(); this.activeWork.delete(work); };
+	}
 	private readonly cwd: string;
 	private readonly sessionStorage: SessionStorage;
 	private session!: SessionFile;
@@ -132,6 +141,7 @@ export class Harness {
 		});
 		this.generatedPrompt = this.agent.state.systemPrompt;
 		if (options.model) this.agent.getApiKey = this.createRequestSettings(false).getApiKey;
+		this.mcp = new McpRuntime({ cwd: options.cwd, paths, assertIdle: () => this.assertIdle() });
 		this.newSession();
 		this.agent.subscribe((event) => {
 			if (event.type !== "message_end") {
@@ -176,6 +186,7 @@ export class Harness {
 		this.assertIdle();
 		this.skills.beginTurn();
 		this.refreshSkills();
+		const finish = this.trackWork();
 		// Own the entire prompt, including the gap between an agent turn and its summary/retry.
 		const controller = new AbortController();
 		this.promptController = controller;
@@ -214,6 +225,7 @@ export class Harness {
 			} finally {
 				this.promptController = undefined;
 				this.activeUserMessage = undefined;
+				finish();
 			}
 		}
 	}
@@ -320,6 +332,12 @@ export class Harness {
 		this.promptController?.abort();
 		this.compactionController?.abort();
 		this.agent.abort();
+	}
+
+	/** Embedders own this lifecycle; CLI awaits it on every owned exit path. */
+	close(): Promise<void> {
+		if (!this.closing) { this.abort(); this.closing = Promise.all([this.mcp.close(), ...this.activeWork]).then(() => {}); }
+		return this.closing;
 	}
 
 	subscribe(listener: (event: HarnessEvent, signal: AbortSignal) => Promise<void> | void): () => void {
@@ -465,6 +483,7 @@ export class Harness {
 	}
 
 	private assertIdle(): void {
+		if (this.closing) throw new Error("Harness 已关闭。");
 		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
 			throw new Error("Cannot change settings or sessions while the agent is processing.");
 		}
@@ -508,6 +527,7 @@ export class Harness {
 	}
 
 	async manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact"> {
+		if (this.closing) throw new Error("Harness 已关闭。");
 		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
 			throw new Error("Cannot compact while the agent is processing");
 		}
@@ -522,6 +542,7 @@ export class Harness {
 	}
 
 	async compact(customInstructions?: string): Promise<boolean> {
+		if (this.closing) throw new Error("Harness 已关闭。");
 		if (this.promptController || this.agent.state.isStreaming || this.compactionController) {
 			throw new Error("Cannot compact while the agent is processing");
 		}
@@ -557,6 +578,7 @@ export class Harness {
 		const controller = new AbortController();
 		const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
 		this.compactionController = controller;
+		const finish = this.trackWork();
 		this.usedTokens = this.estimateRequestUsage(context, this.requestKey ?? "");
 		const tokensBefore = this.usedTokens;
 		try {
@@ -622,6 +644,7 @@ export class Harness {
 			throw error;
 		} finally {
 			this.compactionController = undefined;
+			finish();
 		}
 	}
 }

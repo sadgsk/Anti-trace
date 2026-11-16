@@ -10,6 +10,9 @@ export interface AppPaths {
 	profileRoot: string;
 	configsDir: string;
 	userSkillsDir: string;
+	mcpConfigFile: string;
+	mcpStateDir: string;
+	projectMcpConfigFile: string;
 	preferencesFile: string;
 	defaultSelectionFile: string;
 	projectId: string;
@@ -46,6 +49,7 @@ export function getAppPaths(options: StorageOptions & { cwd: string }): AppPaths
 	return {
 		appRoot, profileId, profileRoot, cwd, projectId, projectRoot,
 		configsDir: join(profileRoot, "configs"), userSkillsDir: join(appRoot, "skills"), preferencesFile: join(appRoot, "preferences.json"),
+		mcpConfigFile: join(profileRoot, "mcp.json"), mcpStateDir: join(profileRoot, "mcp"), projectMcpConfigFile: join(cwd, ".anti-trace", "mcp.json"),
 		defaultSelectionFile: join(profileRoot, "default-model.json"),
 		projectInfoFile: join(projectRoot, "project.json"), projectSelectionFile: join(projectRoot, "last-model.json"),
 		sessionsDir: join(projectRoot, "sessions"), toolResultsDir: join(projectRoot, "tool-results"),

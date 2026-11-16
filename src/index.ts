@@ -23,3 +23,6 @@ export { SkillRegistry } from "./harness/skills/registry.ts";
 export type { SkillDefinition, SkillSnapshot, SkillDiagnostic } from "./harness/skills/types.ts";
 export { buildSystemPrompt, type BuildSystemPromptOptions } from "./harness/prompt.ts";
 export type * from "./types.ts";
+export { McpRuntime, type McpRuntimeOptions } from "./mcp/runtime.ts";
+export { McpError } from "./mcp/types.ts";
+export type { McpBinding, McpServerBinding, McpRuntimeSnapshot, McpServerSnapshot, McpServerConfig, McpScope, McpToolDefinition, McpToolResult, McpResourceResult, McpPromptResult } from "./mcp/types.ts";

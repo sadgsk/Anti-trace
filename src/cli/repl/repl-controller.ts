@@ -14,12 +14,14 @@ import type { ProfileEdit } from "../../config/config-profiles.ts";
 import { UiLocale, type UiLanguage } from "../locale.ts";
 import type { TranscriptAnchor, ViewportMetrics } from "../../tui/viewport-state.ts";
 import { createPromptDraft } from "../input/prompt-draft.ts";
+import { McpCommand } from "../commands/mcp-command.ts";
+import { diagnostic } from "../../mcp/util.ts";
 
 export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
 	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">
 	& Partial<Pick<Harness, "setThinkingLevel" | "setThinkingEnabled" | "describeSettings" | "settingsWarning"
 		| "getDisplayState" | "getSessionMessages" | "getSessionHistory" | "setBeforeToolCall"
-		| "getSkills" | "reloadSkills" | "invokeSkill" | "getSkillPermissionTools" | "getActiveSkillTools">>;
+		| "mcp" | "getSkills" | "reloadSkills" | "invokeSkill" | "getSkillPermissionTools" | "getActiveSkillTools">>;
 
 export interface ReplEntry { readonly id: number; readonly text: string; readonly kind?: "user" | "thinking" }
 export interface ReplSnapshot {
@@ -84,6 +86,8 @@ export class ReplController {
 	private assistantId?: number;
 	private interrupted = false;
 	private promptResultReceived = false;
+	private mcpOperation?: AbortController;
+	private readonly mcpCommand?: McpCommand;
 
 	constructor(private readonly options: ReplOptions) {
 		this.locale = options.locale ?? new UiLocale(options.cwd ?? process.cwd(), options.interactive ?? false);
@@ -95,6 +99,8 @@ export class ReplController {
 		this.snapshot = { ...this.snapshot, modelStatus: this.harness.describeSettings?.(), display: this.readDisplay() };
 		this.unsubscribe = this.harness.subscribe(event => this.handleEvent(event));
 		this.unsubscribeDialogs = this.dialogs.subscribe(() => this.update({}));
+		if (this.harness.mcp) this.mcpCommand = new McpCommand({ runtime: this.harness.mcp, dialogs: this.dialogs,
+			interactive: options.interactive ?? false, write: text => this.write(text), start: action => { void this.runMcpAction(action); } });
 	}
 
 	getSnapshot = (): ReplSnapshot => this.snapshot;
@@ -155,7 +161,7 @@ export class ReplController {
 	interrupt(): void {
 		if (!this.snapshot.closed && this.snapshot.busy) {
 			if (!this.interrupted) this.write("已中断。可以修改要求后继续。", undefined, "warning");
-			this.interrupted = true; this.harness.abort(); this.permissions.cancel();
+			this.interrupted = true; this.harness.abort(); this.permissions.cancel(); this.mcpOperation?.abort();
 		}
 	}
 	toggleExpanded(): void {
@@ -202,6 +208,7 @@ export class ReplController {
 		this.listeners.clear();
 		this.snapshot = { ...this.snapshot, closed: true, busy: false, resumeChoices: null };
 		this.harness.abort();
+		this.mcpOperation?.abort();
 	}
 
 	write(text: string, kind?: "user" | "thinking", tone: NoticeTone = "info", textOnly = false, attachments: string[] = []): void {
@@ -222,6 +229,13 @@ export class ReplController {
 
 	private async runCommand(definition: SlashCommandDefinition, argument: string, images?: ImageContent[]): Promise<void> {
 		const command = definition.name;
+		if (command === "mcp") {
+			if (!this.mcpCommand) throw new Error("当前入口未提供 MCP 管理。");
+			const controller = new AbortController(); this.mcpOperation = controller;
+			try { await this.mcpCommand.run(argument, controller.signal); }
+			finally { if (this.mcpOperation === controller) this.mcpOperation = undefined; }
+			return;
+		}
 		if (command === "language" && !argument && !this.options.interactive) { this.write(`language ${this.locale.getSnapshot()}`); return; }
 		if (command === "language" && argument) {
 			if (argument !== "zh" && argument !== "en") { this.write("用法：/language [zh|en]"); return; }
@@ -351,6 +365,18 @@ export class ReplController {
 					onAccept: args => run(id, args), onBack: () => this.openSkillMenu(images) });
 				else run(id);
 			} });
+	}
+
+	private async runMcpAction(action: (signal: AbortSignal) => Promise<void>): Promise<void> {
+		if (this.snapshot.busy || this.disposed) return;
+		const controller = new AbortController(); this.mcpOperation = controller; this.interrupted = false;
+		this.dialogs.close(); this.update({ busy: true, error: undefined, startedAt: Date.now(), phase: "thinking" });
+		try { await action(controller.signal); }
+		catch (error) { const detail = diagnostic(error); if (!this.disposed) this.write(`${detail.code}: ${detail.message}`, undefined, "error"); }
+		finally {
+			if (this.mcpOperation === controller) this.mcpOperation = undefined;
+			if (!this.disposed) this.update({ busy: false, transcript: [...this.snapshot.transcript, ...this.snapshot.activeItems], activeItems: [] });
+		}
 	}
 
 	private openCommandDialog(command: string): boolean {

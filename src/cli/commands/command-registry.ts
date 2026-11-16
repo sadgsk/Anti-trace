@@ -21,6 +21,7 @@ export const SLASH_COMMANDS = [
 	{ name: "skill", description: "选择并使用技能", argumentHint: "[技能名 参数|--reload]" },
 	{ name: "config", description: "管理配置文件／新增／修改", argumentHint: "[路径]" },
 	{ name: "reload", description: "重新加载模型配置" },
+	{ name: "mcp", description: "管理 MCP 服务器与能力目录", argumentHint: "[子命令]" },
 	{ name: "language", description: "切换界面语言", argumentHint: "[zh|en]" },
 	{ name: "exit", description: "退出" },
 ] as const satisfies readonly SlashCommandDefinition[];

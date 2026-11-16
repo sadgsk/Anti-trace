@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkS
 import { randomUUID } from "node:crypto";
 import { dirname } from "node:path";
 import { getAppPaths, type AppPaths } from "../storage/app-paths.ts";
+import { mcpEnglish } from "./commands/mcp-locale.ts";
 export type UiLanguage = "zh" | "en";
 
 // Source phrases are keys, keeping protocol/model/user content outside the UI dictionary.
@@ -13,6 +14,7 @@ const english: Record<string, string> = {
 	"[技能名 参数|--reload]": "[skill arguments|--reload]",
 	"用法：/skill <技能名> [参数]；/skill --reload 重新加载。": "Usage: /skill <name> [arguments]; /skill --reload to reload.",
 	"存在多个模型配置，请用 /config 选择配置文件。": "Multiple model configurations are available; use /config to choose a file.",
+	...mcpEnglish,
 	"选择语言": "Interface language", "切换 CLI 界面语言，不改变对话内容。": "Choose the CLI language. Conversation content stays as written.",
 	"查看命令和快捷键": "Commands and shortcuts", "开始新会话": "Start a new session", "恢复已有会话": "Resume a session",
 	"打开模型选择": "Choose a model", "打开模型思考开关": "Toggle model thinking", "打开思考档位选择": "Choose thinking effort",
