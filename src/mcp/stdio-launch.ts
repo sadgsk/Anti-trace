@@ -10,6 +10,8 @@ const windowsHost = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 try {
+# Avoid module discovery stalling before Add-Type in a minimal stdio environment.
+Import-Module "$PSHOME\Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1"
 Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
