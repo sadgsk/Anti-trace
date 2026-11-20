@@ -42,7 +42,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	const done = new Promise<void>(resolve => { resolveDone = resolve; });
 	let prompt!: PromptInputController;
 	const repl = new ReplController({ harness: options.harness, byok: options.byok, cwd, locale: options.locale, interactive: true, permissionMode: options.permissionMode,
-		onAccept: () => prompt.reset(), onExit: () => stop() });
+		onAccept: () => prompt.reset(), getDraftEditor: () => prompt, onExit: () => stop() });
 	prompt = new PromptInputController({
 		availableColumns: inputColumns(),
 		pasteOptions: options.pasteOptions,

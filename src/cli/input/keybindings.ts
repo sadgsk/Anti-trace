@@ -67,6 +67,8 @@ export const REPL_KEYBINDINGS: readonly Keybinding[] = [
 	...DEFAULT_KEYBINDINGS.filter(binding => binding.context === "Input" && binding.action !== "input:paste-image").map(binding => ({ ...binding, context: "CommandDialog" })),
 	...([ ["up", "previous"], ["down", "next"], ["left", "left"], ["right", "right"], ["enter", "accept"], ["escape", "cancel"], ["tab", "next"] ] as const).map(([name, action]) => ({ context: "CommandDialog", chord: [{ name }], action: `dialog:${action}` })),
 	{ context: "CommandDialog", chord: [{ name: "tab", shift: true }], action: "dialog:previous" },
+	{ context: "CommandDialog", chord: [{ name: "pageup" }], action: "dialog:page-previous" },
+	{ context: "CommandDialog", chord: [{ name: "pagedown" }], action: "dialog:page-next" },
 	{ context: "CommandDialog", chord: [{ name: "s", ctrl: true }], action: "dialog:save" },
 	{ context: "Global", chord: [{ name: "pageup" }], action: "app:scroll-up" },
 	{ context: "Global", chord: [{ name: "pagedown" }], action: "app:scroll-down" },

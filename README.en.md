@@ -115,6 +115,8 @@ Type `/` and keep typing to filter the command menu. Use the arrow keys to selec
 | `/config [path]` | Manage configurations or load a specific JSON file |
 | `/model [model key]` | Select a model from the current configuration |
 | `/mcp` | Manage MCP servers, connections and catalogs |
+| `/mcp-resource [server URI]` | Read a resource, preview it and insert it into the draft |
+| `/mcp-prompt [server name JSON-arguments]` | Expand a server prompt, preview it and insert it into the draft |
 | `/reload` | Reload the current configuration |
 | `/thinking [on\|off\|default]` | Enable reasoning, disable it, or use the provider default |
 | `/effort` | Select `low`, `medium`, `high`, `xhigh`, or `max`. The effect depends on the model and API |
@@ -163,7 +165,9 @@ Both stdio and Streamable HTTP automatically probe protocol support, preferring 
 
 On Windows, stdio process management requires system Windows PowerShell and Job Objects. Environments that disable PowerShell or Add-Type report a connection failure.
 
-Server management is implemented. Model tool invocation and adding resources/prompts to conversations are the next two implementation blocks. See the [MCP design](docs/mcp-design.md). Sessions use `profiles/local/projects/<project ID>/sessions/` inside the unified application home.
+On submission, the harness connects to enabled, trusted servers or reuses their existing connections. It offers their compatible tools alongside built-in tools and pins the same connections and definitions through tool continuations and context recovery. Configure `enabledTools` and `disabledTools` per server. Default and auto-edit modes require approval for model-initiated MCP operations. Long results and binary attachments are stored under the project's `tool-results/mcp/` directory.
+
+The model can use `mcp_list_resources` and `mcp_read_resource` to discover and read a specific URI. To choose material yourself, use `/mcp-resource` or `/mcp-prompt`. Examples include `/mcp-resource docs docs://guide` and `/mcp-prompt docs review {"topic":"release"}`. In a terminal, preview and confirm the material to insert it into an editable draft. A pipe prints the expanded material. Both commands work before a model is configured. See the [MCP design](docs/mcp-design.md).
 
 ## Development
 

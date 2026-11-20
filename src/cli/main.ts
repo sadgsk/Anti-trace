@@ -6,6 +6,7 @@ import { streamModel } from "../llm/adapter.ts";
 import { ByokRuntime } from "./byok-runtime.ts";
 import type { TerminalStreams } from "./ink/terminal-host.ts";
 import { createPromptDraft } from "./input/prompt-draft.ts";
+import { parseSlashCommand } from "./commands/command-registry.ts";
 import { ReplController, type ReplHarness } from "./repl/repl-controller.ts";
 import { startTerminalRepl } from "./repl/terminal-repl.tsx";
 import type { PermissionMode } from "./permissions/permission-policy.ts";
@@ -107,7 +108,8 @@ async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRun
 		if (signalCode) return signalCode;
 		const text = Buffer.concat(buffers).toString("utf8");
 		if (!text.trim()) return 0;
-		await repl.submit(createPromptDraft(text));
+		const commandLine = text.replace(/\r?\n$/u, "");
+		await repl.submit(createPromptDraft(parseSlashCommand(commandLine) ? commandLine : text));
 		return signalCode || (repl.getSnapshot().error ? 1 : 0);
 	} catch (error) {
 		if (signalCode) return signalCode;

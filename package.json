@@ -1,6 +1,6 @@
 {
 	"name": "anti-trace",
-	"version": "0.1.6",
+	"version": "0.1.7",
 	"license": "MIT",
 	"description": "Terminal AI coding agent with bring-your-own-key model support",
 	"repository": {
@@ -42,6 +42,7 @@
 		"test:types": "tsc --project tsconfig.test.json",
 		"test:coverage": "c8 node scripts/run-tests.mjs",
 		"test:live": "node scripts/run-live-tests.mjs",
+		"test:live:mcp": "node scripts/run-live-tests.mjs --mcp",
 		"test:live:skills": "node scripts/run-live-tests.mjs --skills",
 		"check": "npm run typecheck && npm run test:types && npm test && npm run build"
 	},

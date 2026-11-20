@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { Type } from "typebox";
-import type { AgentTool } from "../../src/types.ts";
+import type { AgentTool, AgentToolResult } from "../../src/types.ts";
 import { deferred } from "../support/fixtures.ts";
 import { createTestHarness, messageText } from "../support/harness.ts";
 
@@ -69,8 +69,36 @@ test("a throwing tool reports failure without leaving pending calls", async (t) 
 	const result = agent.state.messages.find((message) => message.role === "toolResult");
 	assert.ok(result?.role === "toolResult" && result.isError);
 	assert.match(messageText(result), /fixture tool failure/);
-	assert.equal(events.filter((event) => event.type === "tool_execution_end" && event.isError).length, 1);
+	const ended = events.filter(event => event.type === "tool_execution_end");
+	assert.equal(ended.length, 1);
+	assert.equal(ended[0]!.isError, true);
+	assert.equal((ended[0]!.result as AgentToolResult).isError, true);
 	assert.equal(agent.state.pendingToolCalls.size, 0);
+});
+
+test("afterToolCall overrides a resolved tool's error flag consistently in the event and the next model request", async t => {
+	const tool: AgentTool = {
+		name: "check", label: "Check", description: "Check status", parameters: Type.Object({}),
+		async execute(id) {
+			return { content: [{ type: "text", text: id }], details: {}, isError: id === "recovered" };
+		},
+	};
+	const ids = ["recovered", "rejected"];
+	const { harness, agent, events, scripted } = createTestHarness(t, [
+		{ toolCalls: ids.map(id => ({ id, name: "check", arguments: {} })) }, { text: "done" },
+	], { tools: [tool] });
+	const seen: unknown[] = [];
+	agent.afterToolCall = async ({ result, isError, toolCall }) => {
+		seen.push([toolCall.id, result.isError, isError]);
+		return { isError: !isError };
+	};
+	await harness.prompt("check");
+	assert.deepEqual(seen, [["recovered", true, true], ["rejected", false, false]]);
+	const ended = events.filter(event => event.type === "tool_execution_end");
+	assert.deepEqual(ended.map(event => [event.toolCallId, (event.result as AgentToolResult).isError, event.isError]),
+		[["recovered", false, false], ["rejected", true, true]]);
+	const sent = scripted.requests[1]!.context.messages.filter(message => message.role === "toolResult");
+	assert.deepEqual(sent.map(message => [message.toolCallId, message.isError]), [["recovered", false], ["rejected", true]]);
 });
 
 test("truncated tool arguments are never executed and can be retried", async (t) => {

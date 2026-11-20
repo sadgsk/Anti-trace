@@ -1,10 +1,10 @@
 import stringWidth from "string-width";
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 /** External text never controls the terminal. Source data is preserved separately. */
-export function displayText(text: string): string {
+export function displayText(text: string, tab = "    "): string {
 	// Windows tools emit CRLF; progress output may contain lone CR. Neither may reach an Ink text cell:
 	// a literal CR resets the physical cursor in the middle of a padded row and scatters its borders.
-	return text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, "�").replace(/\t/g, "    ");
+	return text.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, "�").replace(/\t/g, tab);
 }
 export function truncateText(text: string, columns: number, ellipsis = "…"): string {
 	const safe = displayText(text).replace(/[\r\n]/g, " ");

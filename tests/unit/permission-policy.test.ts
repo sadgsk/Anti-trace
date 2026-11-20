@@ -103,3 +103,25 @@ test("disposal releases an outstanding permission request", async (t) => {
 	policy.dispose();
 	assert.equal((await pending)?.block, true);
 });
+
+test("external approvals use the bound identity even when a skill grants the same public tool name", async t => {
+	const policy = new PermissionPolicy(tempWorkspace(t), true, "auto-edit", {
+		permissionTools: () => [], activeTools: () => ["mcp_read_resource"],
+	});
+	t.after(() => policy.dispose());
+	const request = (scopeKey: string, actionKey: string): BeforeToolCallContext => ({
+		...context("mcp_read_resource", { server: "docs", uri: actionKey }),
+		permission: { provider: "mcp", scopeKey, actionKey, label: `docs / ${actionKey}` },
+	});
+	const first = policy.beforeToolCall(request("account-a", "docs://one"));
+	assert.ok(policy.getSnapshot().request?.permission);
+	policy.decide("session"); assert.equal(await first, undefined);
+	assert.equal(await policy.beforeToolCall(request("account-a", "docs://one")), undefined);
+	for (const candidate of [request("account-b", "docs://one"), request("account-a", "docs://two")]) {
+		const pending = policy.beforeToolCall(candidate);
+		assert.ok(policy.getSnapshot().request);
+		policy.decide("deny"); assert.equal((await pending)?.block, true);
+	}
+	policy.cycleMode();
+	assert.equal(await policy.beforeToolCall(request("account-b", "docs://two")), undefined);
+});

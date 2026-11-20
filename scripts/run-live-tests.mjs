@@ -4,7 +4,9 @@ import { fileURLToPath } from "node:url";
 
 // Only this explicit entry point can load a real configuration or contact a provider.
 const skills = process.argv.includes("--skills");
-const args = process.argv.slice(2).filter(arg => arg !== "--skills");
+const mcp = process.argv.includes("--mcp");
+if (skills && mcp) throw new Error("Select one live suite at a time.");
+const args = process.argv.slice(2).filter(arg => arg !== "--skills" && arg !== "--mcp");
 const options = new Map();
 for (let i = 0; i < args.length; i += 2) {
 	if (!["--config", "--model", "--max-tokens"].includes(args[i]) || !args[i + 1] || args[i + 1].startsWith("--")) {
@@ -13,12 +15,12 @@ for (let i = 0; i < args.length; i += 2) {
 	options.set(args[i], args[i + 1]);
 }
 if (!options.has("--config")) throw new Error("Live tests require an explicit --config path; npm test stays offline.");
-const maxTokens = Number(options.get("--max-tokens") ?? (skills ? "2048" : "256"));
+const maxTokens = Number(options.get("--max-tokens") ?? (skills || mcp ? "2048" : "256"));
 if (!Number.isSafeInteger(maxTokens) || maxTokens < 1) throw new Error("--max-tokens must be a positive integer");
 const child = spawn(process.execPath, [
 	"--import", new URL("../node_modules/tsx/dist/loader.mjs", import.meta.url).href,
-	"--test", `--test-timeout=${skills ? 120000 : 45000}`,
-	fileURLToPath(new URL(skills ? "../tests/live/skills.live.ts" : "../tests/live/model-smoke.live.ts", import.meta.url)),
+	"--test", `--test-timeout=${skills || mcp ? 120000 : 45000}`,
+	fileURLToPath(new URL(mcp ? "../tests/live/mcp.live.ts" : skills ? "../tests/live/skills.live.ts" : "../tests/live/model-smoke.live.ts", import.meta.url)),
 ], {
 	windowsHide: true, stdio: "inherit",
 	env: { ...process.env, CLI_AGENT_LIVE_CONFIG: resolve(options.get("--config")),

@@ -22,6 +22,8 @@ export const SLASH_COMMANDS = [
 	{ name: "config", description: "管理配置文件／新增／修改", argumentHint: "[路径]" },
 	{ name: "reload", description: "重新加载模型配置" },
 	{ name: "mcp", description: "管理 MCP 服务器与能力目录", argumentHint: "[子命令]" },
+	{ name: "mcp-resource", description: "读取 MCP 资源并加入草稿", argumentHint: "[服务器 URI]" },
+	{ name: "mcp-prompt", description: "展开 MCP 提示模板并加入草稿", argumentHint: "[服务器 模板 JSON参数]" },
 	{ name: "language", description: "切换界面语言", argumentHint: "[zh|en]" },
 	{ name: "exit", description: "退出" },
 ] as const satisfies readonly SlashCommandDefinition[];
@@ -32,12 +34,12 @@ export function commandUsage(command: SlashCommandDefinition): string {
 	return `/${command.name}${command.argumentHint ? ` ${command.argumentHint}` : ""}`;
 }
 
-/** Keep multiline prompts and unknown slash-prefixed text on the ordinary chat path. */
+/** Only MCP prompt arguments accept multiline JSON. */
 export function parseSlashCommand(text: string): { command: SlashCommandDefinition; argument: string } | null {
-	if (/[\r\n]/u.test(text)) return null;
-	const match = /^\/([a-z-]+)(?:\s+(.*))?$/u.exec(text.trim());
+	const match = /^\/([a-z-]+)(?:\s+(.*))?$/su.exec(text.trim());
 	if (!match) return null;
 	const command: SlashCommandDefinition | undefined = SLASH_COMMANDS.find(item => item.name === match[1]);
 	if (!command || (command.exact && match[2] !== undefined)) return null;
+	if (command.name !== "mcp-prompt" && /[\r\n]/u.test(text)) return null;
 	return { command, argument: match[2] ?? "" };
 }

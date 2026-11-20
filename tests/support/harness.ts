@@ -19,7 +19,7 @@ export function createTestHarness(t: TestContext, steps: readonly ResponseStep[]
 	appHome?: string; profileId?: string;
 } = {}) {
 	const root = tempWorkspace(t, async () => {
-		harness.abort();
+		await harness.close();
 		await harness.agent.waitForIdle();
 		unsubscribe();
 	});

@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
-import { Client, StreamableHTTPClientTransport, ProtocolError, SdkError, SdkErrorCode, UnauthorizedError, InsufficientScopeError, MissingRequiredClientCapabilityError,
+import { Client, StreamableHTTPClientTransport, ProtocolError, SdkError, SdkErrorCode, SdkHttpError, UnauthorizedError, InsufficientScopeError, MissingRequiredClientCapabilityError,
 	type RequestOptions, type McpSubscription, type Tool } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { McpOAuthProvider, credentialKey, requiredEnv } from "./auth.ts";
@@ -40,7 +40,9 @@ function failure(error: unknown, signal?: AbortSignal): McpError {
 	if (signal?.aborted) return signal.reason instanceof McpError ? signal.reason : new McpError("cancelled", "MCP 操作已取消。");
 	if (error instanceof McpError) return error;
 	if (error instanceof Error && error.cause instanceof McpError) return error.cause;
-	if (error instanceof UnauthorizedError || error instanceof InsufficientScopeError) return new McpError("needs-auth", "MCP 需要登录或更新认证配置。");
+	if (error instanceof UnauthorizedError || error instanceof InsufficientScopeError ||
+		(error instanceof SdkHttpError && (error.data.status === 401 || error.data.status === 403)))
+		return new McpError("needs-auth", "MCP 需要登录或更新认证配置。");
 	if (error instanceof MissingRequiredClientCapabilityError) return new McpError("unsupported", "MCP 不支持请求所需的能力。");
 	if (error instanceof ProtocolError) return new McpError("protocol", `MCP 协议请求失败（${error.code}）。`);
 	if (error instanceof SdkError) {
@@ -210,6 +212,10 @@ export class McpConnection {
 		this.closing = (async () => {
 			const budget = deadline(MCP_LIMITS.cleanupMs);
 			try {
+				// During stdio version negotiation the SDK's disposable probe is
+				// cancelled through the session transport, before Client owns it.
+				if (this.transport instanceof StdioClientTransport && !this.client.transport)
+					await abortable(this.transport.close(), budget.signal);
 				await abortable(this.client.close(), budget.signal);
 				await abortable(this.sdkConnecting?.catch(() => {}) ?? Promise.resolve(), budget.signal);
 				await abortable(this.client.close(), budget.signal);

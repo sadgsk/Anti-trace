@@ -10,9 +10,10 @@ import { EditToolView } from "../tools/EditToolView.tsx";
 import { WriteToolView } from "../tools/WriteToolView.tsx";
 import { BashToolView } from "../tools/BashToolView.tsx";
 import { SkillToolView } from "../tools/SkillToolView.tsx";
+import { McpToolView } from "../tools/McpToolView.tsx";
 import { GroupedToolUseView } from "../tools/GroupedToolUseView.tsx";
 import { ToolUseCard } from "../tools/ToolUseCard.tsx";
-import { toolText } from "../tools/tool-result.ts";
+import { toolDetails, toolText } from "../tools/tool-result.ts";
 export type TranscriptGroup = TranscriptItem | { id: number; kind: "reads"; items: ToolUseItem[] };
 export function groupTranscript(items: readonly TranscriptItem[]): TranscriptGroup[] {
 	const result: TranscriptGroup[] = [];
@@ -42,6 +43,7 @@ export function TranscriptItemView({ item, expanded, thinkingDisplay, columns, l
 	const props = { item, expanded, columns, live };
 	if (item.name === "read") return <ReadToolView {...props} />;
 	if (item.name === "skill") return <SkillToolView {...props} />;
+	if (toolDetails(item).kind === "mcp" || item.name.startsWith("mcp__") || item.name === "mcp_list_resources" || item.name === "mcp_read_resource") return <McpToolView {...props} />;
 	if (item.name === "edit") return <EditToolView {...props} />;
 	if (item.name === "write") return <WriteToolView {...props} />;
 	if (item.name === "bash" || item.name === "powershell") return <BashToolView {...props} />;

@@ -115,6 +115,8 @@ argument-hint: "[审查范围]"
 | `/config [路径]` | 管理配置，或直接加载指定 JSON 文件 |
 | `/model [模型键]` | 从当前配置中选择模型 |
 | `/mcp` | 管理 MCP 服务器、连接与能力目录 |
+| `/mcp-resource [服务器 URI]` | 读取资源，预览并加入草稿 |
+| `/mcp-prompt [服务器 模板 JSON参数]` | 展开服务器提示模板，预览并加入草稿 |
 | `/reload` | 重新读取当前配置 |
 | `/thinking [on\|off\|default]` | 开启、关闭模型思考，或使用服务商默认值 |
 | `/effort` | 选择思考档位，支持 `low`、`medium`、`high`、`xhigh`、`max`，实际效果取决于模型与接口 |
@@ -163,7 +165,9 @@ stdio 和 Streamable HTTP 均自动探测协议版本，优先使用新版，按
 
 Windows 的 stdio 进程管理需要系统 Windows PowerShell 与 Job Object；禁用 PowerShell／Add-Type 的环境会报告连接失败。
 
-当前完成服务器接入与管理，模型调用 MCP 工具、资源／提示模板进入对话将在后续两块接入。详细字段与边界见 [MCP 设计](docs/mcp-design.md)。会话沿用统一存储中的 `profiles/local/projects/<项目ID>/sessions/`，不另建 `~/sessions/`。
+提交问题时，Harness 会连接或复用已启用且受信任的服务器，将可用工具与内置工具一起提供给模型。同一次提交中的工具续接与上下文恢复共享连接与工具定义。可以用服务器配置项 `enabledTools` 和 `disabledTools` 限定工具。默认和自动编辑模式下，模型调用 MCP 工具需要审批。长结果与二进制附件保存在当前项目的 `tool-results/mcp/` 下。
+
+模型可以用 `mcp_list_resources` 和 `mcp_read_resource` 查找并读取指定 URI。要自己选择材料，输入 `/mcp-resource` 或 `/mcp-prompt`，也可直接指定目标，例如 `/mcp-resource docs docs://guide` 或 `/mcp-prompt docs review {"topic":"release"}`。终端会先预览，再把确认的材料加入可编辑草稿；管道输出展开后的材料。这两个命令都可以在配置模型前使用。详见 [MCP 设计](docs/mcp-design.md)。
 
 ## 开发
 

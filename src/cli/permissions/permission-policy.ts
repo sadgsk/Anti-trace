@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { BeforeToolCallContext, BeforeToolCallResult } from "../../types.ts";
+import type { BeforeToolCallContext, BeforeToolCallResult, ToolPermission } from "../../types.ts";
 import type { InputTarget } from "../input/input-dispatcher.ts";
 import { TextInputController } from "../input/text-input-controller.ts";
 import { buildDiff, type StructuredDiffHunk } from "../../harness/tools/diff.ts";
@@ -8,7 +8,8 @@ import { buildDiff, type StructuredDiffHunk } from "../../harness/tools/diff.ts"
 export type PermissionMode = "default" | "auto-edit" | "yolo";
 export const isShellTool = (name: string) => name === "bash" || name === "powershell";
 const commandKey = (name: string, args: Record<string, unknown>) => JSON.stringify([name, String(args.command)]);
-export interface PermissionRequest { id: string; name: string; args: Record<string, unknown>; hunks?: StructuredDiffHunk[]; previewError?: string }
+export interface PermissionRequest { id: string; name: string; args: Record<string, unknown>; permission?: ToolPermission; hunks?: StructuredDiffHunk[]; previewError?: string }
+const permissionKey = (permission: ToolPermission) => JSON.stringify([permission.provider, permission.scopeKey, permission.actionKey]);
 export interface PermissionSnapshot { mode: PermissionMode; request: PermissionRequest | null; selectedIndex: number; editingFeedback: boolean }
 export interface SkillPermissionAccess { permissionTools(name: string): readonly string[] | undefined; activeTools(): readonly string[] }
 
@@ -17,6 +18,7 @@ export class PermissionPolicy {
 	private readonly listeners = new Set<() => void>();
 	private readonly allowedCommands = new Set<string>();
 	private readonly allowedSkills = new Set<string>();
+	private readonly allowedExternal = new Set<string>();
 	private allowEdits = false;
 	private pending?: (result: BeforeToolCallResult | undefined) => void;
 	readonly feedback = new TextInputController({ availableColumns: 60 });
@@ -37,7 +39,8 @@ export class PermissionPolicy {
 	getSnapshot = () => this.snapshot;
 	subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
 	private update(change: Partial<PermissionSnapshot>) { this.snapshot = { ...this.snapshot, ...change }; for (const listener of this.listeners) listener(); }
-	private allowed(name: string, args: Record<string, unknown>) {
+	private allowed(name: string, args: Record<string, unknown>, permission?: ToolPermission) {
+		if (permission) return this.snapshot.mode === "yolo" || this.allowedExternal.has(permissionKey(permission));
 		return name === "read" || this.snapshot.mode === "yolo" || this.skills?.activeTools().includes(name)
 			|| (name === "skill" && this.skills && (!(this.skills.permissionTools(String(args.skill))?.length) || this.allowedSkills.has(this.skillKey(args))))
 			|| ((name === "edit" || name === "write") && (this.snapshot.mode === "auto-edit" || this.allowEdits))
@@ -48,9 +51,12 @@ export class PermissionPolicy {
 		const modes: PermissionMode[] = ["default", "auto-edit", "yolo"];
 		this.update({ mode: modes[(modes.indexOf(this.snapshot.mode) + 1) % modes.length]! });
 		const request = this.snapshot.request;
-		if (request && this.allowed(request.name, request.args)) this.decide("allow");
+		if (request && this.allowed(request.name, request.args, request.permission)) this.decide("allow");
 	}
-	resetSession(): void { this.cancel(); this.allowEdits = false; this.allowedCommands.clear(); this.allowedSkills.clear(); }
+	resetSession(): void {
+		this.cancel(); this.allowEdits = false;
+		this.allowedCommands.clear(); this.allowedSkills.clear(); this.allowedExternal.clear();
+	}
 	move(direction: number): void { this.update({ selectedIndex: (this.snapshot.selectedIndex + direction + 3) % 3 }); }
 	accept(): void {
 		if (this.snapshot.editingFeedback) { this.decide("deny"); return; }
@@ -61,7 +67,8 @@ export class PermissionPolicy {
 		const request = this.snapshot.request;
 		if (!request || !this.pending) return;
 		if (decision === "session") {
-			if (["edit", "write"].includes(request.name)) this.allowEdits = true;
+			if (request.permission) this.allowedExternal.add(permissionKey(request.permission));
+			else if (["edit", "write"].includes(request.name)) this.allowEdits = true;
 			else if (isShellTool(request.name)) this.allowedCommands.add(commandKey(request.name, request.args));
 			else if (request.name === "skill") this.allowedSkills.add(this.skillKey(request.args));
 		}
@@ -75,9 +82,9 @@ export class PermissionPolicy {
 	beforeToolCall = async (context: BeforeToolCallContext, signal?: AbortSignal): Promise<BeforeToolCallResult | undefined> => {
 		const name = context.toolCall.name, args = context.args as Record<string, unknown>;
 		if (signal?.aborted) return { block: true, reason: "已中断。" };
-		if (this.allowed(name, args)) return undefined;
+		if (this.allowed(name, args, context.permission)) return undefined;
 		if (!this.interactive) return { block: true, reason: "非交互模式无法请求权限；请在终端审批，或显式使用 --yolo。" };
-		const request: PermissionRequest = { id: context.toolCall.id, name, args: name === "skill" ? { ...args, allowedTools: this.skills?.permissionTools(String(args.skill)) ?? [] } : args };
+		const request: PermissionRequest = { id: context.toolCall.id, name, permission: context.permission, args: name === "skill" ? { ...args, allowedTools: this.skills?.permissionTools(String(args.skill)) ?? [] } : args };
 		if (name === "edit" || name === "write") {
 			try {
 				const path = resolve(this.cwd, String(args.path));
@@ -100,7 +107,7 @@ export class PermissionPolicy {
 		}
 		if (signal?.aborted) return { block: true, reason: "已中断。" };
 		// Mode may have changed while the file preview was being read.
-		if (this.allowed(name, args)) return undefined;
+		if (this.allowed(name, args, context.permission)) return undefined;
 		return new Promise(resolveDecision => {
 			const onAbort = () => this.cancel();
 			this.pending = result => { signal?.removeEventListener("abort", onAbort); resolveDecision(result); };

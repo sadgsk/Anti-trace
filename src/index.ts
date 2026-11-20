@@ -3,6 +3,7 @@ export { getAppPaths, type AppPaths, type StorageOptions } from "./storage/app-p
 export { ByokConfigError } from "./config/errors.ts";
 export { runAgentLoop } from "./agent/loop.ts";
 export { Harness, type HarnessOptions, type HarnessModelSettings } from "./harness/harness.ts";
+export type { ToolSource, ToolSourceContext, AcquiredToolSource } from "./harness/tool-source.ts";
 export { streamOpenAIChat } from "./llm/openai-chat.ts";
 export { streamOpenAIResponses } from "./llm/openai-responses.ts";
 export { streamAnthropic } from "./llm/anthropic.ts";

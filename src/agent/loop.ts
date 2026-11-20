@@ -398,12 +398,17 @@ async function prepareToolCall(
 	try {
 		const preparedToolCall = prepareToolCallArguments(tool, toolCall);
 		const validatedArgs = validateToolArguments(tool, preparedToolCall);
+		const permission = tool.resolvePermission?.(validatedArgs);
+		if (permission && !config.beforeToolCall) {
+			return { kind: "immediate", result: createErrorToolResult("此工具需要授权，当前入口未配置审批处理程序。"), isError: true };
+		}
 		if (config.beforeToolCall) {
 			const beforeResult = await config.beforeToolCall(
 				{
 					assistantMessage,
 					toolCall,
 					args: validatedArgs,
+					permission,
 					context: currentContext,
 				},
 				signal,
@@ -479,7 +484,7 @@ async function executePreparedToolCall(
 		);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
-		return { result, isError: false };
+		return { result, isError: result.isError === true };
 	} catch (error) {
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
@@ -517,13 +522,14 @@ async function finalizeExecutedToolCall(
 				signal,
 			);
 			if (afterResult) {
+				isError = afterResult.isError ?? isError;
 				result = {
 					...result,
+					isError,
 					content: afterResult.content ?? result.content,
 					details: afterResult.details ?? result.details,
 					terminate: afterResult.terminate ?? result.terminate,
 				};
-				isError = afterResult.isError ?? isError;
 			}
 		} catch (error) {
 			result = createErrorToolResult(error instanceof Error ? error.message : String(error));
@@ -540,6 +546,7 @@ async function finalizeExecutedToolCall(
 
 function createErrorToolResult(message: string): AgentToolResult {
 	return {
+		isError: true,
 		content: [{ type: "text", text: message }],
 		details: {},
 	};

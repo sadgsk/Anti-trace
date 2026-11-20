@@ -94,6 +94,28 @@ test("a fresh CLI process accepts pipe input, uses local HTTP and exits successf
 	assert.doesNotMatch(result.stdout + result.stderr, /e2e-fake-secret/);
 });
 
+test("MCP resource and prompt pipe commands return source material without a model; missing prompt argument exits nonzero", async t => {
+	const root = tempWorkspace(t), home = join(root, "home"), log = join(root, "mcp.jsonl");
+	const config = new McpConfigStore(root, getAppPaths({ cwd: root, appHome: home }));
+	config.save("user", "docs", { command: process.execPath,
+		args: [fileURLToPath(new URL("../support/mcp-server.mjs", import.meta.url)), "legacy", log] });
+	const env = { ANTI_TRACE_HOME: home, CLI_AGENT_CONFIG: join(root, "missing.json") };
+	const resource = await cli(t, root, "/mcp-resource docs fixture://notes\n", env);
+	assert.equal(resource.code, 0, resource.stderr + resource.stdout);
+	assert.match(resource.stdout, /fixture:\/\/notes/);
+	assert.match(resource.stdout, /resource body/);
+	const prompt = await cli(t, root, '/mcp-prompt docs review {"topic":"two words"}\r\n', env);
+	assert.equal(prompt.code, 0, prompt.stderr + prompt.stdout);
+	assert.match(prompt.stdout, /two words/);
+	const missing = await cli(t, root, "/mcp-prompt docs review {}\n", env);
+	assert.equal(missing.code, 1);
+	assert.match(missing.stdout + missing.stderr, /topic/);
+	const methods = readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line).method as string | undefined);
+	assert.equal(methods.filter(method => method === "resources/read").length, 1);
+	assert.equal(methods.filter(method => method === "prompts/get").length, 1);
+	assert.ok(!methods.includes("tools/call"));
+});
+
 test("fresh processes share user configuration and persist separate project sessions without workspace state", async t => {
 	const a = tempWorkspace(t), b = tempWorkspace(t), paths = getAppPaths({ cwd: a });
 	const http = await createHttpFixture(t, (request, response) => {

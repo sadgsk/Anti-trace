@@ -31,7 +31,7 @@ export class McpError extends Error {
 export interface McpDiagnostic { code: McpErrorCode; message: string }
 export type McpServerStatus = "disabled" | "untrusted" | "disconnected" | "connecting" | "ready" | "needs-auth" | "failed" | "closing";
 export type McpCatalogKind = "tools" | "resources" | "templates" | "prompts";
-export interface McpToolDefinition { name: string; title?: string; description?: string; inputSchema: JsonObject; outputSchema?: JsonObject; annotations?: JsonObject; _meta?: JsonObject }
+export interface McpToolDefinition { name: string; title?: string; description?: string; inputSchema: JsonObject; outputSchema?: JsonObject; annotations?: JsonObject; execution?: { taskSupport?: "required" | "optional" | "forbidden" }; _meta?: JsonObject }
 export interface McpResourceDefinition { name: string; uri: string; title?: string; description?: string; mimeType?: string; size?: number; annotations?: JsonObject; _meta?: JsonObject }
 export interface McpResourceTemplate { name: string; uriTemplate: string; title?: string; description?: string; mimeType?: string; annotations?: JsonObject; _meta?: JsonObject }
 export interface McpPromptDefinition { name: string; title?: string; description?: string; arguments?: { name: string; description?: string; required?: boolean }[]; _meta?: JsonObject }

@@ -10,12 +10,21 @@ export function CommandDialog({ controller, columns, rows }: { controller: Comma
 	const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot), { t } = useLocale();
 	if (!state) return null;
 	const width = Math.max(1, columns - 4), count = Math.max(1, rows - (state.error ? 10 : 8));
+	if (state.kind === "preview") {
+		const visible = Math.max(1, rows - 6);
+		const end = Math.min(state.lines.length, state.selected + visible);
+		return <ThemedBox flexDirection="column" borderStyle="round" color="accent" width={columns} paddingX={1} flexShrink={0}>
+			<ThemedText color="brand" bold wrap="truncate-end">{t(state.showingRaw ? "原始模板消息" : state.title)}</ThemedText>
+			<ThemedText>{state.lines.slice(state.selected, end).join("\n")}</ThemedText>
+			<ThemedText color="dim" wrap="truncate-end">{state.pages > 1 ? `PgUp/PgDn ${state.page + 1}/${state.pages} · ` : ""}{state.selected + 1}–{end}/{state.lines.length} · ↑↓ · Enter {t(state.acceptLabel)} · Esc {t("取消")}{state.alternateText ? " · ←→ " + t(state.showingRaw ? "草稿预览" : "原始模板消息") : ""}</ThemedText>
+		</ThemedBox>;
+	}
 	const choices: readonly CommandChoice[] = state.kind === "picker" ? state.choices : state.kind === "input" ? [] : state.kind === "field" ? (state.field.options ?? []).map(id => ({ id, label: id, current: id === state.field.value }))
 		: [...state.fields.map(field => ({ id: field.key, label: field.label, description: field.secret ? field.value ? "••••••••" : t(field.placeholder ?? "未填写") : field.value ? field.options ? t(field.value) : field.value : t(field.placeholder ?? "未填写"), descriptionLiteral: true })), { id: ":save", label: state.saveLabel ?? "保存并使用此配置" }];
 	const start = Math.max(0, Math.min(state.selected - Math.floor(count / 2), choices.length - count));
 	const horizontal = state.kind === "picker" && state.horizontal && columns >= 54;
 	return <ThemedBox flexDirection="column" borderStyle="round" color="accent" width={columns} paddingX={1} flexShrink={0}>
-		<ThemedText color="brand" bold wrap="truncate-end">{t(state.title)}</ThemedText>
+		<ThemedText color="brand" bold wrap="truncate-end">{truncateText(t(state.title), width)}</ThemedText>
 		{state.description ? <ThemedText color="muted" wrap="truncate-end">{truncateText(t(state.description), width)}</ThemedText> : null}
 		<Box flexDirection="column" marginY={1}>
 			{(state.kind === "input" || state.kind === "field") && !state.field.options ? <BaseTextInput controller={controller.editor} mask={state.field.secret} maxRows={1} />

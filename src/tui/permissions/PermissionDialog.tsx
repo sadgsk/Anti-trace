@@ -14,11 +14,13 @@ export function PermissionDialog({ state, policy, columns, availableRows }: { st
 	if (!request) return null;
 	const framed = columns >= 40 && availableRows >= 10;
 	const width = Math.max(1, columns - (framed ? 4 : 0));
-	const labels = ["1. 允许本次执行", isShellTool(request.name) ? "2. 本会话允许这条命令" : "2. 本会话允许所有文件编辑", "3. 拒绝，并输入修改建议"];
+	const sessionLabel = request.permission ? "2. 本会话允许此操作" : isShellTool(request.name) ? "2. 本会话允许这条命令"
+		: request.name === "skill" ? "2. 本会话允许此技能" : "2. 本会话允许所有文件编辑";
+	const labels = ["1. 允许本次执行", sessionLabel, "3. 拒绝，并输入修改建议"];
 	const previewRows = Math.max(0, availableRows - (framed ? 9 : 7) - Number(state.editingFeedback) * 2);
 	const content = <Box flexDirection="column">
-		<ThemedText color="accent" bold wrap="truncate-end">Allow {request.name}?</ThemedText>
-		<ThemedText color="muted" wrap="truncate-end">{truncateText(String(request.args.path ?? request.args.command ?? JSON.stringify(request.args)), width)}</ThemedText>
+		<ThemedText color="accent" bold wrap="truncate-end">Allow {request.permission?.label ?? request.name}?</ThemedText>
+		<ThemedText color="muted" wrap="truncate-end">{truncateText(request.permission ? JSON.stringify(request.args) : String(request.args.path ?? request.args.command ?? JSON.stringify(request.args)), width)}</ThemedText>
 		{previewRows > 0 && request.hunks?.length ? <StructuredDiff hunks={request.hunks} columns={width} maxLines={previewRows} /> : null}
 		{previewRows > 0 && request.previewError ? <ThemedText color="warning" wrap="truncate-end">{truncateText(t(`预览不可用：${request.previewError}`), width)}</ThemedText> : null}
 		{(availableRows >= 6 ? labels : [labels[state.selectedIndex]!]).map((label, index) => <ListItem key={label} selected={availableRows < 6 || index === state.selectedIndex} width={width}>{truncateText(t(label), width - 2)}</ListItem>)}

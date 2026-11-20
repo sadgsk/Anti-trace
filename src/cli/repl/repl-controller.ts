@@ -15,6 +15,7 @@ import { UiLocale, type UiLanguage } from "../locale.ts";
 import type { TranscriptAnchor, ViewportMetrics } from "../../tui/viewport-state.ts";
 import { createPromptDraft } from "../input/prompt-draft.ts";
 import { McpCommand } from "../commands/mcp-command.ts";
+import { McpContextCommand, isMcpContextCommand, type McpDraftEditor } from "../commands/mcp-context-command.ts";
 import { diagnostic } from "../../mcp/util.ts";
 
 export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
@@ -58,6 +59,7 @@ export interface ReplOptions {
 	permissionMode?: PermissionMode;
 	/** Runs synchronously once a draft is accepted; the editor clears that draft here. */
 	onAccept?: () => void;
+	getDraftEditor?: () => McpDraftEditor;
 	onExit?: () => void;
 }
 
@@ -123,16 +125,26 @@ export class ReplController {
 		this.promptResultReceived = false;
 		const { text, images: draftImages } = preparePromptSubmission(draft);
 		const images = skillImages ?? draftImages;
+		const parsed = parseSlashCommand(text);
+		const contextCommand = this.snapshot.resumeChoices === null && parsed && isMcpContextCommand(parsed.command.name) ? parsed.command.name : undefined;
 		this.update({ busy: true, error: undefined, expanded: false, scrollOffset: 0, viewingHistory: false, reviewAnchor: undefined, phase: "thinking", startedAt: Date.now(), lastEventAt: Date.now(), outputChars: 0 });
 		try {
-			this.options.onAccept?.();
+			if (!contextCommand) this.options.onAccept?.();
 			if (this.snapshot.closed) return true;
 			if (this.snapshot.resumeChoices !== null) {
 				this.resumeSelection(text);
 				return true;
 			}
-			const parsed = parseSlashCommand(text);
-			if (parsed) {
+			if (contextCommand && parsed) {
+				const runtime = this.harness.mcp;
+				if (!runtime) throw new Error("当前入口未提供 MCP 管理。");
+				const controller = new AbortController(); this.mcpOperation = controller;
+				try {
+					const command = new McpContextCommand(runtime, this.dialogs, this.options.getDraftEditor?.());
+					const output = await command.run(contextCommand, parsed.argument, this.options.interactive ?? false, controller.signal);
+					if (output !== undefined && !this.snapshot.closed) this.write(output, undefined, "info", false, [], true);
+				} finally { if (this.mcpOperation === controller) this.mcpOperation = undefined; }
+			} else if (parsed) {
 				await this.runCommand(parsed.command, parsed.argument, images);
 			} else {
 				this.write(`> ${draft.text}`, "user", "info", false, draft.references.map(ref => ref.label));
@@ -211,12 +223,12 @@ export class ReplController {
 		this.mcpOperation?.abort();
 	}
 
-	write(text: string, kind?: "user" | "thinking", tone: NoticeTone = "info", textOnly = false, attachments: string[] = []): void {
+	write(text: string, kind?: "user" | "thinking", tone: NoticeTone = "info", textOnly = false, attachments: string[] = [], literal = false): void {
 		if (this.snapshot.closed) return;
 		const id = this.nextId++;
 		const item: TranscriptItem = kind === "user" ? { id, kind: "user", text: text.replace(/^> /, ""), attachments, timestamp: Date.now() }
 			: { id, kind: "notice", text, tone };
-		this.update({ entries: [...this.snapshot.entries, { id, text: kind ? text : this.locale.t(text), kind }],
+		this.update({ entries: [...this.snapshot.entries, { id, text: kind || literal ? text : this.locale.t(text), kind }],
 			...(textOnly ? {} : this.snapshot.busy && kind !== "user" ? { activeItems: [...this.snapshot.activeItems, item] }
 				: { transcript: [...this.snapshot.transcript, item] }) });
 	}
@@ -309,7 +321,8 @@ export class ReplController {
 			case "new":
 				harness.newSession();
 				this.permissions.resetSession();
-				this.update({ transcript: [], activeItems: [], renderEpoch: this.snapshot.renderEpoch + 1 });
+				// Start a new native scrollback sequence, even when the old transcript exceeds one screen.
+				this.update({ transcript: [], activeItems: [], historyVersion: this.snapshot.historyVersion + 1, renderEpoch: this.snapshot.renderEpoch + 1 });
 				this.write("已开始新会话。");
 				this.writeContext();
 				break;
@@ -548,6 +561,9 @@ export class ReplController {
 					}
 					this.flushLive();
 				}
+				break;
+			case "tool_source_diagnostic":
+				this.write(event.message, undefined, "warning");
 				break;
 			case "tool_execution_start":
 				this.flushLive();

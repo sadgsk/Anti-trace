@@ -35,8 +35,11 @@ export function projectMessages(messages: readonly AgentMessage[], nextId: () =>
 		}
 		if (message.role === "toolResult") {
 			const tool = tools.get(message.toolCallId);
-			const detail = message.details as { exitCode?: number; timedOut?: boolean } | undefined;
+			const detail = message.details as { exitCode?: number; timedOut?: boolean; kind?: string; version?: number; elapsedMs?: number } | undefined;
 			if (tool) { tool.status = message.isError || detail?.timedOut || (typeof detail?.exitCode === "number" && detail.exitCode !== 0) ? "error" : "success"; tool.endedAt = message.timestamp;
+				if (detail?.kind === "mcp" && detail.version === 1 && typeof detail.elapsedMs === "number" && Number.isFinite(detail.elapsedMs) && detail.elapsedMs >= 0) {
+					tool.startedAt = message.timestamp - detail.elapsedMs;
+				}
 				tool.result = { content: message.content, details: message.details }; }
 		}
 	}

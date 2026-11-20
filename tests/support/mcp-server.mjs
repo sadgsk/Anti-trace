@@ -1,6 +1,7 @@
 // A wire-level fixture runs as an actual child process; no product code depends on it.
 import { createInterface } from "node:readline";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, watch } from "node:fs";
+import { basename, dirname } from "node:path";
 import { spawn } from "node:child_process";
 const [era = "legacy", log, behavior = "normal"] = process.argv.slice(2);
 const record = value => { if (log) appendFileSync(log, JSON.stringify(value) + "\n"); };
@@ -12,6 +13,15 @@ if (behavior === "descendants") {
 let revision = 0;
 let subscription;
 const send = value => { process.stdout.write(JSON.stringify(value) + "\n"); };
+if (behavior === "approval-change") {
+	// The test changes the catalog while the host is waiting for permission.
+	const watcher = watch(dirname(log), (_event, filename) => {
+		if (filename !== basename(log) + ".change") return;
+		watcher.close();
+		revision++;
+		send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+	});
+}
 const caps = { tools: { listChanged: era !== "modern" || behavior === "notifications" }, resources: {}, prompts: {} };
 const complete = result => era === "modern" ? { resultType: "complete", ttlMs: 0, cacheScope: "private", ...result } : result;
 const lines = createInterface({ input: process.stdin });
@@ -42,6 +52,17 @@ lines.on("line", line => {
 		case "prompts/list": result = { prompts: [{ name: "review", arguments: [{ name: "topic", required: true }] }] }; break;
 		case "prompts/get": result = { messages: [{ role: "user", content: { type: "text", text: request.params.arguments.topic } }] }; break;
 		case "tools/call":
+			if (request.params.arguments?.trackProgress && request.params?._meta?.progressToken !== undefined) {
+				const progressToken = request.params._meta.progressToken;
+				const watcher = watch(dirname(log), (_event, filename) => {
+					if (filename !== basename(log) + ".progress") return;
+					watcher.close();
+					send({ jsonrpc: "2.0", id: request.id, result: complete({ content: [{ type: "text", text: request.params.arguments.text }] }) });
+					send({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken, progress: 2, total: 2, message: "Late notification" } });
+				});
+				send({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken, progress: 1, total: 2, message: "Halfway" } });
+				return;
+			}
 			if (request.params.arguments?.disconnect) { process.exit(0); }
 			if (request.params.arguments?.change) { revision++; send({ jsonrpc: "2.0", method: "notifications/tools/list_changed", ...(subscription ? { params: { _meta: { "io.modelcontextprotocol/subscriptionId": subscription } } } : {}) }); }
 			if (request.params.arguments?.endSubscription && subscription) send({ jsonrpc: "2.0", id: subscription, result: complete({}) });

@@ -196,6 +196,8 @@ export type StreamFn = (
 export type ToolExecutionMode = "sequential" | "parallel";
 
 export interface AgentToolResult<T = unknown> {
+	/** A completed tool request can carry a business error with useful content. */
+	isError?: boolean;
 	/** Text or image content returned to the model. */
 	content: (TextContent | ImageContent)[];
 	/** Arbitrary structured details for logs or UI rendering. */
@@ -209,8 +211,16 @@ export interface AgentToolResult<T = unknown> {
 	terminate?: boolean;
 }
 
+export interface ToolPermission {
+	provider: string;
+	scopeKey: string;
+	actionKey: string;
+	label: string;
+}
+
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> extends Tool<TParameters> {
 	label: string;
+	resolvePermission?: (args: Static<TParameters>) => ToolPermission;
 	prepareArguments?: (args: unknown) => Static<TParameters>;
 	execute: (
 		toolCallId: string,
@@ -245,6 +255,7 @@ export interface AfterToolCallResult {
 }
 
 export interface BeforeToolCallContext {
+	permission?: ToolPermission;
 	assistantMessage: AssistantMessage;
 	toolCall: AgentToolCall;
 	args: unknown;

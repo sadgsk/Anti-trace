@@ -18,6 +18,7 @@ const emptyCatalog = () => ({ status: "unloaded" as const, revision: 0, items: [
 /** Owned by Harness. Configuration loading is lazy and never starts a server. */
 export class McpRuntime {
 	readonly config: McpConfigStore;
+	readonly toolResultsDir: string;
 	private readonly local: McpLocalState;
 	private candidate?: McpConfigCandidate;
 	private loaded = false;
@@ -33,7 +34,9 @@ export class McpRuntime {
 	private readonly slotWaiters = new Set<() => void>();
 	private closing?: Promise<void>;
 	constructor(private readonly options: McpRuntimeOptions) {
-		this.config = new McpConfigStore(options.cwd, options.paths ?? getAppPaths(options));
+		const paths = options.paths ?? getAppPaths(options);
+		this.config = new McpConfigStore(options.cwd, paths);
+		this.toolResultsDir = paths.toolResultsDir;
 		this.local = new McpLocalState(this.config.stateDirectory);
 	}
 	subscribe(listener: () => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -193,7 +196,7 @@ export class McpRuntime {
 		return digest({ config: entry.definition.configKey, environment,
 			auth: config.type === "http" && config.auth.type === "oauth" ? this.local.getCredentials(credentialKey(config))?.identity ?? "none" : "none" });
 	}
-	async acquireBinding(signal?: AbortSignal): Promise<McpBinding> {
+	async acquireBinding(signal?: AbortSignal, serverId?: string): Promise<McpBinding> {
 		this.ensureLoaded(); throwCancelled(signal);
 		if (this.lifetime.signal.aborted) throw new McpError("closed", "MCP 已关闭。");
 		if (this.mutation) throw new McpError("busy", "MCP 配置正在更新。");
@@ -203,12 +206,16 @@ export class McpRuntime {
 		let released = false;
 		const release = () => { if (released) return; released = true; controller.abort(); this.bindings.delete(controller); };
 		try {
-			await Promise.all([...this.entries.values()].filter(entry => entry.enabled && entry.trusted).map(async entry => {
+			const entries = serverId === undefined ? [...this.entries.values()].filter(entry => entry.enabled && entry.trusted) : [this.entry(serverId)];
+			await Promise.all(entries.map(async entry => {
 				try {
 					const connection = await this.connection(entry, linked);
 					if (connection.capabilities.tools && connection.getCatalogs().tools.status !== "ready") await connection.list("tools", { signal: linked }).catch(() => {});
 					throwCancelled(linked);
-					if (!connection.ready) return;
+					if (!connection.ready) {
+						if (serverId !== undefined) throw new McpError(connection.error?.code ?? "transport", connection.error?.message ?? "MCP 连接已断开，请重连。");
+						return;
+					}
 					const catalog = connection.getCatalogs().tools;
 					const tools = catalog.status === "ready" ? catalog.items.filter(tool => !entry.definition.config.disabledTools.includes(tool.name)
 						&& (!entry.definition.config.enabledTools || entry.definition.config.enabledTools.includes(tool.name))) : [];
@@ -216,7 +223,10 @@ export class McpRuntime {
 						toolRevision: catalog.revision, capabilities: connection.capabilities, tools, instructions: connection.instructions,
 						outputMaxBytes: entry.definition.config.outputMaxBytes });
 					pinned.set(entry.definition.id, { entry, connection, binding, revisions: { tools: catalog.revision } });
-				} catch { /* One server's failure is visible in its snapshot and must not block others. */ }
+				} catch (error) {
+					// Model submissions can use other servers. A user fetching one named target needs its actual error.
+					if (serverId !== undefined) throw error;
+				}
 			}));
 			throwCancelled(linked);
 			const check = (id: string, kind?: McpCatalogKind) => {
@@ -252,7 +262,17 @@ export class McpRuntime {
 				callTool: async (id: string, name: string, args: JsonObject, options?: McpRequestOptions) => {
 					const item = check(id, "tools"), tool = item.binding.tools.find(tool => tool.name === name);
 					if (!tool) throw new McpError("disabled", "MCP 工具不存在或已被配置禁用。");
-					const result = await item.connection.callTool(tool, args, opts(options)); check(id, "tools"); return result;
+					const requestOptions = opts(options);
+					throwCancelled(requestOptions.signal);
+					try {
+						const result = await item.connection.callTool(tool, args, requestOptions);
+						check(id, "tools");
+						return result;
+					} catch (error) {
+						if (error instanceof McpError && ["transport", "timeout", "cancelled", "closed", "binding-invalid", "catalog-changed", "limit"].includes(error.code))
+							throw new McpError(error.code, error.message + " 远端执行结果未确认，请先检查远端状态，避免重复执行。");
+						throw error;
+					}
 				},
 				readResource: async (id: string, uri: string, options?: McpRequestOptions) => {
 					const item = check(id); if (!item.binding.capabilities.resources) throw new McpError("unsupported", "MCP 服务器不支持资源读取。");

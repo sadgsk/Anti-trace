@@ -2,7 +2,7 @@ import type { InputTarget, RoutedInputEvent } from "./input-dispatcher.ts";
 import { PASTE_THRESHOLD, type PasteHandlerOptions } from "./paste-handler.ts";
 import {
 	createPromptDraft, imagePastedContent, snapshotPromptDraft,
-	type PastedContent, type PromptDraft,
+	type PastedContent, type PromptDraft, type PromptSubmission,
 } from "./prompt-draft.ts";
 import { TextInputController, type TextInputEdit } from "./text-input-controller.ts";
 import { layoutTextInput } from "./text-input-layout.ts";
@@ -40,6 +40,7 @@ export class PromptInputController {
 	private readonly undoEntries: PromptDraft[] = [];
 	private readonly redoEntries: PromptDraft[] = [];
 	private nextPasteId = 1;
+	private revision = 0;
 	private restoring = false;
 	private active = true;
 	private inserting: { content: PastedContent; label: string } | undefined;
@@ -75,6 +76,46 @@ export class PromptInputController {
 	}
 
 	getDraft = (): PromptDraft => this.draft;
+	getRevision = (): number => this.revision;
+
+	/** Commit fetched material and its image references as one undoable edit. */
+	insertMaterial(material: PromptSubmission, expectedRevision: number, replaceCommand: boolean): boolean {
+		if (!this.active || this.revision !== expectedRevision) return false;
+		const before = this.draft;
+		const start = replaceCommand ? 0 : before.cursor;
+		const end = replaceCommand ? before.text.length : start;
+		const pastedContents = { ...before.pastedContents };
+		const addedReferences = [];
+		let inserted = material.text;
+		const images = replaceCommand ? before.references.flatMap(ref => {
+			const content = before.pastedContents[ref.id];
+			return content?.type === "image" ? [content.image] : [];
+		}) : [];
+		for (const image of [...images, ...material.images]) {
+			const id = this.nextPasteId++, label = `[Image #${id}]`;
+			if (inserted && !/\s$/u.test(inserted)) inserted += " ";
+			const offset = start + inserted.length;
+			pastedContents[id] = { id, type: "image", image };
+			addedReferences.push({ id, start: offset, end: offset + label.length, label });
+			inserted += label;
+		}
+		const shift = inserted.length - (end - start);
+		const references = before.references.flatMap(ref => ref.end <= start ? [ref]
+			: ref.start >= end ? [{ ...ref, start: ref.start + shift, end: ref.end + shift }] : []);
+		const next = snapshotPromptDraft({ text: before.text.slice(0, start) + inserted + before.text.slice(end),
+			cursor: start + inserted.length, references: [...references, ...addedReferences], pastedContents });
+		this.pushHistory(this.undoEntries, before);
+		this.redoEntries.length = 0;
+		this.restoring = true;
+		try {
+			this.draft = next;
+			this.revision++;
+			this.textInput.restoreState(next);
+		} finally { this.restoring = false; }
+		this.publish();
+		this.options.onChange?.(next);
+		return true;
+	}
 	getSnapshot = (): PromptInputSnapshot => this.snapshot;
 	subscribe = (listener: () => void): (() => void) => {
 		this.listeners.add(listener);
@@ -91,6 +132,7 @@ export class PromptInputController {
 		this.restoring = true;
 		try {
 			this.draft = next;
+			this.revision++;
 			this.undoEntries.length = 0;
 			this.redoEntries.length = 0;
 			this.nextPasteId = Math.max(0, ...next.references.map(ref => ref.id)) + 1;
@@ -183,6 +225,7 @@ export class PromptInputController {
 		}
 		this.draft = snapshotPromptDraft({ ...state, references, pastedContents });
 		if (state.text !== before.text) {
+			this.revision++;
 			this.pushHistory(this.undoEntries, before);
 			this.redoEntries.length = 0;
 		}
@@ -197,6 +240,7 @@ export class PromptInputController {
 		this.restoring = true;
 		try {
 			this.draft = draft;
+			this.revision++;
 			this.textInput.restoreState(draft);
 		} finally { this.restoring = false; }
 		this.publish();

@@ -1,4 +1,5 @@
 import { Agent } from "../agent/agent.ts";
+import { join } from "node:path";
 import { ByokConfigError } from "../config/errors.ts";
 import type { AgentContext, AgentEvent, AgentMessage, AgentTool, AssistantMessage, BeforeModelRequestContext, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences, UserMessage } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
@@ -38,6 +39,9 @@ import { SkillRuntime } from "./skills/runtime.ts";
 import { createSkillTool } from "./tools/skill.ts";
 import type { SkillDirectory } from "./skills/types.ts";
 import { McpRuntime } from "../mcp/runtime.ts";
+import { McpToolSource } from "../mcp/tool-source.ts";
+import { McpResourceSource } from "../mcp/resource-source.ts";
+import type { ToolSource, AcquiredToolSource } from "./tool-source.ts";
 
 export interface HarnessModelSettings {
 	model: Model;
@@ -53,6 +57,8 @@ export interface HarnessOptions extends Partial<HarnessModelSettings>, StorageOp
 	cwd: string;
 	streamFn: StreamFn;
 	sessionsRoot?: string;
+	/** Additional tool providers acquired once per submission. */
+	toolSources?: readonly ToolSource[];
 	resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 	/** Supply an already detected environment when embedding the harness. */
 	shellEnvironment?: ShellEnvironment;
@@ -61,6 +67,7 @@ export interface HarnessOptions extends Partial<HarnessModelSettings>, StorageOp
 export type PromptResult = { status: "success" } | { status: "error"; message: string } | { status: "aborted"; message: string };
 
 export type HarnessEvent = AgentEvent
+	| { type: "tool_source_diagnostic"; message: string }
 	| { type: "prompt_end"; result: PromptResult }
 	| { type: "compaction_start"; tokensBefore: number }
 	| { type: "compaction_end"; tokensBefore: number; tokensAfter: number; summary: string }
@@ -76,6 +83,8 @@ export class Harness {
 	private readonly skillTool: AgentTool;
 	private readonly shells: ShellEnvironment;
 	private generatedPrompt: string;
+	private readonly toolSources: readonly ToolSource[];
+	private sourceInstructions = "";
 	readonly mcp: McpRuntime;
 	private closing?: Promise<void>;
 	private readonly activeWork = new Set<Promise<void>>();
@@ -142,6 +151,7 @@ export class Harness {
 		this.generatedPrompt = this.agent.state.systemPrompt;
 		if (options.model) this.agent.getApiKey = this.createRequestSettings(false).getApiKey;
 		this.mcp = new McpRuntime({ cwd: options.cwd, paths, assertIdle: () => this.assertIdle() });
+		this.toolSources = [new McpResourceSource(), new McpToolSource(), ...(options.toolSources ?? [])];
 		this.newSession();
 		this.agent.subscribe((event) => {
 			if (event.type !== "message_end") {
@@ -173,13 +183,66 @@ export class Harness {
 		this.skills.registry.reload();
 		const tools = (context?.tools ?? this.agent.state.tools).filter(tool => tool.name !== "skill");
 		if (this.skills.registry.modelSkills().length) tools.push(this.skillTool);
+		this.updateTools(tools, context);
+	}
+
+	private updateTools(tools: AgentTool[], context?: AgentContext): void {
 		const currentPrompt = context?.systemPrompt ?? this.agent.state.systemPrompt;
 		const systemPrompt = currentPrompt === this.generatedPrompt
-			? buildSystemPrompt({ cwd: this.cwd, toolNames: tools.map(tool => tool.name), skillDirectories: this.skillPaths, platform: this.shells.platform, powerShellVersion: this.shells.powershell?.majorVersion }) : currentPrompt;
+			? buildSystemPrompt({ cwd: this.cwd, toolNames: tools.map(tool => tool.name), skillDirectories: this.skillPaths, platform: this.shells.platform, powerShellVersion: this.shells.powershell?.majorVersion }) + this.sourceInstructions : currentPrompt;
 		if (currentPrompt === this.generatedPrompt) this.generatedPrompt = systemPrompt;
 		this.agent.state.tools = tools;
 		this.agent.state.systemPrompt = systemPrompt;
 		if (context) { context.tools = tools; context.systemPrompt = systemPrompt; }
+	}
+
+	/** Pin the remote catalog for the entire submission, including continuations and overflow recovery. */
+	private async withRunTools(model: Model, signal: AbortSignal, run: () => Promise<PromptResult>): Promise<PromptResult> {
+		const binding = await this.mcp.acquireBinding(signal);
+		const sources: AcquiredToolSource[] = [];
+		const externalTools = new Set<AgentTool>();
+		const originalPrompt = this.agent.state.systemPrompt;
+		const customPrompt = originalPrompt !== this.generatedPrompt;
+		try {
+			const reservedNames = new Set(["skill", ...this.agent.state.tools.map(tool => tool.name)]);
+			const instructions: string[] = [];
+			for (const provider of this.toolSources) {
+				const source = await provider.acquire({
+					binding, model, reservedNames, outputDirectory: join(this.mcp.toolResultsDir, "mcp"),
+				}, signal);
+				sources.push(source);
+				signal.throwIfAborted();
+				for (const tool of source.tools) {
+					if (reservedNames.has(tool.name)) throw new Error(`Duplicate tool name: ${tool.name}`);
+					reservedNames.add(tool.name);
+					externalTools.add(tool);
+				}
+				instructions.push(...source.instructions);
+				for (const message of source.diagnostics) await this.emitDisplay({ type: "tool_source_diagnostic", message }, signal);
+			}
+			if (instructions.length) {
+				this.sourceInstructions = "\n\nExternal tool provider instructions (subject to host rules):\n" + instructions.join("\n\n");
+				if (customPrompt) this.agent.state.systemPrompt = originalPrompt + this.sourceInstructions;
+			}
+			this.updateTools([...this.agent.state.tools, ...externalTools]);
+			if (externalTools.size && estimateContextTokens({ ...this.liveContext(), messages: [] }) >= model.contextWindow) {
+				throw new Error("工具定义与系统提示已达到模型上下文窗口上限，请减少启用的 MCP 工具。");
+			}
+			signal.throwIfAborted();
+			return await run();
+		} finally {
+			try {
+				if (customPrompt && this.agent.state.systemPrompt === originalPrompt + this.sourceInstructions) this.agent.state.systemPrompt = originalPrompt;
+				this.sourceInstructions = "";
+				this.updateTools(this.agent.state.tools.filter(tool => !externalTools.has(tool)));
+				const released = await Promise.allSettled(sources.reverse().map(async source => source.release()));
+				for (const failure of released) if (failure.status === "rejected") {
+					await this.emitDisplay({ type: "tool_source_diagnostic", message: String(failure.reason) }, signal);
+				}
+			} finally {
+				binding.release();
+			}
+		}
 	}
 
 	private async submitPrompt(text: string, images?: ImageContent[], invocation?: { name: string; args: string }): Promise<void> {
@@ -210,11 +273,12 @@ export class Harness {
 				firstKey = undefined;
 				return resolver(provider, model);
 			};
-			// A restored session may have fallen back to the active catalog. Persist the
-			// effective settings before new messages, without rewriting its earlier history.
-			this.recordSettings(this.settings);
-			const instruction = invocation ? this.skills.prepare(invocation.name, invocation.args, "user", this.session.header.id, this.agent.state.tools.map(tool => tool.name)) : undefined;
-			result = await this.runPrompt(text, images, controller.signal, settings, instruction);
+			result = await this.withRunTools(settings.model, controller.signal, async () => {
+				// Persist the effective settings before adding messages to a restored session.
+				this.recordSettings(this.settings);
+				const instruction = invocation ? this.skills.prepare(invocation.name, invocation.args, "user", this.session.header.id, this.agent.state.tools.map(tool => tool.name)) : undefined;
+				return this.runPrompt(text, images, controller.signal, settings, instruction);
+			});
 		} catch (error) {
 			result = { status: controller.signal.aborted ? "aborted" : "error", message: error instanceof Error ? error.message : String(error) };
 			throw error;

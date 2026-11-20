@@ -10,16 +10,17 @@ import stringWidth from "string-width";
 import { createBashTool } from "../../src/harness/tools/bash.ts";
 import { createPowerShellTool } from "../../src/harness/tools/powershell.ts";
 import { BashToolView } from "../../src/tui/tools/BashToolView.tsx";
+import { McpToolView } from "../../src/tui/tools/McpToolView.tsx";
 import { toolText } from "../../src/tui/tools/tool-result.ts";
-import type { ToolUseItem } from "../../src/tui/transcript.ts";
+import { projectMessages, type ToolUseItem } from "../../src/tui/transcript.ts";
 import { ScrollbackOutput } from "../../src/cli/ink/scrollback-output.ts";
 import { buildDiff } from "../../src/harness/tools/diff.ts";
 import { StructuredDiff } from "../../src/tui/diff/StructuredDiff.tsx";
 const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, "");
-async function capture(item: ToolUseItem, columns: number, expanded = false) {
+async function capture(item: ToolUseItem, columns: number, expanded = false, component = BashToolView) {
 	const frames: string[] = [], stdin = new PassThrough(), stdout = new Writable({ write(chunk, _enc, done) { frames.push(chunk.toString()); done(); } });
 	Object.assign(stdout, { columns, rows: 50, isTTY: false });
-	const app = render(createElement(BashToolView, { item, columns, expanded }), { stdin: stdin as any, stdout: stdout as any, debug: true, patchConsole: false, exitOnCtrlC: false });
+	const app = render(createElement(component, { item, columns, expanded }), { stdin: stdin as any, stdout: stdout as any, debug: true, patchConsole: false, exitOnCtrlC: false });
 	try { await new Promise(resolve => setTimeout(resolve, 65)); return frames.at(-1) ?? ""; }
 	finally { app.unmount(); app.cleanup(); stdin.destroy(); stdout.destroy(); }
 }
@@ -29,6 +30,22 @@ function assertCard(frame: string, columns: number) {
 	assert.ok(rows[0]?.startsWith("╭")); assert.ok(rows.at(-1)?.startsWith("╰"));
 	for (const row of rows) { assert.equal(stringWidth(row), columns, row); assert.ok(/[│╮╯]$/.test(row), row); }
 }
+test("MCP card shows live progress and restores errors, durations and attachment paths offline", async () => {
+	const name = "mcp__repo__build", args = { branch: "beta" };
+	const details = { kind: "mcp", version: 1, serverId: "repo", operation: "build", elapsedMs: 3200,
+		attachments: [{ path: "/output/report.txt", mimeType: "text/plain", bytes: 300 }], truncated: true, errorCode: "limit" };
+	const items = projectMessages([
+		{ role: "assistant", content: [{ type: "toolCall", id: "build", name, arguments: args }], timestamp: 1, model: "model", stopReason: "toolUse" },
+		{ role: "toolResult", toolCallId: "build", toolName: name, content: [{ type: "text", text: "build failed" }], isError: true, details, timestamp: 12000 },
+	], () => 1);
+	const item = items[0]; assert.ok(item?.kind === "tool"); assert.equal(item.status, "error");
+	const history = strip(await capture(item, 80, true, McpToolView));
+	assertCard(history, 80);
+	for (const fragment of ["repo · build", "3.2s", "beta", "build failed", "limit", "/output/report.txt"]) assert.ok(history.includes(fragment), history);
+	const running: ToolUseItem = { ...item, status: "running", endedAt: undefined, result: undefined,
+		partial: { content: [], details: { ...details, progress: { progress: 1, total: 4, message: "working" }, truncated: false, errorCode: undefined } } };
+	const frame = strip(await capture(running, 48, false, McpToolView)); assert.match(frame, /1\/4 · working/);
+});
 test("real Windows dir CRLF output stays inside a compact frame, including expanded results", { skip: process.platform !== "win32" }, async () => {
 	const root = resolve(mkdtempSync(join(tmpdir(), "tool-frame-")));
 	try {
