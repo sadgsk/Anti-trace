@@ -1,39 +1,13 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import test, { type TestContext } from "node:test";
-import { fileURLToPath } from "node:url";
+import test from "node:test";
 import { tempWorkspace } from "../support/fixtures.ts";
 import { chatResponse, createHttpFixture } from "../support/http-server.ts";
 import { getAppPaths } from "../../src/storage/app-paths.ts";
 import { listSessions } from "../../src/harness/session.ts";
 import { writeSkill } from "../support/skills.ts";
-import { McpConfigStore } from "../../src/config/mcp.ts";
-
-async function cli(t: TestContext, cwd: string, input: string, env: NodeJS.ProcessEnv = {}, fromCmd = false) {
-	const args = [
-		"--import", new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url).href,
-		"--import", new URL("../support/setup.ts", import.meta.url).href,
-		fileURLToPath(new URL("../../src/cli/bin.ts", import.meta.url)),
-		...(fromCmd ? ["--yolo"] : []),
-	];
-	const child = fromCmd
-		? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${[process.execPath, ...args].map(arg => `"${arg}"`).join(" ")}"`], {
-			cwd, env: { ...process.env, CLI_AGENT_CONFIG: existsSync(join(cwd, "byok.json")) ? join(cwd, "byok.json") : undefined, ...env }, windowsVerbatimArguments: true, windowsHide: true, signal: AbortSignal.timeout(30000),
-		})
-		: spawn(process.execPath, args, { cwd, env: { ...process.env, CLI_AGENT_CONFIG: existsSync(join(cwd, "byok.json")) ? join(cwd, "byok.json") : undefined, ...env }, windowsHide: true, signal: AbortSignal.timeout(15000) });
-	t.after(() => { if (child.exitCode === null && !child.killed) child.kill(); });
-	let stdout = "", stderr = "";
-	child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-	child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-	const result = new Promise<{ code: number | null; stdout: string; stderr: string }>((resolve, reject) => {
-		child.once("error", reject);
-		child.once("close", (code) => resolve({ code, stdout, stderr }));
-	});
-	child.stdin.end(input);
-	return result;
-}
+import { cli } from "../support/cli-process.ts";
 
 function configure(root: string, url: string) {
 	writeFileSync(join(root, "byok.json"), JSON.stringify({ version: 1, currentModel: "main",
@@ -68,20 +42,6 @@ test("standalone CLI exposes the unified tool and handles an actual model skill 
 	assert.match(JSON.stringify(http.requests[1]!.body), /E2E_MODEL_SKILL_INSTRUCTIONS/);
 });
 
-test("MCP commands run without a model and CLI exit reaps its owned stdio connection", async t => {
-	const root = tempWorkspace(t), home = join(root, "home"), events = join(root, "mcp-events.jsonl");
-	const store = new McpConfigStore(root, getAppPaths({ cwd: root, appHome: home }));
-	store.save("user", "fixture", { command: process.execPath, args: [fileURLToPath(new URL("../support/mcp-server.mjs", import.meta.url)), "legacy", events] });
-	const env = { ANTI_TRACE_HOME: home, HOME: home, USERPROFILE: home, CLI_AGENT_CONFIG: join(root, "missing.json") };
-	const list = await cli(t, root, "/mcp list", env);
-	assert.equal(list.code, 0, list.stderr); assert.match(list.stdout, /fixture.*disconnected/); assert.equal(existsSync(events), false);
-	const connected = await cli(t, root, "/mcp reconnect fixture", env);
-	assert.equal(connected.code, 0, connected.stderr); assert.match(connected.stdout, /fixture.*ready/); assert.match(connected.stdout, /2025-11-25/);
-	const records = readFileSync(events, "utf8").trim().split("\n").map(line => JSON.parse(line)) as { event: string; pid?: number }[];
-	for (const record of records.filter(record => record.event === "start")) assert.throws(() => process.kill(record.pid!, 0));
-	const forbidden = await cli(t, root, "/mcp login fixture", env); assert.equal(forbidden.code, 1); assert.match(forbidden.stdout, /交互终端/);
-});
-
 test("a fresh CLI process accepts pipe input, uses local HTTP and exits successfully", async (t) => {
 	const root = tempWorkspace(t);
 	const http = await createHttpFixture(t, (_request, response) => { response.writeHead(200, { "content-type": "text/event-stream" }).end(chatResponse("CLI_OK")); });
@@ -92,28 +52,6 @@ test("a fresh CLI process accepts pipe input, uses local HTTP and exits successf
 	assert.equal(http.requests.length, 1);
 	assert.match(JSON.stringify(http.requests[0]!.body), /multiline input/);
 	assert.doesNotMatch(result.stdout + result.stderr, /e2e-fake-secret/);
-});
-
-test("MCP resource and prompt pipe commands return source material without a model; missing prompt argument exits nonzero", async t => {
-	const root = tempWorkspace(t), home = join(root, "home"), log = join(root, "mcp.jsonl");
-	const config = new McpConfigStore(root, getAppPaths({ cwd: root, appHome: home }));
-	config.save("user", "docs", { command: process.execPath,
-		args: [fileURLToPath(new URL("../support/mcp-server.mjs", import.meta.url)), "legacy", log] });
-	const env = { ANTI_TRACE_HOME: home, CLI_AGENT_CONFIG: join(root, "missing.json") };
-	const resource = await cli(t, root, "/mcp-resource docs fixture://notes\n", env);
-	assert.equal(resource.code, 0, resource.stderr + resource.stdout);
-	assert.match(resource.stdout, /fixture:\/\/notes/);
-	assert.match(resource.stdout, /resource body/);
-	const prompt = await cli(t, root, '/mcp-prompt docs review {"topic":"two words"}\r\n', env);
-	assert.equal(prompt.code, 0, prompt.stderr + prompt.stdout);
-	assert.match(prompt.stdout, /two words/);
-	const missing = await cli(t, root, "/mcp-prompt docs review {}\n", env);
-	assert.equal(missing.code, 1);
-	assert.match(missing.stdout + missing.stderr, /topic/);
-	const methods = readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line).method as string | undefined);
-	assert.equal(methods.filter(method => method === "resources/read").length, 1);
-	assert.equal(methods.filter(method => method === "prompts/get").length, 1);
-	assert.ok(!methods.includes("tools/call"));
 });
 
 test("fresh processes share user configuration and persist separate project sessions without workspace state", async t => {

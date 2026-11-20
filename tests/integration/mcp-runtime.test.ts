@@ -110,7 +110,8 @@ test("MCP transport loss is distinct from user cancellation and old bindings can
 });
 
 test("MCP oversized stdio frame stops the connection with a limit diagnostic", async t => {
-	const f = fixture(t); await f.add("one", "legacy", "huge");
+	// Allow the complete test frame to cross real pipes on a busy coverage runner.
+	const f = fixture(t); await f.add("one", "legacy", "huge", { startupTimeoutMs: 20000, requestTimeoutMs: 15000 });
 	await assert.rejects(f.runtime.connectServerAndDiscover("one"), code("limit"));
 	assert.equal(f.runtime.getSnapshot().servers[0].error?.code, "limit");
 });

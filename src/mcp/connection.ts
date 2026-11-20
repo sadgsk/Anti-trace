@@ -92,7 +92,14 @@ export class McpConnection {
 			for (const catalog of Object.values(this.catalogs)) catalog.close();
 			this.publish();
 		};
-		this.client.onerror = error => { if (!this.lifetime.signal.aborted) { this.error = diagnostic(failure(error)); this.publish(); } };
+		this.client.onerror = error => {
+			if (this.lifetime.signal.aborted) return;
+			const reason = failure(error);
+			this.error = diagnostic(reason);
+			// Own the close promise before the SDK starts closing the overflowing transport.
+			if (reason.code === "limit") void this.close();
+			this.publish();
+		};
 	}
 	get stderr() { return this.stderrTail; }
 	get protocolVersion() { return this.client.getNegotiatedProtocolVersion(); }
