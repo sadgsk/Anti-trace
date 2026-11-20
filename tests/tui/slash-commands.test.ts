@@ -18,6 +18,7 @@ import { ReplController, type ReplHarness } from "../../src/cli/repl/repl-contro
 import { startTerminalRepl } from "../../src/cli/repl/terminal-repl.tsx";
 import type { TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
 import type { TerminalInputEvent } from "../../src/cli/ink/terminal-input.ts";
+import { waitFor } from "../support/fixtures.ts";
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 const delay = (ms = 70) => new Promise<void>(resolve => setTimeout(resolve, ms));
@@ -302,7 +303,8 @@ test("terminal host shows no command list at startup and connects slash navigati
 	stdout.on("data", chunk => { output += chunk.toString(); });
 	const terminal = startTerminalRepl({ harness, cwd, streams: { stdin, stdout } as unknown as TerminalStreams });
 	try {
-		await delay(); assert.match(output, /输入 \/ 查看命令/); assert.doesNotMatch(output, /\/help|\/new|\/exit/);
+		await waitFor(() => output.includes("输入 / 查看命令"), "initial terminal prompt");
+		assert.doesNotMatch(output, /\/help|\/new|\/exit/);
 		assert.equal(stdin.listenerCount("data"), 1);
 		stdin.write("/"); await delay(); assert.equal(terminal.suggestions.getSnapshot().open, true);
 		stdin.write("\x1b[B"); stdin.write("\r"); await delay(); assert.equal(calls.newSession, 1);
