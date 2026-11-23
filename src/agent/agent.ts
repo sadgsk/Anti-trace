@@ -27,6 +27,7 @@ import type {
 	ShouldStopAfterTurnContext,
 	StreamFn,
 	ToolExecutionMode,
+	UserMessage,
 } from "../types.ts";
 import { runAgentLoop } from "./loop.ts";
 
@@ -102,6 +103,8 @@ export class Agent {
 	private _state: MutableAgentState;
 	private readonly listeners = new Set<(event: AgentEvent, signal: AbortSignal) => Promise<void> | void>();
 	private activeRun?: ActiveRun;
+	private pendingSteering: AgentMessage[] = [];
+	private readonly steeringListeners = new Set<() => void>();
 
 	public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>;
 	public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>;
@@ -153,6 +156,29 @@ export class Agent {
 		return this.activeRun?.abortController.signal;
 	}
 
+	queueSteering(text: string, images?: ImageContent[]): void {
+		this.pendingSteering.push({ ...this.createUserMessage(text, images), metadata: { kind: "steering" } });
+		for (const listener of this.steeringListeners) listener();
+	}
+
+	hasPendingSteering(): boolean {
+		return this.pendingSteering.length > 0;
+	}
+
+	onSteering(listener: () => void): () => void {
+		this.steeringListeners.add(listener);
+		return () => { this.steeringListeners.delete(listener); };
+	}
+
+	/** Persist accepted input that arrived after the final loop boundary. */
+	async flushSteering(signal: AbortSignal): Promise<void> {
+		while (this.pendingSteering.length) {
+			const user = this.pendingSteering.shift()!;
+			await this.processEvents({ type: "message_start", message: user }, signal);
+			await this.processEvents({ type: "message_end", message: user }, signal);
+		}
+	}
+
 	abort(): void {
 		this.activeRun?.abortController.abort();
 	}
@@ -167,6 +193,7 @@ export class Agent {
 		}
 
 		this._state.messages = [];
+		this.pendingSteering = [];
 		this._state.isStreaming = false;
 		this._state.streamingMessage = undefined;
 		this._state.pendingToolCalls = new Set<string>();
@@ -175,10 +202,10 @@ export class Agent {
 
 	async prompt(text: string, images?: ImageContent[], settings?: ModelRequestSettings, additionalMessages: readonly AgentMessage[] = []): Promise<void> {
 		const config = this.createLoopConfig(settings);
-		const messages = [...this.normalizePromptInput(text, images), ...additionalMessages];
+		const messages = [this.createUserMessage(text, images), ...additionalMessages];
 		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
-				messages,
+				[...this.pendingSteering.splice(0), ...messages],
 				this.createContextSnapshot(),
 				config,
 				(event) => this.processEvents(event),
@@ -193,7 +220,7 @@ export class Agent {
 		const config = this.createLoopConfig(settings);
 		await this.runWithLifecycle(config.model, async (signal) => {
 			await runAgentLoop(
-				[],
+				this.pendingSteering.splice(0),
 				this.createContextSnapshot(),
 				config,
 				(event) => this.processEvents(event),
@@ -203,7 +230,7 @@ export class Agent {
 		});
 	}
 
-	private normalizePromptInput(text: string, images?: ImageContent[]): AgentMessage[] {
+	private createUserMessage(text: string, images?: ImageContent[]): UserMessage {
 		const content: Array<{ type: "text"; text: string } | ImageContent> = [];
 		if (text.length > 0) {
 			content.push({ type: "text", text });
@@ -214,13 +241,7 @@ export class Agent {
 		if (content.length === 0) {
 			content.push({ type: "text", text: "" });
 		}
-		return [
-			{
-				role: "user",
-				content,
-				timestamp: Date.now(),
-			},
-		];
+		return { role: "user", content, timestamp: Date.now() };
 	}
 
 	private createContextSnapshot(): AgentContext {
@@ -254,10 +275,11 @@ export class Agent {
 			shouldStopAfterTurn: this.shouldStopAfterTurn,
 			prepareNextTurn: this.prepareNextTurn,
 			toolExecution: this.toolExecution,
+			getSteeringMessages: async () => this.pendingSteering.splice(0),
 		};
 	}
 //	emit function
-	private async processEvents(event: AgentEvent): Promise<void> {
+	private async processEvents(event: AgentEvent, signal = this.signal): Promise<void> {
 		switch (event.type) {
 			case "message_start":
 				this._state.streamingMessage = event.message;
@@ -297,7 +319,6 @@ export class Agent {
 				break;
 		}
 
-		const signal = this.activeRun?.abortController.signal;
 		if (!signal) {
 			throw new Error("Agent listener invoked outside active run");
 		}

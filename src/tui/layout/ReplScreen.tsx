@@ -49,7 +49,7 @@ export function ReplScreen({ repl, prompt, suggestions, cwd, columns, rows, nati
 					{state.busy ? <SpinnerWithVerb phase={state.phase} startedAt={state.startedAt} lastEventAt={state.lastEventAt} outputChars={state.outputChars} columns={columns} /> : null}
 					<TokenWarning display={state.display} columns={columns} />
 					<PromptSuggestions controller={suggestions} availableColumns={columns} availableRows={menuRows} />
-					<PromptInputBox controller={prompt} columns={columns} maxRows={maxEditorRows} focus={!state.busy} mode={permission.mode} resume={false} />
+					<PromptInputBox controller={prompt} columns={columns} maxRows={maxEditorRows} focus={!state.busy || state.acceptsSteering} mode={permission.mode} resume={false} steering={state.acceptsSteering} />
 				</>}
 		<Box flexShrink={0}><StatusLine display={state.display} mode={permission.mode} expanded={state.expanded} columns={columns} /></Box>
 	</Box>;

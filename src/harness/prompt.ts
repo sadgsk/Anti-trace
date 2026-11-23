@@ -6,6 +6,7 @@ export interface BuildSystemPromptOptions {
 	skillDirectories?: readonly SkillDirectory[];
 	platform?: NodeJS.Platform;
 	powerShellVersion?: number;
+	subagent?: boolean;
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
@@ -25,12 +26,16 @@ function promptHeader(options: BuildSystemPromptOptions): string {
 	const toolsList =
 		options.toolNames.length > 0 ? options.toolNames.map((name) => `- ${name}`).join("\n") : "(none)";
 
-	return `You are Anti-trace, a CLI coding assistant.
+	const role = options.subagent
+		? "You are a general-purpose subagent of Anti-trace. Carry out the delegated task within its stated scope. Your final answer is your report to the parent. Include findings, evidence locations, changes made and remaining uncertainties as relevant."
+		: "You are Anti-trace, a CLI coding assistant.";
+	const delegation = options.toolNames.includes("agent_task") ? "\n\nDelegate independent work with agent_task(start). Continue your own work and use wait_agent when you need the report. An interrupted wait leaves the task running. Pause a task on a pause or cancellation request. Resume a paused task with its existing ID before waiting again." : "";
+	return `${role}
 
 Working directory: ${cwd}
 
 Available tools:
-${toolsList}${options.toolNames.includes("skill") ? `
+${toolsList}${delegation}${options.toolNames.includes("skill") ? `
 
 The conversation includes an available-skills catalog. When a task matches a skill's description, call skill with its name and arguments before performing the task. Follow loaded skill instructions using the existing tools. Only the most recent catalog defines which skills are currently available. A program-generated skill instruction is context, not a new user request.` : ""}${skillStoragePrompt(options.skillDirectories)}`;
 }

@@ -167,7 +167,7 @@ Windows 的 stdio 进程管理需要系统 Windows PowerShell 与 Job Object；�
 
 提交问题时，Harness 会连接或复用已启用且受信任的服务器，将可用工具与内置工具一起提供给模型。同一次提交中的工具续接与上下文恢复共享连接与工具定义。可以用服务器配置项 `enabledTools` 和 `disabledTools` 限定工具。默认和自动编辑模式下，模型调用 MCP 工具需要审批。长结果与二进制附件保存在当前项目的 `tool-results/mcp/` 下。
 
-模型可以用 `mcp_list_resources` 和 `mcp_read_resource` 查找并读取指定 URI。要自己选择材料，输入 `/mcp-resource` 或 `/mcp-prompt`，也可直接指定目标，例如 `/mcp-resource docs docs://guide` 或 `/mcp-prompt docs review {"topic":"release"}`。终端会先预览，再把确认的材料加入可编辑草稿；管道输出展开后的材料。这两个命令都可以在配置模型前使用。详见 [MCP 设计](docs/mcp-design.md)。
+模型可以用 `mcp_list_resources` 和 `mcp_read_resource` 查找并读取指定 URI。要自己选择材料，输入 `/mcp-resource` 或 `/mcp-prompt`，也可直接指定目标，例如 `/mcp-resource docs docs://guide` 或 `/mcp-prompt docs review {"topic":"release"}`。终端会先预览，再把确认的材料加入可编辑草稿；管道输出展开后的材料。这两个命令都可以在配置模型前使用。详见 [MCP 设计](docs/architecture.md#56-mcp)。
 
 ## 开发
 
@@ -184,8 +184,8 @@ npm start
 
 ## 文档
 
-- [测试与 CI](docs/testing.md)
-- [npm 发布流程](docs/releases.md)
+- [测试与 CI](docs/architecture.md#8-测试与-ci)
+- [npm 发布流程](docs/progress.md#npm-发布流程)
 - [架构与实现说明](docs/architecture.md)
 
 ## 许可证

@@ -10,10 +10,12 @@
 | 架构书 | [architecture.md](./architecture.md) |
 | TUI 架构与交互 | [架构书 §4](./architecture.md#4-分层)；反馈结果与验证统一记录在本页 |
 | 最终 Review 提醒 | RV-001：检查 Shift+Tab、三种权限模式、工具执行前判断、审批与会话授权记忆的真实执行链路 |
-| 测试与 CI | [testing.md](./testing.md)：命令、隔离、覆盖范围、覆盖率门槛和后续维护 |
+| 测试与 CI | [架构书 §8](./architecture.md#8-测试与-ci) 收录本地命令、测试隔离、覆盖范围和 CI 门槛。 |
+| npm 发布 | [发布流程](#npm-发布流程) 收录可信发布绑定、打包检查、发版步骤和发布后验证。 |
 | 问题记录 | [future-issues.md](./future-issues.md)：No.1 Windows Shell 与 No.2 回看闪烁已修复并回归；No.3 浅色主题待处理 |
 | MCP | 服务器管理、模型工具调用、资源读取和提示模板草稿入口已实现。 |
-| 最后更新 | 2026-11-20 |
+| 子代理与 steer | beta 工作区已接线，见[实现与验收范围](#子代理与-steer2026-11-22beta-工作区)。工具并发待实施，见[源码评审 No.7](./review-records.md#no7-工具批次固定串行)。 |
+| 最后更新 | 2026-11-22 |
 
 **当前协作约定：** 产品方向和框架原则见 [架构书 §0](./architecture.md#0-产品方向与推进方式)。
 
@@ -105,6 +107,49 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 
 ---
 
+## 子代理与 steer（2026-11-22，beta 工作区）
+
+基线 `9a85564`。子代理、终端忙时输入与会话恢复已在工作区接线；已发布的 0.1.7 包含 MCP。当前工具批次仍逐个等待。工具并发的状态、依据与验收记录在[源码评审 No.7](./review-records.md#no7-工具批次固定串行)。
+
+| 实现范围 | 源码入口 |
+|---|---|
+| 异步分派、等待、状态写入、崩溃接管与恢复 | `src/harness/subagents.ts`、`harness.ts`、`session.ts`、`prompt.ts`、`tool-source.ts` |
+| 忙时输入、回显、监听与工具结果配对 | `src/cli/repl/repl-controller.ts`、`terminal-repl.tsx`、`src/tui/layout/`、`src/agent/agent.ts`、`loop.ts` |
+| 父子权限、审批队列、退出与会话切换 | `src/cli/permissions/permission-policy.ts`、`src/tui/permissions/PermissionDialog.tsx`、`src/cli/main.ts`、`src/harness/harness.ts` |
+
+参考过同级 `claude-code-rev` 的任务分派、报告读取和父目录下的子记录组织，以及 `pi` 的 `getSteeringMessages()`。当前实现采用一个通用子角色、两个父端工具。工作流模板、职业角色和交互式前后台切换未列入本次交付。
+
+### 验收场景与测试入口
+
+用 `node:test`、真实 Harness、临时 JSONL、脚本模型和可手动释放的 Promise 观察事件先后。父子模型分别使用脚本队列，避免一个请求先后顺序影响另一个。以下是验收范围；本次文档归并没有重跑这些套件。
+
+**01  任务尚未完成** 子 A 卡在测试工具时，主代理已拿到 ID 并能完成一次独立工具调用及下一轮推理。A 先结束而父工具 B 尚未结束时，A 的报告已可查询；父 LLM 仍在既有批次边界后才收到新上下文。
+
+**02  主动取结果** A 完成后父上下文没有 A 的内部消息。第一次 wait 得 report，再次 wait 读取同一结果。子任务失败返回 `failed` 与原因；不存在的 ID 给出工具错误。检查父请求体、父子 JSONL 和父会话列表。
+
+**03  普通工具** 在两个顺序工具执行期间连续提交两条补充，确认工具正常完成，模型按 toolResult、toolResult、user、user 的顺序处理。覆盖无工具最终回答将结束时收到输入。分别核对 Chat、Responses 和 Anthropic Messages 的配对。
+
+**04  唤醒等待** 先进入 `wait(A)`，再发“暂停 A”。原 wait 返回 `interrupted`，随后父模型收到原话并调用 `pause`。再检查输入先于监听注册、完成与输入同时到达、外部直接 `pause` 时返回 `paused`。每次 tool call 恰有一个结果，队列不会吞消息。
+
+**05  暂停和续跑** 子任务写文件后在下一步暂停。`resume` 沿同一 ID、同一上下文继续，检验写入次数为一。分别模拟正常结束、被中止、执行结果未知、重复 `pause`／`resume`；断言恢复后没有两份执行者同时推进。
+
+**06  同时审批** 父与两个子任务同时申请，来源显示正确。Esc 只拒绝一条；会话允许自动放行匹配项；YOLO 无弹窗。停止当前或排队中的 A 后，B 的申请仍能完成。
+
+**07  退出与重开** 父自然结束一轮时子任务继续。中断父或关闭进程时两项活动任务都暂停。恢复同一父会话后，`completed` 可直接 wait、`paused` 必须先 `resume`。额外模拟子文件已建但父 `start` 无结果、父 wait 无结果、子工具结果末行截断。旧版父 JSONL 仍能打开。
+
+| 放置位置 | 负责验证的行为 | 运行命令 |
+|---|---|---|
+| `tests/unit/` | 任务状态转换、重复暂停或恢复、审批按来源排队与撤回 | `npm run test:unit` |
+| `tests/integration/`、`tests/regressions/` | 父子并行、等待唤醒、三套协议的结果配对、JSONL 重开与副作用去重 | `npm run test:integration` |
+| `tests/tui/` | 忙时输入、按 Enter 投递补充、审批来源显示、Esc 只拒绝当前项 | `npm run test:tui` |
+| `tests/e2e/` | 启动独立 CLI 进程，验证退出和意外终止后重开同一会话的行为 | `npm run test:e2e` |
+
+关键断言包括阻塞子工具时父代理仍能完成独立读取，父工具仍在运行时子任务完成不会提前触发下一次父请求，以及重复 wait 只读既有报告。恢复用例在文件中写入一次可计数的副作用，再模拟暂停或强制退出，恢复后检查原任务 ID、工具结果完整性与写入次数。
+
+用模拟终端提交同一句暂停要求，分别覆盖普通工具期间输入、正在 wait 时输入，以及任务完成与输入竞争。用重复的 `toolCallId` 检查不同发起代理的审批隔离，核对 Esc、会话允许和 YOLO。三协议请求分别检查 `tool_call_id`、`call_id`、`tool_use_id`；JSONL 同时检查结果和补充的先后。
+
+对应文件为 `tests/unit/subagents.test.ts`、`tests/unit/permission-policy.test.ts`、`tests/integration/subagents.test.ts`、`tests/integration/steering-protocols.test.ts`、`tests/integration/skills-permissions.test.ts`、`tests/regressions/abort-tool-result-pairing.test.ts`、`tests/tui/steering.test.ts`、`tests/tui/tui-full.test.tsx` 与 `tests/e2e/subagent-cli.test.ts`。完整检查入口为 `npm run check`。真模型可用“派任务查调用方 → 暂停刚才的任务 → 恢复并给报告”观察任务选择与工具轨迹。
+
 ## MCP 工具调用、资源与提示模板（2026-11-18）
 
 每次提交先确认模型凭据，再获取本轮 binding。Harness 连接已启用且受信任的服务器或复用现有连接，按配置筛选工具，并将通过注册检查的定义与内置工具一起交给模型。同次提交的工具续接和上下文溢出恢复沿用同一份目录。远端调用经过现有 loop 的参数校验、审批和结果配对。发送后断线或超时会提示远端结果未确认，宿主不会自动重发。
@@ -114,6 +159,10 @@ Windows ConPTY 重跑主流程 30 个采样和展开／回看 9 个检查点，1
 Windows、Node 24.14.1 全量离线测试共 591 项，588 项通过，3 项按平台条件跳过，0 项失败。行与语句覆盖率均为 91.53%，分支 86.93%，函数 93.31%。源码与测试类型检查、构建、差异格式检查均通过。新增回归覆盖跨服务器同名路由、目录或授权变更、业务与协议错误、调用前后取消、超时与断线、迟到进度、工具消息配对，以及三种模型协议的图文结果。
 
 真实模型通过本机配置的 DeepSeek Flash 和 Pro 分别验证。两者通过时都发出两次模型请求，调用一次本地 HTTP MCP 工具并返回随机回执。Flash 首次运行未选择工具，Pro 首次调用了工具但最终回答未包含准确回执，两者复测通过。OAuth 使用本地回环服务验证，外部账户与本轮 Linux、macOS CI 未验证。
+
+MCP 按服务器管理、模型工具、资源与模板三块交付。各块通过已接线的真实入口验收，协议测试服务仅在测试中使用。后续扩展沿用同一份服务器身份、绑定、目录修订、权限键和内容存储。工具选择、平台与账户的验证边界以本节和 11 月 16 日记录为准。[架构书 §5.6](./architecture.md#56-mcp)
+
+设计参考包括本地 `claude-code-rev@3b0498a` 的 MCP 连接、动态工具包装与目录监听，Codex 的 runtime 和 binding，以及 MCP 官方客户端的自动版本协商、资源和模板语义。外部参考核对日期为 2026-11-16。[Codex Runtime](https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/runtime.rs) · [Codex Binding](https://github.com/openai/codex/blob/main/codex-rs/codex-mcp/src/binding.rs) · [TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk) · [版本协商](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/protocol-versions.md) · [Resources](https://modelcontextprotocol.io/specification/2026-07-28/server/resources) · [Prompts](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/servers/prompts.md)
 
 ## MCP 第一块：服务器接入与管理（2026-11-16）
 
@@ -340,3 +389,88 @@ Windows、Node 24.14.1 全量离线测试共 591 项，588 项通过，3 项按�
 | 2026-09-13 | 写完 `agent.ts`、`prompt.ts`。`test/probe-agent.ts`：prompt(hi)、toolCall、reset 通过。第 6 步勾上。 |
 | 2026-09-13 | 写完 `render.ts`、`main.ts`、`index.ts`。第 7 步勾上。 |
 | 2026-09-13 | 本机 REPL 用 bash 列目录跑通。v1 闭合。 |
+
+---
+
+## npm 发布流程
+
+当前 npm 包是 [`anti-trace`](https://www.npmjs.com/package/anti-trace)，GitHub 仓库是 `sadgsk/Anti-trace`。首次 `0.1.0` 已手动发布；后续稳定版本由 `.github/workflows/release.yml` 发布。
+
+### 自动发布如何触发
+
+推送 `v0.1.1` 这样的 Git tag 后，Release 工作流依次执行：
+
+1. 核对 tag、`package.json` 和 `package-lock.json` 中的版本；确认该提交已包含在 `main` 中。
+2. 复用 CI，完成 Windows、Linux、macOS × Node 22、24 的类型检查、构建、测试和覆盖率检查。
+3. 在独立 Ubuntu runner 上重新安装锁定依赖，执行 `npm pack`，由 `prepack` 清理旧 `dist` 后重新构建，避免把已删除源码的历史产物打入包。
+4. 检查安装包内容，仅安装生产依赖，实际启动 `ati` 和 `anti-trace` 执行 `/new`。
+5. 使用 npm Trusted Publishing（OIDC）上传刚才验证过的同一个 `.tgz` 安装包。
+
+普通分支 push 和 pull request 只触发 CI。发布流程支持 `vX.Y.Z` 稳定版本；预发布 tag（如 `v0.2.0-beta.1`）会被拒绝，避免误更新 npm 的 `latest`。
+
+### 一次性绑定 npm 与 GitHub
+
+先将工作流和 npm 发布配置合入 GitHub 的 `main`，再在 npm 网站完成绑定：
+
+1. 登录 npm，打开 `anti-trace` 包页面的 **Settings**。
+2. 找到 **Trusted Publisher / Trusted publishing**，选择 **GitHub Actions**。
+3. 填写以下信息，并允许直接执行 `npm publish`。
+
+| 字段 | 填写值 |
+|---|---|
+| Organization or user | `sadgsk`（GitHub 用户名，不是 npm 用户名） |
+| Repository | `Anti-trace` |
+| Workflow filename | `release.yml`（仅文件名） |
+| Environment name | 留空；当前工作流没有声明 environment |
+| Allowed actions | 允许直接发布 `npm publish` |
+
+4. 保存设置，按网页提示完成 2FA 验证。
+
+工作流使用 GitHub 托管 runner、Node 24 和 `id-token: write`，无需添加 `NPM_TOKEN` secret。新建的可信发布配置须在两天内完成首次成功发布；过期时需要删除后重新创建。公开仓库、公开包通过 GitHub OIDC 发布时，npm 会自动附加 provenance 来源证明。
+
+参考：[npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers/)。
+
+### 发布下一个版本
+
+先确认上述绑定已保存，且发布代码与工作流都已进入 `main`。在项目目录的 PowerShell 中执行：
+
+```powershell
+git switch main
+git pull --ff-only
+git status --short
+```
+
+确认工作区干净后，更新版本：
+
+```powershell
+npm version patch
+```
+
+若当前版本为 `0.1.0`，该命令会将两个包文件中的版本更新为 `0.1.1`，并创建一个 Git 提交和 `v0.1.1` tag。随后按顺序推送：
+
+```powershell
+git push origin main
+git push origin v0.1.1
+```
+
+先推送版本提交，再推送对应 tag。以后发版将示例中的 tag 替换为这次生成的版本；不要再次推送已经发布过的 `v0.1.0` 来测试 CD。
+
+打开 GitHub 仓库的 **Actions → Release** 查看运行结果。任何检查失败都会阻止 npm 发布；普通分支 CI 不重复运行 tag 检查，Release 自己调用完整 CI。
+
+### 发布后验证
+
+```powershell
+npm view anti-trace version --prefer-online --registry=https://registry.npmjs.org/
+npm install -g anti-trace@0.1.1 --registry=https://registry.npmjs.org/
+ati
+```
+
+npm 接受上传后可能仍需几分钟处理。若暂时查不到新版本，稍后再查，避免重复执行发布。程序首次使用仍需要配置用户自己的模型 API 密钥。
+
+### 常见失败
+
+- **版本不一致**：用 `npm version` 同步更新包文件和 tag；不要只编辑一个文件。
+- **提交不在 main**：先把发布提交合入并推送 `main`，再推送 tag。
+- **CI 失败**：在 Actions 中查看失败的平台及步骤，修复后发布新的 tag。
+- **npm 认证失败**：核对 GitHub 用户、仓库、文件名大小写、Environment 留空，以及是否允许直接 `npm publish`。确认使用 GitHub 托管 runner；已过期的可信发布配置需重新创建。
+- **版本已存在**：npm 版本不能覆盖。更新版本后创建新 tag。

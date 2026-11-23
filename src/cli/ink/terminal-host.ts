@@ -25,7 +25,7 @@ export interface TerminalHost {
 export function startTerminalHost(
 	onEvent: (event: TerminalInputEvent) => void,
 	streams: TerminalStreams = { stdin: process.stdin, stdout: process.stdout },
-	onStop?: () => void,
+	onStop?: (exitCode?: number) => void,
 	options: { fullScreen?: boolean; scrollback?: boolean; mouseWheel?: boolean; isConversation?: () => boolean; layoutSize?: () => { columns: number; rows: number }; frameRows?: (frame: string) => TerminalRows | undefined; onFrameWritten?: () => void } = {},
 ): TerminalHost {
 	const { stdin, stdout } = streams;
@@ -102,6 +102,7 @@ export function startTerminalHost(
 		}
 	};
 
+	let exitCode: number | undefined;
 	const stop = (): void => {
 		if (!active) return;
 		active = false;
@@ -131,13 +132,13 @@ export function startTerminalHost(
 				if (options.fullScreen) stdout.write("\x1b[?1049l");
 			} finally {
 				try { if (!wasRaw) stdin.setRawMode(false); }
-				finally { onStop?.(); }
+				finally { onStop?.(exitCode); }
 			}
 		}
 	};
 	const onSignal = (code: number): void => {
+		exitCode = code;
 		stop();
-		process.exit(code);
 	};
 	const onSigint = onSignal.bind(null, 130);
 	const onSigterm = onSignal.bind(null, 143);

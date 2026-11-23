@@ -82,20 +82,24 @@ async function runLoop(
 		const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn);
 		newMessages.push(message);
 
+		const toolCalls = message.content.filter((block) => block.type === "toolCall");
 		if (message.stopReason === "error" || message.stopReason === "aborted") {
-			await emit({ type: "turn_end", message, toolResults: [] });
+			const unexecuted = await failUnexecutedToolCalls(toolCalls, emit, name =>
+				`Tool call "${name}" was not executed: the model response ended with ${message.stopReason}.`);
+			newMessages.push(...unexecuted.messages);
+			await emit({ type: "turn_end", message, toolResults: unexecuted.messages });
 			await emit({ type: "agent_end", messages: newMessages });
 			return;
 		}
 
-		const toolCalls = message.content.filter((block) => block.type === "toolCall");
 		const toolResults: ToolResultMessage[] = [];
 		let hasMoreToolCalls = false;
 
 		if (toolCalls.length > 0) {
 			const executedToolBatch: ExecutedToolCallBatch =
 				message.stopReason === "length"
-					? await failToolCallsFromTruncatedMessage(toolCalls, emit)
+					? await failUnexecutedToolCalls(toolCalls, emit, name =>
+							`Tool call "${name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`)
 					: await executeToolCallsSequential(
 							currentContext,
 							message,
@@ -150,7 +154,17 @@ async function runLoop(
 			return;
 		}
 
-		if (!hasMoreToolCalls || signal?.aborted) {
+		// Steering is consumed only after every call has a paired result. A plain
+		// final answer has the same boundary as a tool batch.
+		const terminated = toolCalls.length > 0 && !hasMoreToolCalls;
+		const steering = !terminated && !signal?.aborted ? await config.getSteeringMessages?.() ?? [] : [];
+		for (const user of steering) {
+			currentContext.messages.push(user);
+			newMessages.push(user);
+			await emit({ type: "message_start", message: user });
+			await emit({ type: "message_end", message: user });
+		}
+		if ((!hasMoreToolCalls && !steering.length) || signal?.aborted) {
 			await emit({ type: "agent_end", messages: newMessages });
 			return;
 		}
@@ -245,9 +259,10 @@ async function streamAssistantResponse(
 	return finalMessage;
 }
 
-async function failToolCallsFromTruncatedMessage(
+async function failUnexecutedToolCalls(
 	toolCalls: AgentToolCall[],
 	emit: AgentEventSink,
+	reason: (toolName: string) => string,
 ): Promise<ExecutedToolCallBatch> {
 	const messages: ToolResultMessage[] = [];
 	for (const toolCall of toolCalls) {
@@ -259,9 +274,7 @@ async function failToolCallsFromTruncatedMessage(
 		});
 		const finalized: FinalizedToolCallOutcome = {
 			toolCall,
-			result: createErrorToolResult(
-				`Tool call "${toolCall.name}" was not executed: the response hit the output token limit, so its arguments may be truncated. Re-issue the tool call with complete arguments.`,
-			),
+			result: createErrorToolResult(reason(toolCall.name)),
 			isError: true,
 		};
 		await emitToolExecutionEnd(finalized, emit);
@@ -331,6 +344,7 @@ type PreparedToolCall = {
 	kind: "prepared";
 	toolCall: AgentToolCall;
 	tool: AgentTool;
+	reservation?: Awaited<ReturnType<NonNullable<AgentTool["acquireExecution"]>>>;
 	args: unknown;
 };
 
@@ -395,6 +409,7 @@ async function prepareToolCall(
 		};
 	}
 
+	let reservation: PreparedToolCall["reservation"];
 	try {
 		const preparedToolCall = prepareToolCallArguments(tool, toolCall);
 		const validatedArgs = validateToolArguments(tool, preparedToolCall);
@@ -403,8 +418,17 @@ async function prepareToolCall(
 			return { kind: "immediate", result: createErrorToolResult("此工具需要授权，当前入口未配置审批处理程序。"), isError: true };
 		}
 		if (config.beforeToolCall) {
+			const acquire = tool.acquireExecution;
+			const reserveForApproval = acquire && (async (approvalSignal: AbortSignal) => {
+				if (reservation) return; // Composed permission hooks share this call's reservation.
+				const linked = signal ? AbortSignal.any([signal, approvalSignal]) : approvalSignal;
+				const held = await acquire(validatedArgs, linked);
+				if (linked.aborted) { held.release(); linked.throwIfAborted(); }
+				reservation = held;
+			});
 			const beforeResult = await config.beforeToolCall(
 				{
+					reserveForApproval,
 					assistantMessage,
 					toolCall,
 					args: validatedArgs,
@@ -439,18 +463,23 @@ async function prepareToolCall(
 				isError: true,
 			};
 		}
-		return {
+		const prepared: PreparedToolCall = {
 			kind: "prepared",
 			toolCall,
 			tool,
+			reservation,
 			args: validatedArgs,
 		};
+		reservation = undefined; // The executor now owns the reservation.
+		return prepared;
 	} catch (error) {
 		return {
 			kind: "immediate",
 			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
 			isError: true,
 		};
+	} finally {
+		reservation?.release();
 	}
 }
 
@@ -463,7 +492,7 @@ async function executePreparedToolCall(
 	let acceptingUpdates = true;
 
 	try {
-		const result = await prepared.tool.execute(
+		const result = await (prepared.reservation ?? prepared.tool).execute(
 			prepared.toolCall.id,
 			prepared.args as never,
 			signal,
@@ -484,16 +513,22 @@ async function executePreparedToolCall(
 		);
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
+		if (signal?.aborted && result.isError) {
+			return { isError: true, result: { ...result,
+				content: [...result.content, { type: "text", text: "执行结果未知，继续前请核对。" }] } };
+		}
 		return { result, isError: result.isError === true };
 	} catch (error) {
 		acceptingUpdates = false;
 		await Promise.all(updateEvents);
+		const reason = error instanceof Error ? error.message : String(error);
 		return {
-			result: createErrorToolResult(error instanceof Error ? error.message : String(error)),
+			result: createErrorToolResult(signal?.aborted ? `${reason}（执行结果未知，继续前请核对。）` : reason),
 			isError: true,
 		};
 	} finally {
 		acceptingUpdates = false;
+		prepared.reservation?.release();
 	}
 }
 

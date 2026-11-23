@@ -236,7 +236,7 @@ test("BYOK CLI config produces the existing Chat request without thinking fields
 		assert.equal(typeof messages[0].content, "string");
 		assert.deepEqual(messages[1], { role: "user", content: "hello" });
 		const names = (body.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name);
-		assert.deepEqual(names, process.platform === "win32" ? ["read", "powershell", "bash", "edit", "write"] : ["read", "bash", "edit", "write"]);
+		assert.deepEqual(names, ["read", ...(process.platform === "win32" ? ["powershell"] : []), "bash", "edit", "write", "agent_task", "wait_agent"]);
 	} finally { globalThis.fetch = originalFetch; temp.cleanup(); }
 });
 

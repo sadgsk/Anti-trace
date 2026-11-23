@@ -47,7 +47,8 @@ test("assembled tools and prompt reach model requests together for each platform
 		await harness.prompt("hello");
 		assert.ok(request);
 		const names = request.tools!.map(tool => tool.name);
-		assert.deepEqual(names, ["read", ...(shellEnvironment.powershell ? ["powershell"] : []), ...(shellEnvironment.bash ? ["bash"] : []), "edit", "write"]);
+		assert.deepEqual(names, ["read", ...(shellEnvironment.powershell ? ["powershell"] : []), ...(shellEnvironment.bash ? ["bash"] : []), "edit", "write", "agent_task", "wait_agent"]);
+		for (const name of names) assert.ok(request.systemPrompt.includes(`- ${name}`));
 		if (shellEnvironment.platform === "win32") {
 			assert.match(request.systemPrompt, /Platform: Windows/);
 			assert.match(request.systemPrompt, /Prefer powershell/);

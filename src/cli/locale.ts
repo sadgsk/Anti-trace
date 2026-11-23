@@ -44,6 +44,8 @@ const english: Record<string, string> = {
 	"Enter 编辑 · Ctrl+S 保存 · Esc 返回": "Enter edit · Ctrl+S save · Esc back", "Enter 确认 · Esc 返回": "Enter confirm · Esc back",
 	"选择": "select", "确认": "confirm", "返回": "back", "切换": "switch", "补全": "complete", "补入": "insert", "收起": "collapse", "展开": "expand",
 	"输入 / 查看命令": "Type / for commands", "输入会话序号，空行取消": "Session number; empty to cancel", "序号>": "#>",
+	"输入补充要求，Enter 发送": "Add an instruction and press Enter",
+	"文件已更改，请重新确认": "File changed. Review and confirm again.",
 	"正在查找文件…": "Finding files…", "无匹配文件": "No matching files", "无匹配命令": "No matching commands", "工作区文件": "Workspace file",
 	"回复": "Reply", "思考中": "Thinking", "生成回复中": "Responding", "工具执行中": "Running tools", "压缩上下文中": "Compacting context",
 	"上下文已压缩。": "Context compacted.", "没有可压缩的旧内容。": "No earlier content to compact.",

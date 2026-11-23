@@ -167,7 +167,7 @@ On Windows, stdio process management requires system Windows PowerShell and Job 
 
 On submission, the harness connects to enabled, trusted servers or reuses their existing connections. It offers their compatible tools alongside built-in tools and pins the same connections and definitions through tool continuations and context recovery. Configure `enabledTools` and `disabledTools` per server. Default and auto-edit modes require approval for model-initiated MCP operations. Long results and binary attachments are stored under the project's `tool-results/mcp/` directory.
 
-The model can use `mcp_list_resources` and `mcp_read_resource` to discover and read a specific URI. To choose material yourself, use `/mcp-resource` or `/mcp-prompt`. Examples include `/mcp-resource docs docs://guide` and `/mcp-prompt docs review {"topic":"release"}`. In a terminal, preview and confirm the material to insert it into an editable draft. A pipe prints the expanded material. Both commands work before a model is configured. See the [MCP design](docs/mcp-design.md).
+The model can use `mcp_list_resources` and `mcp_read_resource` to discover and read a specific URI. To choose material yourself, use `/mcp-resource` or `/mcp-prompt`. Examples include `/mcp-resource docs docs://guide` and `/mcp-prompt docs review {"topic":"release"}`. In a terminal, preview and confirm the material to insert it into an editable draft. A pipe prints the expanded material. Both commands work before a model is configured. See the [MCP design](docs/architecture.md#56-mcp).
 
 ## Development
 
@@ -184,8 +184,8 @@ Pushing a `vX.Y.Z` version tag triggers the npm release workflow. It checks that
 
 ## Documentation
 
-- [Testing and CI](docs/testing.md)
-- [npm release process](docs/releases.md)
+- [Testing and CI](docs/architecture.md#8-测试与-ci)
+- [npm release process](docs/progress.md#npm-发布流程)
 - [Architecture and implementation notes](docs/architecture.md)
 
 ## License

@@ -56,8 +56,7 @@ export async function runCli(options: RunCliOptions = {}): Promise<number> {
 		if (streams.stdin.isTTY && streams.stdout.isTTY) {
 			const terminal = startTerminalRepl({ harness, byok, cwd, locale, permissionMode: options.permissionMode, startupMessage: byok?.hasConfig ? warnings.join("\n") || undefined : startupMessage,
 				streams: streams as unknown as TerminalStreams });
-			await terminal.done;
-			return 0;
+			return await terminal.done;
 		}
 		if (streams.stdin.isTTY) {
 			streams.stderr.write(locale.t("交互输入需要 TTY 输出；请在终端运行，或通过管道提供完整输入。") + "\n");
@@ -119,7 +118,7 @@ async function runPipe(harness: ReplHarness, streams: CliStreams, byok?: ByokRun
 		process.off("SIGINT", onSigint);
 		process.off("SIGTERM", onSigterm);
 		unsubscribe();
-		repl.dispose();
+		await repl.dispose();
 	}
 }
 

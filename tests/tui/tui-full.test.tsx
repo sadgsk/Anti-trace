@@ -135,6 +135,24 @@ test("interrupting an approval pairs every pending tool call and never mutates f
 	} finally { await f.close(); }
 });
 
+test("terminal shows each child approval's origin and Escape denies only the visible request", async () => {
+	const f = await terminalFixture([]);
+	try {
+		const request = (id: string, summary: string) => f.app.repl.permissions.beforeToolCall({
+			...context("bash", { command: "echo shared" }), agentSource: { agent_id: id, summary },
+		});
+		const first = request("child-A", "inspect callers");
+		const second = request("child-B", "inspect config");
+		await until(() => f.output().includes("Agent child-A · inspect callers"));
+		f.stdin.write("\x1b");
+		assert.equal((await first)?.block, true);
+		await until(() => f.output().includes("Agent child-B · inspect config"));
+		f.stdin.write("1");
+		assert.equal(await second, undefined);
+		assert.equal(f.app.repl.permissions.getSnapshot().request, null);
+	} finally { await f.close(); }
+});
+
 test("workspace file indexing excludes generated directories and handles fuzzy matching", async () => {
 	const f = await fixture();
 	try {

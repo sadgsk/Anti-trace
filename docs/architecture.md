@@ -4,11 +4,13 @@
 
 **长期产品目标（2026-10-21 明确，尚未实现）：** agent 根据用户的一句话描述，动态修改自身 CLI 的功能，范围包括工具、CLI 界面等，并通过热启动应用变更。需求解析、变更实施、验证及热启动机制仍待设计和实现；现有 `/reload` 仅重载模型配置，不能据此视为已经具备该能力。对外说明和预计架构图见 [中文 README](../README.md) / [English README](../README.en.md)。
 
-**MCP（2026-11-18）**。Harness 持有 `McpRuntime`，通过 `/mcp` 管理配置、信任、stdio／Streamable HTTP 连接、认证和目录。每次提交在校验模型凭据后取得一份 binding。工具来源从该 binding 生成模型可用的 `AgentTool`；loop 负责参数校验、审批、执行和结果回传。资源工具与服务器工具共享 binding。CLI 的 `/mcp-resource` 和 `/mcp-prompt` 独立取得所选服务器的绑定，把预览过的材料加入草稿。详见 [MCP 接入设计](./mcp-design.md) 和 [开发进度](./progress.md)。
+**MCP（2026-11-18）**。Harness 持有 `McpRuntime`，通过 `/mcp` 管理配置、信任、stdio／Streamable HTTP 连接、认证和目录。每次提交在校验模型凭据后取得一份 binding。工具来源从该 binding 生成模型可用的 `AgentTool`；loop 负责参数校验、审批、执行和结果回传。资源工具与服务器工具共享 binding。CLI 的 `/mcp-resource` 和 `/mcp-prompt` 独立取得所选服务器的绑定，把预览过的材料加入草稿。详见 [MCP 运行时与工具契约](#56-mcp) 和 [开发进度](./progress.md)。
+
+**子代理与 steer（2026-11-22，beta 工作区）**。主代理可后台派发、等待、暂停和恢复子任务。活动请求接收补充消息，工具结果配齐后交给下一轮推理。[子代理与运行中输入](#57-子代理与运行中输入)
 
 本文只保存**当前有效的设计、实际项目状态和已确定的后续目标**。开发历史、当前版本待办和验收记录见 [progress.md](./progress.md)。新对话先读进度，再根据本文了解设计；不需要从旧版决策中拼出当前规则。
 
-**输入迁移状态：**输入迁移功能已完成，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。上下键仅移动当前输入光标，不提供历史召回。正式测试已迁入 `tests/`，使用 `node:test + tsx`、共享测试环境和三端 GitHub Actions，命令和验收边界见 [测试指南](./testing.md)。旧 `test/` 已退役并移出项目；原生终端、真实剪贴板和具体终端应用仍需对应环境验收。
+**输入迁移状态：**输入迁移功能已完成，旧输入 `stash` 和旧同步 `utils/image.ts` 已删除。完整草稿、长文本/图片引用、撤销/重做、REPL 命令、Harness 提交和流式显示已接通，`npm start` 可交互对话。上下键仅移动当前输入光标，不提供历史召回。正式测试已迁入 `tests/`，使用 `node:test + tsx`、共享测试环境和三端 GitHub Actions，命令和验收边界见 [测试指南](#8-测试与-ci)。旧 `test/` 已退役并移出项目；原生终端、真实剪贴板和具体终端应用仍需对应环境验收。
 
 **TUI 当前结构（2026-11-03）：** 界面统一位于 `src/tui/`，与 `harness/`、`agent/` 平行。整体 TUI、FB-001～029 反馈修复及历史回看闪烁修复已接入：`ReplScreen` 取代 `ReplView`，`terminal-repl.tsx` 负责启动、控制器、终端与焦点装配。消息／工具／Markdown／Diff 为分层 React Ink 组件，控制器投影结构化历史和活跃回合，Harness 提供数据与权限钩子。当前结构与交互统一见 §4，验证和最终 Review 待办见 [progress.md](./progress.md)；施工计划、试用及反馈专题文档已退役。
 
@@ -39,6 +41,7 @@
 
 - 架构书回答“现在是什么、接下来做什么、为何这样设计”，不保留已经失效的方案和施工历史。状态或目标更新时直接改对应段落，避免不断追加互相覆盖的补充规则。
 - 进度文档保存历史改动，以及当前版本已完成、已起步、未完成和待验收的事项。实现、设计决定和验证结果分别写清，不能把“决定要做”写成“已经做完”。
+- 单项功能实施文档用于开发阶段。实现后，将有效设计与接口并入架构书，将交付记录、验收与待办并入进度页，再删除实施文档。读源码发现的问题与修复计划按编号写入[源码评审记录](./review-records.md)。
 - 每完成一个小点，同步当前状态和进度；版本完成后，由用户确定下一阶段目标，再更新架构书。旧版本的过程留在进度文档和 Git 历史中。
 - 本文的“本版不做”只限定当前交付范围，不是永久禁止。用户已确定的实现和版本目标保持有效；调整目标时同步更新当前设计，避免新旧规则并存。
 
@@ -215,7 +218,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 | `src/index.ts` | 导出 Agent、Harness、流式适配和工具等现有入口 |
 | `tests/support/` | 共享测试 Harness、脚本化模型、本地 HTTP、临时目录和异步等待 |
 | `tests/integration/`、`tests/regressions/` | Agent、会话、自动压缩、协议与工具验证，以及具体故障回归 |
-| 旧 `test/` | 已退役并移出项目；正式测试使用受版本管理的 `tests/`，见 [测试指南](./testing.md) |
+| 旧 `test/` | 已退役并移出项目；正式测试使用受版本管理的 `tests/`，见 [测试指南](#8-测试与-ci) |
 
 **v1.2 后续：** 新输入及 `/new`、`/resume`、`/context`、`/compact`、每轮 `ctx` 已接回。思考等级与 BYOK 按 build 文档分批实施；保留 Agent / Harness 的消息和事件边界。
 
@@ -421,13 +424,260 @@ Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正
 
 启动：runCli 先创建 Harness，ByokRuntime 随后加载目录并回调应用模型、偏好与凭据解析函数，使用统一 streamModel；三协议均通过同一请求入口运行，缺参数或 HTTP 错误在操作内部报告。TTY 进入 startTerminalRepl；非 TTY 收集 UTF-8 输入到 EOF，再交给同一个 ReplController。
 
-`npm start` 已恢复交互：输入完整草稿展开后调用 Harness，命令包括 `/new`、`/resume`、`/context`、`/compact`、`/help` 和 `/exit`。接受提交后清理整份草稿；生成时允许编辑下一条但不提前提交。Agent 事件由 REPL 投影到 Ink，不同时订阅直接写 stdout 的 `renderEvent`。退出、EOF、信号、回调异常统一清理订阅和终端模式；非 TTY 只打印模型/命令输出，退出码反映错误或信号。
+`npm start` 已恢复交互：输入完整草稿展开后调用 Harness，命令包括 `/new`、`/resume`、`/context`、`/compact`、`/help` 和 `/exit`。接受提交后清理整份草稿；在 beta 工作区，活动 Agent 接受忙时补充，等本轮工具结果配齐后再送给模型。Agent 事件由 REPL 投影到 Ink，不同时订阅直接写 stdout 的 `renderEvent`。退出、EOF、信号、回调异常统一清理订阅和终端模式；非 TTY 只打印模型/命令输出，退出码反映错误或信号。
+
+---
+
+### 5.6 MCP
+
+Anti-trace 作为 MCP Host，通过客户端连接本机 stdio server 或 Streamable HTTP server，将 server 提供的 Tools、Resources、Prompts 接入现有会话。业务操作由 server 执行，Agent 负责选择、校验、授权、调用和结果回传。
+
+运行期按服务器管理连接、身份和目录。一次用户提交在模型凭据确认后取得 binding，所有工具续接及溢出恢复共用这份快照。服务器管理、模型工具和资源／模板三条入口共享协议层和内容转换。
+
+Skill 提供任务说明与工作流程，MCP 客户端负责发现和调用服务器能力。0.1.7 的实现范围为客户端 stdio／Streamable HTTP、Tools、Resources 和 Prompts。对外提供 MCP server、mcpo／OpenAPI 转换、旧 HTTP+SSE 或自定义 WebSocket、插件市场、工具搜索与延迟加载、sampling、elicitation、任务扩展、MCP Apps、资源内容持续订阅和配置自动监听均在该版本范围之外。
+
+```mermaid
+flowchart TD
+    CLI[CLI 命令与 TUI] --> H[Harness：会话与运行装配]
+    CLI --> C[MCP 管理控制器]
+    C --> R[McpRuntime：配置、连接、认证、能力目录]
+    H --> R
+    R --> SDK[官方 MCP Client 与 transports]
+    SDK --> S[MCP servers]
+    R --> B[不可变 McpBinding]
+    B --> T[MCP 工具适配器]
+    B --> RP[资源与模板服务]
+    T --> A[现有 Agent / loop]
+    A --> L[现有三协议模型适配器]
+    A --> T
+    RP --> D[现有输入草稿与附件]
+    T --> N[共享内容转换与结果存储]
+    RP --> N
+```
+
+1. `src/mcp/` 处理 MCP 协议、运行期状态、目录和内容。SDK 类型停留在这一层，不进入 Agent、LLM adapter、React 状态和 JSONL。
+2. Harness 创建并持有一个 `McpRuntime`；CLI 获得管理接口，但不另建连接。Runtime 不持有模型、聊天消息、终端或 React 组件。
+3. Agent / loop 保持通用工具执行职责。MCP 工具与 `read`、`bash` 等使用同一条校验、审批、事件和结果配对链。
+4. 模型适配器负责已有协议编码。MCP 不要求更换模型协议、不新增模型厂商专用的 MCP 调用通道。
+5. Runtime 存活于 Harness 生命周期；`/new` 和 `/resume` 保留连接，清空会话级授权。恢复历史不执行历史工具，不从历史重新启动 server。
+6. CLI 创建的 Harness 由 `runCli()` 在最外层 `finally` 中等待关闭；嵌入者传入的 Harness 由嵌入者管理，避免关闭不属于 CLI 的资源。
+
+#### MCP 模块与绑定接口
+
+| 模块 | 职责  |
+|---|--- |
+| `src/config/mcp.ts` | 读取、校验、合并配置，来源与覆盖信息，原子保存  |
+| `src/mcp/types.ts` | 无 SDK 依赖的配置、状态、目录、调用、内容契约  |
+| `src/mcp/runtime.ts` | server 集合、配置应用、管理接口、binding 与生命周期  |
+| `src/mcp/connection.ts` | 单 server 连接、版本选择、请求、接收大小限制、超时、取消、关闭  |
+| `src/mcp/http.ts`、`stdio-launch.ts`、`stdio-host.mjs`、`util.ts` | HTTP 有界接收、stdio 进程所有权、共享任务及运行限制  |
+| `src/mcp/catalog.ts` | Tools／Resources／Templates／Prompts 元数据、分页、修订与失效  |
+| `src/mcp/auth.ts`、`local-state.ts` | HTTP 认证、凭据、项目信任和本机启停覆盖  |
+| `src/cli/commands/mcp-command.ts` | `/mcp` 参数命令与服务器管理菜单  |
+| `src/mcp/tool-source.ts`、`tool-names.ts` | 工具来源适配、稳定名称、模型可见定义与调用绑定  |
+| `src/mcp/content.ts`、`output-store.ts` | MCP 内容归一化、截断、图片／文件保存与来源信息  |
+| `src/tui/tools/McpToolView.tsx` | MCP 工具进度、结果、来源和附件显示  |
+| `src/mcp/resource-source.ts` | 资源目录／读取工具与用户资源读取入口  |
+| `src/mcp/prompt-service.ts` | 获取模板、参数检查、转为可编辑草稿材料  |
+| `src/cli/commands/mcp-context-command.ts` | `/mcp-resource`、`/mcp-prompt` 与草稿插入  |
+
+| 契约 | 输入／输出及约束 |
+|---|---|
+| `McpRuntime.getSnapshot()` / `subscribe()` | 只读的脱敏 server 状态、配置来源、能力、目录状态及诊断 |
+| `reload()` / `save(scope, id, value, expectedDigest)` | 校验配置后发布有效配置；保存检测外部修改并原子写入，错误候选不替换旧配置 |
+| `connectServerAndDiscover(serverId, signal)` | 一个 server → 连接结果和工具目录；其余目录按管理请求加载 |
+| `reconnect / setEnabled / trust / login / logout` | 显式服务器管理操作；配置变更与调用不能相互偷换身份 |
+| `acquireBinding(signal)` | 等待本轮启用且受信任的 server 的有界连接尝试 → 目录与连接绑定；单 server 失败不让全部失败 |
+| `McpBinding` | 保存 `serverId → ServerBinding` 的只读映射；每个 ServerBinding 固定连接 generation、配置／授权身份、能力和工具目录 revision；整个 binding 提供 `release()` |
+| binding 的协议操作 | 显式指定 server 的 `listTools`、`callTool`、`listResources`、`listResourceTemplates`、`readResource`、`listPrompts`、`getPrompt`；返回项目定义的 DTO，接收 `signal`、超时和进度回调 |
+| `McpRuntime.close()` | 幂等关闭，取消等待／认证／请求，释放订阅和进程，等待清理完成 |
+
+不支持的 server capability 返回明确的“不支持该操作”，不以空目录伪装成功。正常的空目录与失败分开表示。绑定失效、认证缺失、取消、超时、协议错误分别保留错误类别，展示文字不夹带凭据。
+
+Tools 在 binding 创建时固定目录；按需读取的 Resources／Templates／Prompts 在本 binding 首次使用该目录时取得完整快照，随后固定该目录 revision。只有被消费的目录参与对应操作的失效判断。所有操作始终绑定同一 server 身份和连接 generation；新增一个目录快照不能换掉连接。调用结束或取得工具来源中途失败时，所有已取得的 binding／source 必须在 `finally` 释放。
+
+`ToolSource.acquire(runContext, signal)` 提供本次运行的工具、注明来源的提示和 `release()`。`runContext` 携带共用的 binding、模型能力和输出目录。审批收到 `provider / scopeKey / actionKey / label`，分别识别来源和实际操作。可序列化的 `kind: "mcp"` 结果详情供实时工具卡和恢复后的历史共用。
+
+#### 配置、信任与服务器管理
+
+配置路径由 `getAppPaths()` 按 `ANTI_TRACE_HOME`／`appHome` 和 `profileId` 解析。默认使用以下位置。
+
+- 用户配置：`~/.anti-trace/profiles/local/mcp.json`。
+- 项目配置：当前工作目录 `.anti-trace/mcp.json`，可共享。
+- 用户私有状态：`~/.anti-trace/profiles/local/mcp/`，保存项目信任、本机启停覆盖和凭据；不写入项目 JSONL。
+
+同名 server 采用项目整条配置覆盖用户配置，不拼接 command、args、headers 或 auth。管理界面显示生效来源与被覆盖来源。项目配置按当前工作目录读取，不向父目录递归搜索；相对路径相对于配置文件目录解析。
+
+文档格式为 `{ "version": 1, "mcpServers": { ... } }`；导入时接受省略 `version` 的常见 `mcpServers` 容器，保存时规范化。stdio 可省略 `type`，HTTP 必须明确 `type: "http"`。未知字段报可定位的配置诊断，不默默丢弃。
+
+| 字段组 | 固定语义 |
+|---|---|
+| 公共 | `enabled`（默认 true）、`startupTimeoutMs`（默认 10000）、`requestTimeoutMs`（默认 60000）；版本策略不作为用户配置字段 |
+| stdio | `command`、`args`、`cwd`、`env`、`envVars`；env 保存非敏感固定值，凭据经 envVars 引用本机环境；按可执行文件和参数数组启动，不拼接 shell 命令 |
+| HTTP | `url`、`headers`、`envHeaders`、`auth`；headers 保存非敏感固定值，凭据引用环境变量，Authorization 来源只能有一个 |
+| auth | 无认证、`bearer`＋环境变量名、`oauth`＋可选 client ID／secret 环境变量、scopes／回调端口；三种互斥 |
+| 工具筛选与输出 | `enabledTools`（可选白名单）、`disabledTools`（最后生效），按 server 原始工具名匹配；`outputMaxBytes`（默认 32768）限制每次工具／资源／模板交给模型的文本总量 |
+
+配置文件缺失视为空配置；JSON／字段错误保留上次生效快照。合法配置中的连接失败只影响该 server。文件编辑成功但无法联网时保留新配置并展示连接错误，不把网络可达性作为保存条件。
+
+用户主动设置的用户配置作为本机信任来源；项目配置必须显式信任后才启动命令、发送连接请求或进行 OAuth 发现。信任绑定规范化项目位置、配置来源及影响执行／访问目标的配置指纹。修改 command、args、cwd、URL、header／env 配置或认证方式需要重新信任；单纯调整超时不撤销信任。
+
+用户在 TTY 中显式信任项目配置。服务器信任、OAuth 登录和逐项工具审批分别管理。`--yolo` 仍要遵守服务器信任、认证和工具筛选。
+
+`/mcp` 在 TTY 中打开服务器管理菜单，在管道中等价于 `list`；显式参数包括：`list`、`status [server]`／`show <server>`、`tools/resources/templates/prompts <server>`、`add`、`edit/delete <server>`、`connect <server>`、`reconnect <server>`、`enable/disable <server>`、`trust <server>`、`login/logout <server>`、`reload`。纯管道不启动交互式 OAuth 登录；`login` 在该模式下说明需要交互入口，项目配置的显式信任和新增／编辑／删除表单也需要 TTY；查看、连接、重载和启停可用于管道。
+
+菜单支持配置新增／编辑／删除、来源查看、能力目录浏览、信任、登录与连接操作；新增时选择“当前项目”（默认）或“所有项目”，分别保存到项目和用户配置。编辑写回原来源，删除项目覆盖项时明确提示用户同名项会重新生效；普通编辑通过字段表单，数组／映射字段用 JSON 值编辑并在保存前校验。启停覆盖写入用户私有状态，不擅改项目共享文件。凭据字段显示引用或掩码。
+
+#### 传输、认证与目录生命周期
+
+stdio 和 Streamable HTTP 共用官方客户端 `@modelcontextprotocol/client@2.4.0`。SDK 以 `versionNegotiation: { mode: "auto" }` 探测版本。探测和正式连接共用启动期限，按协议响应和 stdio 探测超时规则回退。界面显示协商版本。HTTP 探测超时、网络错误和认证失败保留各自诊断。
+
+stdio 使用最小系统环境和显式转发变量，保留各平台运行可执行文件所需的 PATH／HOME／Windows 系统变量；不整包继承模型 API key。stderr 单独收集并有界显示，不能写入 Ink stdout。Windows 命令解析与进程树退出在这一块处理完整，不借 `bash.execute()` 代管 MCP。
+
+stdio 的每次 SDK 探针及正式连接分别持有进程所有者：POSIX 使用独立进程组；Windows 由系统 Windows PowerShell 启动器先将自身加入 kill-on-close Job Object，再启动 Node host 及服务器，避免 SDK 立即终止探针启动器时留下后代。启动器只执行静态脚本，配置参数通过环境中的 JSON 传入 Node，随后移除内部变量。若系统禁止 PowerShell／Add-Type 或 Job 绑定，连接报错；不降级为无法保证清理的启动方式。Windows stdio 探针期限为 5 秒（包含启动器启动时间），其余探针为 2 秒，均受服务器 startupTimeoutMs 总期限限制。
+
+HTTP 支持无认证、Bearer 和 OAuth。OAuth 包含 SDK 支持的发现／注册、预注册 client、PKCE、回调、保存和刷新；登录由明确 `/mcp login` 操作触发，连接或工具调用遇到需要交互的认证时进入 `needs-auth`。已有同一授权的自动 token 刷新可以继续；需要重新同意或新增 scope 时交还用户。
+
+接收层分别限制协议消息、stdio 单行帧、HTTP JSON／SSE、stderr 和目录元数据。达到上限时中止对应操作并给出诊断。roots 只公布项目根目录的 file URI。主机提供 Tools、Resources 和 Prompts；未声明的 server capability 返回明确诊断。
+
+凭据存于用户私有文件，采用原子写入及平台用户权限；该文件不声称加密保险库。持久化键包含 endpoint 和 OAuth client／授权身份，防止同名 server 复用另一端点凭据。共享配置通过环境变量引用提供凭据；管理界面、状态诊断、日志、tool details、session 和模型输入不回显 token、client secret 或原始 Authorization header。登录／退出切换授权身份会使旧 binding 与会话授权失效；同一授权的正常 token 刷新不撤销项目信任。
+
+运行状态使用 `disabled / untrusted / disconnected / connecting / ready / needs-auth / failed / closing`。连接状态与目录状态分离：握手／发现成功但 tools/list 失败时，显示“已连接，工具目录失败”，不把它显示为没有工具。
+
+Harness 按需加载配置。显式管理操作或真实模型任务只连接启用且受信任的服务器；并发连接去重、设限，每个服务器有独立期限。一个服务器失败时，其他服务器和会话命令仍可使用。
+
+首个 connect 获取 Tools 目录；Resources、URI templates、Prompts 目录在用户查看时加载，按 capability 决定是否请求。所有 list 操作处理分页、重复 cursor 和目录数量／大小上限；目录请求失败不得留下“成功但只有半页”的新快照。没有完成首次获取时标记未加载，不显示猜测数量。
+
+工具、资源和提示目录变化通过 SDK 的对应协议机制接收；失效后合并刷新请求，避免通知风暴。完整新目录取得后发布 revision。当前绑定使用旧目录时，受影响的操作返回 `catalog-changed`，不默默用新定义执行；未受影响目录的调用仍可继续。
+
+连接 generation 在重新连接时改变。不自动重放已经发出的 `tools/call`，因为断线时不能推断业务是否已执行。断线后标记状态，下一次明确连接／新任务可重新建立连接；一个操作内避免无限重连。目录读取可做有界重试，业务调用的恢复由模型／用户在看到结果后决定。
+
+Ctrl+C 取消当前请求／准备工作，不默认关闭仍健康的共享连接。退出时停止接收新操作，取消全部在途工作和 OAuth 回调，关闭 transport，并等待 stdio 子进程及其应归属的后代退出；超过清理期限按平台终止。`close()` 可以多次调用，旧 generation 的迟到事件不能覆盖当前状态。
+
+配置重载、停用、重新信任、登录和主动重连在宿主空闲时执行；运行期自然发生的断线／目录失效由 binding 检查处理，不在执行中替换模型看到的目录。
+
+#### 模型工具、审批与结果
+
+1. Harness 在实际用户提交时校验模型／凭据，随后取得本轮 MCP binding；准备工作使用当前 prompt 的 AbortSignal。
+2. Tool source 将允许且兼容的远端工具转换为 `AgentTool`。内置工具和外部工具一起构成模型目录；工具筛选不改变原始 server 目录。
+3. 同时构建带来源的 server instructions，限制长度并与核心提示分隔；外部说明不成为可覆盖宿主规则的指令来源。
+4. 模型请求、参数校验、权限判断、执行句柄和结果显示使用同一份定义及身份。本次 `prompt()` 的所有工具续接与溢出恢复共享该 binding。
+5. prompt 结束后释放绑定。下一次提交取得新目录；活跃运行不响应目录变化而直接改写工具数组。
+
+名称采用模型可接受的 ASCII 字符集、总长不超过 64 字符。使用 `mcp__<server>__<tool>` 可读前缀，必要时截断，并附由原始 server ID／工具名确定的摘要；对最终名称再查重，摘要碰撞时禁用冲突项并诊断。名称稳定且不依赖目录返回顺序。内部保存显式映射，执行和权限不靠 split 名称定位 server。
+
+远端 JSON Schema 在注册时检查有效性、引用范围和大小。复用当前 TypeBox 1.x 的 JSON Schema 校验能力；不为了接入 MCP 全面重写内置工具类型。外部引用不自动联网加载；支持的本地引用需要按既定规则解析。模型不兼容的 schema 显式隔离并说明，不能静默删除约束再假装等价。
+
+远端工具经筛选后直接注册到模型工具列表。目录随本次提交固定，工具定义计入请求 key 和上下文预算；仅定义就超出窗口时，宿主提示减少启用的工具。当前 loop 顺序执行同批普通工具调用。
+
+保持现有链路：查找工具 → 参数校验 → 解析权限身份 → `beforeToolCall` → `execute()` → `afterToolCall` → 执行事件与 `toolResult`。
+
+`execute()` 使用绑定的原始工具名调用 `tools/call`，传递取消、期限和进度回调。权限通过后、请求发送前再次检查 binding 有效性；期间配置或目录变更不能把已批准操作替换成另一个操作。
+
+- `AgentToolResult` 增加 `isError`；`loop.ts` 中正常返回路径由固定 `isError: false` 改为读取结果标记。MCP 业务失败保留内容，传输／协议异常仍进入错误路径。
+- `PermissionDialog` 不再把所有非 shell 工具的会话授权写成“允许所有文件编辑”；`PermissionPolicy` 记录外部操作身份并显示“本会话允许此工具”。
+
+权限模式固定为：`default` 和 `auto-edit` 都要求 MCP 业务调用授权；`auto-edit` 仅放开现有本地编辑。`yolo` 免单次调用审批，但不越过 server 信任、显式工具禁用和认证。非交互模式没有可用授权时明确拒绝。`readOnlyHint` 用于说明，不单凭 server 的自报信息放行。
+
+会话授权键包含 server 配置／授权身份及工具定义摘要。`/new`、`/resume` 清空会话授权；重新配置、重新登录或工具定义改变后旧授权不可继续使用。连接重建但身份和定义未变时，可以保留同一会话授权。
+
+| MCP 内容 | 最终处理 |
+|---|---|
+| text | 保留文本，按统一预算截断 |
+| image | 校验 MIME／编码／大小，支持的格式进入现有 ImageContent；模型不支持时提供附件说明 |
+| structuredContent | 进入可读 JSON 内容，避免与已有等价文本重复；不能只放进模型看不到的 details |
+| resource link | 保留来源 server、URI、名称和 MIME；不自动发起读取 |
+| embedded resource | 作为已返回内容转换，不因 URI 再次读取 |
+| audio／其他二进制 | 保存附件与类型说明；没有音频能力时不声称模型已听到内容 |
+| 未知内容类型 | 返回明确的不支持说明，保留有界诊断，不把整个调用伪装成空结果 |
+
+模型可见文本的总量预算默认 32 KiB，可按服务器配置调整。图片及二进制附件有独立的展示和存储上限。耗尽模型可见预算时，仍在传输接收上限内的完整内容写入 `~/.anti-trace/profiles/local/projects/<项目ID>/tool-results/mcp/`，模型收到摘要和路径。超过传输接收上限会产生诊断。
+
+存储文件由宿主生成名称，URI 不用作本机目标路径。已完成结果文件允许保留供后续 read；取消期间不把半份文件标成完整结果，保存失败不得返回不存在的路径。认证元数据不写入结果存储。复用 shell 输出的预算思想，不把 `BashOutput` 变成不适合结构化内容的通用流容器。
+
+提供 `McpToolView`，显示 server、工具、参数、耗时、进度、错误和附件；复用既有执行事件及卡片容器。JSONL 保存已归一化的实际内容和必要来源，恢复历史不需要 server 在线。异步迟到进度在结果完成后被忽略，取消继续满足现有“一次 toolCall 必须配一条 toolResult”的要求。
+
+#### 资源与提示模板
+
+增加通用工具 `mcp_list_resources`、`mcp_read_resource`，由一个新的 `ToolSource` 接入。参数包含显式 server 标识；读取参数包含 URI。能力目录与资源内容分开获取，不把所有资源预读进上下文。
+
+资源列表返回普通资源和 URI template 的元数据。URI template 使用符合 URI Template 规则的展开方式，不以字符串替换代替编码；可以直接指定完整 URI 读取，不要求它一定出现于资源列表。
+
+资源 URI 属于对应 server 的地址空间，`file://` 不代表本机文件；读取始终调用所选 server 的 `resources/read`，不切换成本地 `read` 或任意 HTTP 抓取。权限通过权限解析入口绑定 server 和具体 URI；不是只批准一个可读取所有 server 的通用工具名字。
+
+用户入口 `/mcp-resource` 提供服务器／资源／模板选择、参数填写、预览和加入草稿；TTY 中读完不自动调用模型，用户可编辑后提交。显式 `/mcp-resource <server> <uri>` 在管道中输出有界内容与来源。目录变化沿用 Runtime 的失效机制；不自动改写已经进入聊天的资源快照。
+
+用户入口 `/mcp-prompt`：选择 server → 选择模板 → 根据 `prompts/list` 的参数说明填写 → `prompts/get` → 预览 → 插入草稿。显式参数形式为 `/mcp-prompt <server> <name> <JSON参数对象>`，参数值按协议要求为字符串；缺参在调用前说明。
+
+产品行为固定为“模板材料进入用户可编辑草稿”，不直接执行工具或自动发送模型请求。返回的多条 user／assistant 模板消息按顺序转换：user 内容进入正文，assistant 内容以明确标记的示例／预期回答片段进入正文；保留原始模板包供查看，不伪造模型过去真实回答过的消息，也不承诺 provider-specific assistant prefill。
+
+文本、图片、嵌入资源通过共享内容转换器成为现有草稿的文本／图片附件；resource link 只加入引用，另行读取需用户或模型明确操作。模板输出不写入 system 层。纯管道命令输出展开后的模板材料，不自动进入聊天。
+
+不为每个远端 prompt 动态注册一个顶层斜杠命令，避免名称冲突和修改现有静态命令类型；统一从 `/mcp-prompt` 选择。
+
+复用当前 `PromptDraft` 的文本／图片引用，不新增“远程附件稍后偷偷解析”的状态。读取完成后固定内容，并在正文附 server、URI／模板名、参数和获取时间等必要来源；参数按用户实际提交保留，连接凭据不进入草稿。取得内容失败或取消时，原草稿保持不变。
+
+输入层的草稿插入动作，按一次编辑事务支持撤销；插入过程中若草稿已被用户改动，采用提交时 revision 校验，保留用户新内容而不覆盖。当前输入的清理只由已有接受提交流程负责，MCP 获取失败不吞掉草稿。
+
+三协议沿用现有 `UserMessage`、`ImageContent`、会话存储和压缩流程。获取后的材料固定在草稿或会话中。实现与验证记录见[开发进度](./progress.md#mcp-工具调用资源与提示模板2026-11-18)。
+
+### 5.7 子代理与运行中输入
+
+本节对应 `beta` 工作区。主代理可以把独立任务交给后台子代理，自己继续工作。每份子任务拥有独立 Agent、消息、压缩边界和执行句柄。父模型通过 `wait_agent` 主动取报告。普通工具批次目前仍顺序执行。
+
+#### 任务工具与报告
+
+`SubagentManager` 绑定当前父会话。`agent_id` 标识可恢复的任务，`toolCallId` 标识一次模型调用。父代理持有 `agent_task` 和 `wait_agent`；子代理使用通用角色提示、委派 prompt、工作目录、模型设置与实际可用工具。它独立获取和释放运行所需的 MCP binding。子工具过程留在子记录里，最终答复作为报告。
+
+| 调用 | 返回和生命周期 |
+|---|---|
+| `agent_task({action:"start", prompt})` | 主代理描述目标、边界和期望结果。宿主先创建持久记录，再派发后台任务并返回 `agent_id` 和 `running`。 |
+| `agent_task({action:"pause", agent_id})` | 停止继续派发，中止当前活动，等执行、审批及状态写入收尾后返回。自然语言取消也可以采用可恢复的暂停。 |
+| `agent_task({action:"resume", agent_id})` | 从同一 ID 和私有记录恢复。重复暂停或恢复返回现态，已完成和失败任务保留终态。 |
+| `wait_agent({agent_id})` | 运行时订阅状态。`completed` 附 `report`，`failed` 附 `error`，`paused` 直接返回。重复等待可读取同一结果。 |
+
+结果以 JSON 文本进入 `AgentToolResult.content`。参数按 action 校验，未知或其他父会话的 ID 返回工具错误。例如，主代理可以派子任务查调用方，自己查配置，随后等待；用户中途要求暂停时，主代理收到用户原话后再决定调用 `pause`。
+
+#### 忙时补充与等待唤醒
+
+`ReplController.submit()` 接受忙时的普通草稿，交给 `Harness.steer()` 检查活动请求，再由 `Agent.queueSteering()` 把文本和图片按到达顺序入队。接收成功后清空草稿并回显。命令和审批弹窗保有自己的输入焦点。
+
+`runLoop()` 等当前回复和整批工具结果配齐，通过 `getSteeringMessages()` 取出补充。每条真实 user 消息进入上下文并走 `message_start`／`message_end` 写入会话。纯文字回复在正常退出前也检查队列。越过最后一次检查才抵达的输入由 `flushSteering()` 在请求收尾时保存；上下文压缩保留尚待回答的补充。
+
+`wait_agent` 在挂监听前后检查队列和任务状态，完成、steer 与显式中止只交付一次结果，并解绑监听。收到 steer 时，本次等待返回 `interrupted`，任务继续运行，用户消息仍由主循环消费。任务先完成时等待可返回 `completed`，用户输入仍能送达。外部直接暂停任务则返回 `paused`。
+
+```text
+assistant → wait_agent(A)
+toolResult → {agent_id:A, status:"interrupted"}
+user → “先暂停 A”
+assistant → agent_task({action:"pause", agent_id:A})
+toolResult → {agent_id:A, status:"paused"}
+```
+
+#### 子记录、暂停与恢复
+
+```text
+<sessionsDir>/<timestamp>_<parentSessionId>.jsonl
+<sessionsDir>/<parentSessionId>/subagents/agent-<agentId>.jsonl
+```
+
+子目录由当前父会话的实际存储位置和头部 ID 计算，兼容自定义 `sessionsRoot`。顶层 `/resume` 只列父记录。任务头保存子／父 ID、创建调用 ID、时间、cwd、委派 prompt 及安全的模型和推理设置。message、compaction 和宿主状态行记录执行与报告。恢复时重新解析凭据。
+
+创建调用按父 ID 和 `toolCallId` 去重。宿主先落盘再返回 ID；发生异常退出时，取得会话所有权后才接管记录，把已退出执行者留下的 `running` 恢复为 `paused`，识别残缺尾行并给悬空调用补配对结果。副作用未确认时记录核对提示，恢复不自动重放写入或命令。`resume` 从已保存的上下文调用 `Agent.continueFromContext()`。完成时先保存报告，再唤醒等待者。
+
+子记录跟随父会话保留。重开或压缩后，宿主可向主模型提供 ID、任务摘要和状态的目录。目录不携带私有对话或报告。暂停、完成竞争时，同一轮执行只发布一次终态。
+
+#### 审批与父会话关闭
+
+父子工具共用权限模式和会话授权，按发起代理自己的 skill 状态检查权限。审批框按来源和调用 ID 对应各自的 resolver，显示任务摘要及原始 diff 或命令。Esc 只拒绝当前申请，本次允许只放行该调用，会话允许可用于后续匹配项，轮到排队项时重查授权。暂停子任务只撤回它的审批。内部任务管理按父会话 ID 查找目标；读写、Shell 和 MCP 仍执行原工具的审批策略。
+
+父代理自然结束回复，后台任务继续运行。主动中断、退出或关闭 Harness 时先禁止新增或恢复任务，再中止父请求、暂停活跃子任务，等待审批撤回和记录落盘后释放共享资源。`/new` 或切换 `/resume` 同样先收尾旧会话，再替换会话和权限状态。重开后由主代理显式恢复指定任务。
 
 ---
 
 ## 6. 接下来如何推进
 
-MCP 按 [三块功能计划](./mcp-design.md) 实施。自动化测试使用 stdio 子进程、回环 HTTP 服务和三种模型协议的真实请求编码。单独的 live 入口验证真实模型选择工具并使用返回结果。下表记录各版本的实现与验收历史。
+MCP 的服务器管理、模型工具和上下文材料三条入口已接通。自动化测试使用 stdio 子进程、回环 HTTP 服务和三种模型协议的真实请求编码。单独的 live 入口验证真实模型选择工具并使用返回结果。下表记录各版本的实现与验收历史。
 
 上下文容量与手动压缩已实现；BYOK 约定功能、九家厂商范围和本地验收完成，既有 review 尾项保留。整体 TUI 与反馈修复也已接入，后续按用户复试结果改进并完成最终 Review；权限模式执行链路是明确待审项。真实地区账户、跨平台终端和公开试用准备继续按条件推进，验证范围见 [progress.md](./progress.md)。
 
@@ -446,7 +696,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 ## 7. 这一版验收
 
-新 REPL 已接通，输入、实际 Harness、本地 HTTP SSE、自动压缩与溢出恢复已纳入 `tests/` 的自动化套件，维护流程和三端 CI 见 [测试指南](./testing.md)。此前 macOS 真实 POSIX PTY 验收记录保留在进度文档。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以离线测试替代。手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
+新 REPL 已接通，输入、实际 Harness、本地 HTTP SSE、自动压缩与溢出恢复已纳入 `tests/` 的自动化套件，维护流程和三端 CI 见 [测试指南](#8-测试与-ci)。此前 macOS 真实 POSIX PTY 验收记录保留在进度文档。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以离线测试替代。手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
 2. 说一句话之后，`~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
@@ -460,4 +710,112 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 
 测完删掉临时 jsonl 和手测写的文件。
 
-**公开试用评估：** v1.2 功能清单做完后，可以作为早期 CLI 试用版公开，不必等 v1.3 TUI；但发布前至少要建立可复现的测试框架并覆盖三种协议端到端验收，处理已知会影响正常使用的中断后工具配对、Windows bash 卡住和可恢复溢出错误提前显示问题。当前零散测试按用户要求不进入 Git。README 需要写清安装、配置示例、各协议能力与限制，以及工具会读写文件和执行命令；仓库还需明确许可证。以上是发布门槛，不表示这些问题当前已经解决。
+**公开试用评估：** v1.2 功能清单做完后，可以作为早期 CLI 试用版公开，不必等 v1.3 TUI；但发布前至少要建立可复现的测试框架并覆盖三种协议端到端验收，处理已知会影响正常使用的中断后工具配对、Windows bash 卡住和可恢复溢出错误提前显示问题。早期探针已退役，正式测试位于受版本管理的 `tests/`。README 需要写清安装、配置示例、各协议能力与限制，以及工具会读写文件和执行命令；仓库还需明确许可证。以上是发布门槛，不表示这些问题当前已经解决。
+
+---
+
+## 8. 测试与 CI
+
+正式测试位于 `tests/`，与源码、配置和依赖锁文件一起纳入 Git。旧 `test/` 已退役并移出项目，其历史探针、实验和验收产物不参与自动发现。新增功能同步维护对应测试；修复 bug 时先增加能复现问题的回归用例。
+
+### 本地命令
+
+开发测试使用当前 Node 22（至少 22.12）或 Node 24。首次安装使用 `npm ci --ignore-scripts`。
+
+| 命令 | 用途 |
+|---|---|
+| `npm test` | 全部离线测试，包含独立 CLI 进程测试 |
+| `npm test -- agent-lifecycle` | 文件路径包含该文字的测试 |
+| `npm test -- tests/integration/session.test.ts` | 指定文件 |
+| `npm test -- session.test --name "new and resume"` | 同时筛选文件和用例名称 |
+| `npm run test:unit` | 单元测试 |
+| `npm run test:integration` | 集成测试和回归测试 |
+| `npm run test:tui` | 终端界面与交互测试 |
+| `npm run test:e2e` | 在独立进程中启动真实 CLI |
+| `npm run test:watch -- unit` | 监听文件变化，Ctrl+C 退出 |
+| `npm run typecheck` | 产品源码类型检查 |
+| `npm run test:types` | 源码、测试和共享测试工具的类型检查 |
+| `npm run test:coverage` | 全量测试和覆盖率门槛检查 |
+| `npm run check` | 源码类型、测试类型、全量测试和构建 |
+
+运行器使用 Node 枚举 `.test.ts` 和 `.test.tsx`，不依赖系统 shell 的通配符。不匹配任何文件、用例失败、未处理错误和超时均返回非零退出码。
+
+### 目录与覆盖范围
+
+```text
+tests/
+  unit/           文本状态、输入解析、粘贴、上下文、权限、测试隔离
+  integration/    三种模型协议、配置恢复、Agent、工具、会话、压缩
+  tui/            React/Ink、模拟终端、菜单、渲染、缩放和历史回看
+  e2e/            独立 CLI 进程、管道输入、退出码、权限拒绝
+  regressions/    中断后的工具配对、接口错误凭据脱敏等具体问题
+  support/        测试 Harness、模型替身、HTTP 服务、临时目录和等待工具
+  live/           显式运行的真实模型检查，后缀为 .live.ts
+```
+
+| 模块 | 已纳入的主要行为 |
+|---|---|
+| 配置与模型 | schema、引用、预设、思考设置、逐请求凭据、无配置启动、修复和失败重载 |
+| 三种协议 | 实际请求编码、本地 HTTP/SSE、UTF-8 分片、工具参数、思考回传、usage、错误、取消 |
+| Agent | 普通回答、多工具、工具失败、参数校验、截断保护、并发操作、中断后继续 |
+| 工具 | 文件创建／覆盖、行号／截断、精确编辑、歧义／重叠拒绝、Shell 输出／错误／超时 |
+| 会话与上下文 | 延迟落盘、恢复、损坏数据、项目隔离、压缩切点、自动压缩、摘要失败和重试 |
+| 权限 | 三种模式、精确命令授权、会话重置、拒绝、反馈、中断和审批释放 |
+| CLI / TUI | 管道与进程退出、草稿、输入字节、粘贴、图片、菜单、配置表单、语言、缩放、历史缓存 |
+| MCP | stdio 与回环 HTTP 的连接、信任、认证及清理，工具装配与跨服务器路由，审批、目录变化、进度、业务错误、断线、超时、取消和结果配对，三协议图文结果、会话恢复，资源与模板草稿和管道命令 |
+| Skills | 文件工具创建和读取、目录发现／诊断、二级菜单、统一工具与三协议调用、参数、拒绝／中断／授权期限、会话恢复及重复压缩、自动压缩／超限恢复后首次续接目录完整且落盘一致 |
+
+### 环境隔离
+
+`scripts/run-tests.mjs` 每次创建独立的 HOME、用户配置、缓存、临时目录和工作目录，只传递必要的平台环境变量，不继承 API key、代理、`NODE_OPTIONS` 或 `CLI_AGENT_CONFIG`。结束后清理本次创建的根目录。
+
+`support/setup.ts` 在加载产品代码前拦截 Node socket 连接，默认只允许回环地址。协议测试使用真实的本地 HTTP 服务，其余模型行为由 `streamFn` 替身驱动。独立 CLI 子进程也加载该限制。这用于防止测试误连远端，不是针对不可信代码的系统级网络沙箱。
+
+Fake TTY 统一使用 `CI=false` 模拟用户终端，因为 Ink 在 `CI=true` 时会延迟输出交互帧。GitHub Actions 本身正常运行 CI；另有独立进程用例显式设置 `CI=true` 检查管道输出。测试文件顺序运行，避免全局 fetch 替换和 React/Ink 实例竞争。
+
+终端视口的布局准备和绘制是异步的。检查流式文本、滚动、展开和缩放时，先用 `waitFor` 等待目标终端帧或对应布局完成，再保留内容、宽度和锚点断言；不要用固定的 75／80 毫秒推断界面已完成。真实终端测试使用 `tests/support/terminal-screen.ts` 的无界面终端模拟器，应用光标移动和增量重绘后检查完整屏幕，不能把最后一次输出当成整屏内容。避免给同一会话挂第二个 `ReplScreen`，由两个视口同时回写滚动指标。
+
+### 编写新测试
+
+优先沿用同类文件和 `support/`，检查公开行为、真实结果和失败后的状态。
+
+```ts
+import assert from "node:assert/strict";
+import test from "node:test";
+import { createTestHarness, messageText } from "../support/harness.ts";
+
+test("完成对话后恢复空闲", async (t) => {
+  const { harness, agent } = createTestHarness(t, [{ text: "hello" }]);
+  await harness.prompt("hi");
+  assert.equal(messageText(agent.state.messages.at(-1)), "hello");
+  assert.equal(agent.state.isStreaming, false);
+});
+```
+
+`createTestHarness()` 提供临时项目、真实 Harness/Agent、事件快照和自动清理。`scripted.requests` 保存模型请求；响应步骤可以是文本、工具调用、错误，或者检查请求后返回响应的函数。同步异步操作使用 `deferred()`；等待渲染使用 `waitFor()`，不要猜测机器需要多久。
+
+文件操作使用 `tempWorkspace(t)`。协议测试使用 `createHttpFixture(t, handler)` 的随机端口和请求记录。所有数据使用合成凭据；临时配置、会话和服务在结束时清理。平台特有用例明确标注 `process.platform` 条件，不能为了 CI 通过而跳过通用功能或删除断言。
+
+### 覆盖率与 CI
+
+c8 使用源码映射生成覆盖率，并把从未导入的源码计入分母。报告位于忽略的 `coverage/`，包括 HTML、LCOV 和 JSON。全量门槛：行／语句／函数至少 85%，分支至少 80%。覆盖率命令用于全量检查，筛选调试使用 `npm test`。行为清单和关键回归仍是验收依据，百分比不代表所有场景均已覆盖。
+
+`.github/workflows/ci.yml` 使用 GitHub 官方 Actions，在分支 push、pull request、手动触发，以及由 Release 工作流调用时运行 Windows、Linux、macOS × Node 22、24，共六个独立任务。每个任务安装锁定依赖、检查源码与测试类型、构建、执行全量测试和覆盖率检查，并上传报告保存七天。单个任务失败不会取消其余平台检查。版本 tag 由 Release 统一检查，避免重复运行相同矩阵；自动发布和账号绑定见 [npm 自动发布](./progress.md#npm-发布流程)。
+
+需要把 CI 设为合并必需项时，由维护者配置仓库分支规则，工作流不会修改仓库设置。本机和远程验证分开记录；Linux/macOS 的通过状态以 Actions 实际执行结果为准。
+
+### 真实模型验证与边界
+
+MCP 可通过 `npm run test:live:mcp -- --config /path/to/byok.json --model main` 单独验收。该测试启动临时的本地 MCP 服务器，要求真实模型向发布服务获取一份只在服务器端生成的随机回执。测试核对实际调用次数、工具结果以及最终回答里的回执。一次测试最多请求模型六次，项目及会话保存在临时目录。默认离线套件使用 `npm test -- mcp` 运行按路径匹配的 MCP 用例，独立 CLI 进程中的命令用例可用 `npm test -- cli-process --name MCP` 运行。
+
+真实模型检查通过独立入口显式运行，默认测试和 CI 不读取真实配置、不消费模型额度：
+
+```sh
+npm run test:live -- --config /path/to/byok.json --model main
+```
+
+仅发送一次合成文字请求，无工具和会话写入；默认最多输出 256 token，请求超时 30 秒。可用 `--max-tokens 2048` 调整需要更多推理预算的模型。该入口验证实际接入，任务成功率、提示词对照等评测在有明确任务集后单独扩展。
+
+Skills 另有显式真实模型入口：`npm run test:live:skills -- --config /path/to/byok.json --model main --max-tokens 2048`。它验证真实模型调用 `skill`、按技能说明调用 `read` 返回资源中的随机 token，并分别通过不含路径／格式的自然语言请求创建项目级和用户级技能、随后调用验证。每项最多六次模型请求、约两分钟；项目、应用用户目录和会话全部留在测试临时目录并自动清理。默认测试与 CI 不执行此入口。离线三协议用回环 HTTP 的真实请求编码和工具往返验证系统接线，不据此宣称模型自主选择质量。
+
+原生剪贴板、具体终端外观仍需对应环境验收。Shell 测试覆盖默认超时、关闭标准输入、取消和有界输出排空；Windows CI 必须具备 Git Bash、PowerShell 5.1／7，并实际执行中文与空格路径删除、退出码、后代进程清理，以及 CMD 启动 CLI 后的 PowerShell 工具往返。缺少必需 shell 时用例失败；这些 Windows 专用用例仅在其他平台跳过。无 Git Bash 的探测和工具装配另有独立覆盖。见 `future-issues.md` No.1。

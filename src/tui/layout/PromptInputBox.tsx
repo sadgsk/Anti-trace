@@ -6,7 +6,7 @@ import { useTheme, ThemedText } from "../theme/ThemeProvider.tsx";
 import type { PermissionMode } from "../../cli/permissions/permission-policy.ts";
 import { truncateText } from "../utils/text.ts";
 import { useLocale } from "../locale/LocaleProvider.tsx";
-export function PromptInputBox({ controller, columns, maxRows, focus, mode, resume }: { controller: PromptInputController; columns: number; maxRows: number; focus: boolean; mode: PermissionMode; resume: boolean }) {
+export function PromptInputBox({ controller, columns, maxRows, focus, mode, resume, steering }: { controller: PromptInputController; columns: number; maxRows: number; focus: boolean; mode: PermissionMode; resume: boolean; steering: boolean }) {
 	const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot), colors = useTheme();
 	const prefix = "❯ ";
 	const { t } = useLocale();
@@ -16,7 +16,7 @@ export function PromptInputBox({ controller, columns, maxRows, focus, mode, resu
 		{resume ? <ThemedText color="muted">{t("输入会话序号，空行取消")}</ThemedText> : null}
 		<Box><ThemedText color={mode === "yolo" ? "warning" : "accent"} bold>{prefix}</ThemedText>
 			<BaseTextInput controller={controller.textInput} focus={focus} cursorColor={colors.brand || undefined} maxRows={maxRows}
-				placeholder={!resume && !state.isPasting && columns >= 40 ? ` ${t("输入 / 查看命令")}` : undefined} />
+				placeholder={!resume && !state.isPasting && columns >= 40 ? ` ${t(steering ? "输入补充要求，Enter 发送" : "输入 / 查看命令")}` : undefined} />
 		</Box>
 		{state.isPasting ? <Text dimColor>Processing paste…</Text> : null}
 		<ThemedText color="muted" wrap="truncate-end">{"─".repeat(columns)}</ThemedText>

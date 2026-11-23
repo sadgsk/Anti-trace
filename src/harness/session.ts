@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import type { AgentMessage, ImageContent, SessionSettings, UserMessage } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
@@ -136,20 +136,44 @@ export interface LoadedSession {
 	settings?: SessionSettings;
 }
 
-export function loadSession(filePath: string): LoadedSession {
-	const text = readFileSync(filePath, "utf8");
+/** A crash can leave a partial final write. Browsing is read-only; the owner repairs it before appending. */
+export function sessionNeedsTailRepair(filePath: string): boolean {
+	const fd = openSync(filePath, "r");
+	try {
+		const last = fstatSync(fd).size - 1;
+		const byte = Buffer.alloc(1);
+		return last >= 0 && readSync(fd, byte, 0, 1, last) === 1 && byte[0] !== 10;
+	} finally { closeSync(fd); }
+}
+
+export function readSessionRows(filePath: string, repairTail = false): unknown[] {
+	const bytes = readFileSync(filePath);
+	const lastNewline = bytes.lastIndexOf(10);
+	const rows: unknown[] = [];
+	for (const line of bytes.subarray(0, lastNewline + 1).toString("utf8").split("\n")) {
+		if (line.trim()) rows.push(JSON.parse(line));
+	}
+	if (lastNewline + 1 < bytes.length) {
+		const tail = bytes.subarray(lastNewline + 1).toString("utf8");
+		try {
+			if (tail.trim()) rows.push(JSON.parse(tail));
+		} catch {
+			if (repairTail) truncateSync(filePath, lastNewline + 1);
+			return rows;
+		}
+		if (repairTail) appendFileSync(filePath, "\n");
+	}
+	return rows;
+}
+
+export function loadSession(filePath: string, rows = readSessionRows(filePath)): LoadedSession {
 	let header: SessionHeader | undefined;
 	const entries: SessionEntry[] = [];
 	const messages: AgentMessage[] = [];
 	let firstUserText = "";
 	let settings: SessionSettings | undefined;
 
-	for (const rawLine of text.split(/\r?\n/)) {
-		const line = rawLine.trim();
-		if (line.length === 0) {
-			continue;
-		}
-		const parsed: unknown = JSON.parse(line);
+	for (const parsed of rows) {
 		if (typeof parsed !== "object" || parsed === null) {
 			throw new Error(`Invalid session line in ${filePath}`);
 		}

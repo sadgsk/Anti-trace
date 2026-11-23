@@ -4,13 +4,74 @@ import { join } from "node:path";
 import test from "node:test";
 import { PermissionPolicy } from "../../src/cli/permissions/permission-policy.ts";
 import type { BeforeToolCallContext } from "../../src/types.ts";
-import { deferred, tempWorkspace } from "../support/fixtures.ts";
+import { deferred, tempWorkspace, waitFor } from "../support/fixtures.ts";
 
 function context(name: string, args: Record<string, unknown> = {}): BeforeToolCallContext {
 	return { toolCall: { type: "toolCall", id: "call", name, arguments: args }, args,
 		assistantMessage: { role: "assistant", content: [], model: "test", stopReason: "toolUse", timestamp: 0 },
 		context: { systemPrompt: "", messages: [] } };
 }
+
+function child(id: string, command: string): BeforeToolCallContext {
+	return { ...context("bash", { command }), agentSource: { agent_id: id, summary: `Task ${id}` } };
+}
+
+test("parent and children queue independently, including identical tool call IDs", async t => {
+	const policy = new PermissionPolicy(tempWorkspace(t), true);
+	t.after(() => policy.dispose());
+	const executed: string[] = [];
+	const run = async (id: string, ctx: BeforeToolCallContext) => {
+		if (!(await policy.beforeToolCall(ctx))?.block) executed.push(id);
+	};
+	const parent = run("parent", context("bash", { command: "parent" }));
+	const a = run("A", child("A", "shared"));
+	const b = run("B", child("B", "shared"));
+	assert.equal(policy.getSnapshot().request?.args.command, "parent");
+	policy.decide("deny");
+	assert.equal(policy.getSnapshot().request?.agentSource?.agent_id, "A");
+	policy.decide("session");
+	await Promise.all([parent, a, b]);
+	assert.equal(policy.getSnapshot().request, null);
+	assert.deepEqual(executed.sort(), ["A", "B"]);
+	assert.equal(await policy.beforeToolCall(context("bash", { command: "shared" })), undefined);
+});
+
+test("aborting a queued or visible child withdraws only that child's approval", async t => {
+	const policy = new PermissionPolicy(tempWorkspace(t), true);
+	t.after(() => policy.dispose());
+	for (const position of ["visible", "queued"]) {
+		const controller = new AbortController();
+		const parent = policy.beforeToolCall(context("bash", { command: "parent" }));
+		const a = policy.beforeToolCall(child("A", "same"), controller.signal);
+		const b = policy.beforeToolCall(child("B", "same"));
+		if (position === "visible") policy.decide("allow");
+		controller.abort();
+		assert.equal((await a)?.block, true);
+		if (position === "queued") {
+			assert.equal(policy.getSnapshot().request?.args.command, "parent");
+			policy.decide("allow");
+		}
+		assert.equal(await parent, undefined);
+		assert.equal(policy.getSnapshot().request?.agentSource?.agent_id, "B");
+		policy.decide("allow");
+		assert.equal(await b, undefined);
+	}
+});
+
+test("child skill activation is private and switching to YOLO clears concurrent approvals", async t => {
+	const parentSkills = { permissionTools: () => [], activeTools: () => ["bash"] };
+	const policy = new PermissionPolicy(tempWorkspace(t), true, "auto-edit", parentSkills);
+	t.after(() => policy.dispose());
+	assert.equal(await policy.beforeToolCall(context("bash")), undefined);
+	assert.equal(await policy.beforeToolCall({ ...child("activated", "skill command"), skillAccess: parentSkills }), undefined);
+	const a = policy.beforeToolCall(child("A", "skill command"));
+	const b = policy.beforeToolCall(child("B", "other command"));
+	assert.equal(policy.getSnapshot().request?.agentSource?.agent_id, "A");
+	policy.cycleMode();
+	assert.deepEqual(await Promise.all([a, b]), [undefined, undefined]);
+	assert.equal(policy.getSnapshot().request, null);
+	assert.equal(await policy.beforeToolCall(child("A", "new command")), undefined);
+});
 
 test("noninteractive default permits reads and blocks writes and commands", async (t) => {
 	const policy = new PermissionPolicy(tempWorkspace(t), false);
@@ -102,6 +163,30 @@ test("disposal releases an outstanding permission request", async (t) => {
 	const pending = policy.beforeToolCall(context("bash", { command: "echo no" }));
 	policy.dispose();
 	assert.equal((await pending)?.block, true);
+});
+
+test("queued write previews use the latest contents and a changed file needs fresh approval", async t => {
+	const root = tempWorkspace(t), path = join(root, "file");
+	writeFileSync(path, "initial\n");
+	const policy = new PermissionPolicy(root, true);
+	t.after(() => policy.dispose());
+	const first = policy.beforeToolCall(context("bash", { command: "other work" }));
+	const pending = policy.beforeToolCall(context("write", { path, content: "proposed\n" }));
+	writeFileSync(path, "changed while queued\n");
+	policy.decide("deny");
+	await first;
+	await waitFor(() => policy.getSnapshot().request?.name === "write", "queued write preview");
+	assert.ok(policy.getSnapshot().request!.hunks![0]!.lines.includes("-changed while queued"));
+	writeFileSync(path, "changed while visible\n");
+	policy.decide("session");
+	await waitFor(() => policy.getSnapshot().request?.previewChanged === true, "refreshed preview");
+	assert.ok(policy.getSnapshot().request!.hunks![0]!.lines.includes("-changed while visible"));
+	policy.decide("allow");
+	assert.equal(await pending, undefined);
+	const next = policy.beforeToolCall(context("write", { path, content: "next" }));
+	await waitFor(() => Boolean(policy.getSnapshot().request), "no session grant from stale preview");
+	policy.decide("deny");
+	assert.ok((await next)?.block);
 });
 
 test("external approvals use the bound identity even when a skill grants the same public tool name", async t => {

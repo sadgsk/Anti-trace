@@ -18,17 +18,19 @@ import { McpCommand } from "../commands/mcp-command.ts";
 import { McpContextCommand, isMcpContextCommand, type McpDraftEditor } from "../commands/mcp-context-command.ts";
 import { diagnostic } from "../../mcp/util.ts";
 
-export type ReplHarness = Pick<Harness, "prompt" | "abort" | "subscribe" | "newSession"
-	| "listSessions" | "resumeAt" | "setContextWindow" | "contextUsage" | "manualCompact">
+export type ReplHarness = Pick<Harness, "prompt" | "subscribe"
+	| "listSessions" | "setContextWindow" | "contextUsage" | "manualCompact">
+	& { abort(): void | Promise<void>; newSession(): void | Promise<void>; resumeAt(index: number): boolean | Promise<boolean> }
 	& Partial<Pick<Harness, "setThinkingLevel" | "setThinkingEnabled" | "describeSettings" | "settingsWarning"
 		| "getDisplayState" | "getSessionMessages" | "getSessionHistory" | "setBeforeToolCall"
-		| "mcp" | "getSkills" | "reloadSkills" | "invokeSkill" | "getSkillPermissionTools" | "getActiveSkillTools">>;
+		| "mcp" | "getSkills" | "reloadSkills" | "invokeSkill" | "steer" | "getSkillPermissionTools" | "getActiveSkillTools">>;
 
 export interface ReplEntry { readonly id: number; readonly text: string; readonly kind?: "user" | "thinking" }
 export interface ReplSnapshot {
 	readonly entries: readonly ReplEntry[];
 	readonly liveText: string;
 	readonly busy: boolean;
+	readonly acceptsSteering: boolean;
 	readonly closed: boolean;
 	readonly resumeChoices: readonly SessionListItem[] | null;
 	readonly error?: string;
@@ -65,7 +67,7 @@ export interface ReplOptions {
 
 /** Commands and agent events consume complete drafts, never raw terminal input. */
 export class ReplController {
-	private snapshot: ReplSnapshot = { entries: [], liveText: "", busy: false, closed: false, resumeChoices: null,
+	private snapshot: ReplSnapshot = { entries: [], liveText: "", busy: false, acceptsSteering: false, closed: false, resumeChoices: null,
 		transcript: [], activeItems: [], expanded: false, thinkingDisplay: true, renderEpoch: 0,
 		display: { modelName: "模型未配置", thinking: { effort: "medium" }, contextUsed: 0, sessionTitle: "新会话" },
 		phase: "thinking", startedAt: 0, lastEventAt: 0, outputChars: 0, scrollOffset: 0, historyVersion: 0, viewingHistory: false };
@@ -79,6 +81,7 @@ export class ReplController {
 	private showThinking = true;
 	private readonly streamedBlocks = new Set<number>();
 	private disposed = false;
+	private stopping?: Promise<void>;
 	readonly permissions: PermissionPolicy;
 	readonly dialogs = new CommandDialogController();
 	readonly locale: UiLocale;
@@ -87,6 +90,7 @@ export class ReplController {
 	private readonly restorePermissionHook?: () => void;
 	private assistantId?: number;
 	private interrupted = false;
+	private interruptCleanup?: Promise<void>;
 	private promptResultReceived = false;
 	private mcpOperation?: AbortController;
 	private readonly mcpCommand?: McpCommand;
@@ -112,19 +116,31 @@ export class ReplController {
 	};
 
 	canSubmit(draft?: PromptDraft): boolean {
-		if (this.disposed || this.snapshot.closed || this.snapshot.busy || this.dialogs.getSnapshot()) return false;
+		if (this.disposed || this.snapshot.closed || this.dialogs.getSnapshot() || this.permissions.getSnapshot().request) return false;
+		if (this.snapshot.busy && !this.snapshot.acceptsSteering) return false;
 		if (!draft || this.snapshot.resumeChoices !== null) return true;
 		const { text, images } = preparePromptSubmission(draft);
-		return text.trim().length > 0 || images.length > 0;
+		return (!this.snapshot.busy || !parseSlashCommand(text)) && (text.trim().length > 0 || images.length > 0);
 	}
 
 	/** Expand references once, then route one accepted snapshot to a command or Harness. */
 	async submit(draft: PromptDraft, skillImages?: ImageContent[]): Promise<boolean> {
 		if (!this.canSubmit(draft)) return false;
-		this.interrupted = false;
-		this.promptResultReceived = false;
 		const { text, images: draftImages } = preparePromptSubmission(draft);
 		const images = skillImages ?? draftImages;
+		if (this.snapshot.busy) {
+			try {
+				if (!this.harness.steer?.(text, images.length ? images : undefined)) return false;
+			} catch (error) {
+				this.write(`错误：${error instanceof Error ? error.message : String(error)}`, undefined, "error");
+				return false;
+			}
+			this.options.onAccept?.();
+			this.write(`> ${draft.text}`, "user", "info", false, draft.references.map(ref => ref.label));
+			return true;
+		}
+		this.interrupted = false;
+		this.promptResultReceived = false;
 		const parsed = parseSlashCommand(text);
 		const contextCommand = this.snapshot.resumeChoices === null && parsed && isMcpContextCommand(parsed.command.name) ? parsed.command.name : undefined;
 		this.update({ busy: true, error: undefined, expanded: false, scrollOffset: 0, viewingHistory: false, reviewAnchor: undefined, phase: "thinking", startedAt: Date.now(), lastEventAt: Date.now(), outputChars: 0 });
@@ -132,7 +148,7 @@ export class ReplController {
 			if (!contextCommand) this.options.onAccept?.();
 			if (this.snapshot.closed) return true;
 			if (this.snapshot.resumeChoices !== null) {
-				this.resumeSelection(text);
+				await this.resumeSelection(text);
 				return true;
 			}
 			if (contextCommand && parsed) {
@@ -162,9 +178,11 @@ export class ReplController {
 				}
 			}
 		} finally {
+			await this.interruptCleanup;
+			this.interruptCleanup = undefined;
 			this.flushLive();
 			this.assistantId = undefined;
-			if (!this.snapshot.closed) this.update({ busy: false, modelStatus: this.harness.describeSettings?.(), display: this.readDisplay(),
+			if (!this.snapshot.closed) this.update({ busy: false, acceptsSteering: false, modelStatus: this.harness.describeSettings?.(), display: this.readDisplay(),
 				transcript: [...this.snapshot.transcript, ...this.snapshot.activeItems], activeItems: [] });
 		}
 		return true;
@@ -173,7 +191,10 @@ export class ReplController {
 	interrupt(): void {
 		if (!this.snapshot.closed && this.snapshot.busy) {
 			if (!this.interrupted) this.write("已中断。可以修改要求后继续。", undefined, "warning");
-			this.interrupted = true; this.harness.abort(); this.permissions.cancel(); this.mcpOperation?.abort();
+			this.interrupted = true;
+			this.update({ acceptsSteering: false });
+			this.interruptCleanup ??= Promise.resolve(this.harness.abort()).catch(error => this.write(String(error), undefined, "error"));
+			this.permissions.cancel(); this.mcpOperation?.abort();
 		}
 	}
 	toggleExpanded(): void {
@@ -208,9 +229,10 @@ export class ReplController {
 		finally { this.options.onExit?.(); }
 	}
 
-	dispose(): void {
-		if (this.disposed) return;
+	dispose(): Promise<void> {
+		if (this.disposed) return this.stopping ?? Promise.resolve();
 		this.disposed = true;
+		this.stopping = Promise.resolve(this.harness.abort());
 		this.unsubscribe();
 		this.unsubscribeDialogs();
 		this.unsubscribeLocale();
@@ -219,8 +241,8 @@ export class ReplController {
 		this.restorePermissionHook?.();
 		this.listeners.clear();
 		this.snapshot = { ...this.snapshot, closed: true, busy: false, resumeChoices: null };
-		this.harness.abort();
 		this.mcpOperation?.abort();
+		return this.stopping;
 	}
 
 	write(text: string, kind?: "user" | "thinking", tone: NoticeTone = "info", textOnly = false, attachments: string[] = [], literal = false): void {
@@ -229,7 +251,7 @@ export class ReplController {
 		const item: TranscriptItem = kind === "user" ? { id, kind: "user", text: text.replace(/^> /, ""), attachments, timestamp: Date.now() }
 			: { id, kind: "notice", text, tone };
 		this.update({ entries: [...this.snapshot.entries, { id, text: kind || literal ? text : this.locale.t(text), kind }],
-			...(textOnly ? {} : this.snapshot.busy && kind !== "user" ? { activeItems: [...this.snapshot.activeItems, item] }
+			...(textOnly ? {} : this.snapshot.busy && (kind !== "user" || this.snapshot.acceptsSteering) ? { activeItems: [...this.snapshot.activeItems, item] }
 				: { transcript: [...this.snapshot.transcript, item] }) });
 	}
 
@@ -319,7 +341,7 @@ export class ReplController {
 		const harness = this.harness;
 		switch (command) {
 			case "new":
-				harness.newSession();
+				await harness.newSession();
 				this.permissions.resetSession();
 				// Start a new native scrollback sequence, even when the old transcript exceeds one screen.
 				this.update({ transcript: [], activeItems: [], historyVersion: this.snapshot.historyVersion + 1, renderEpoch: this.snapshot.renderEpoch + 1 });
@@ -387,6 +409,8 @@ export class ReplController {
 		try { await action(controller.signal); }
 		catch (error) { const detail = diagnostic(error); if (!this.disposed) this.write(`${detail.code}: ${detail.message}`, undefined, "error"); }
 		finally {
+			await this.interruptCleanup;
+			this.interruptCleanup = undefined;
 			if (this.mcpOperation === controller) this.mcpOperation = undefined;
 			if (!this.disposed) this.update({ busy: false, transcript: [...this.snapshot.transcript, ...this.snapshot.activeItems], activeItems: [] });
 		}
@@ -428,13 +452,17 @@ export class ReplController {
 			if (!choices.length) { this.write("没有可恢复的会话。"); return true; }
 			this.dialogs.openPicker({ title: "恢复会话", description: "↑↓ 选择会话，Enter 恢复；Esc 取消。",
 				choices: choices.map(item => ({ id: item.filePath, label: item.name, literal: true, description: this.formatTime(item.lastOpenedAt), descriptionLiteral: true })),
-				onAccept: id => this.dialogAction(() => {
-					const index = this.harness.listSessions().findIndex(item => item.filePath === id);
-					if (index < 0) throw new Error("该会话已不可用，请返回后重新打开。");
-					this.update({ resumeChoices: [choices.find(item => item.filePath === id)!] });
-					this.resumeSelection("1");
-					if (this.snapshot.resumeChoices) { this.update({ resumeChoices: null }); throw new Error("恢复失败，请重新选择。"); }
-				}) });
+				onAccept: async id => {
+					this.dialogs.close();
+					this.update({ busy: true });
+					try {
+						const switching = this.resumeSelected(choices.find(item => item.filePath === id)!);
+						if (switching) await switching;
+					}
+					catch (error) { if (!this.disposed) this.write(String(error), undefined, "error"); }
+					finally { if (!this.disposed) this.update({ busy: false,
+						transcript: [...this.snapshot.transcript, ...this.snapshot.activeItems], activeItems: [] }); }
+				} });
 			return true;
 		}
 		if (command === "config") { this.openConfigMenu(); return true; }
@@ -494,7 +522,7 @@ export class ReplController {
 		this.writeContext();
 	}
 
-	private resumeSelection(text: string): void {
+	private resumeSelection(text: string): Promise<void> | void {
 		const choices = this.snapshot.resumeChoices!;
 		if (text.trim() === "") {
 			this.update({ resumeChoices: null });
@@ -503,13 +531,25 @@ export class ReplController {
 		}
 		const selected = /^\d+$/u.test(text.trim()) ? choices[Number(text.trim()) - 1] : undefined;
 		if (!selected) { this.write("请输入列表中的会话序号，或空行取消。"); return; }
+		return this.resumeSelected(selected);
+	}
+
+	private resumeSelected(selected: SessionListItem): Promise<void> | void {
 		// Find the selected file again: mtime sorting can change while the chooser is open.
 		const harness = this.harness;
 		const currentIndex = harness.listSessions().findIndex(item => item.filePath === selected.filePath);
-		if (currentIndex < 0 || !harness.resumeAt(currentIndex + 1)) {
+		const resumed = currentIndex >= 0 && harness.resumeAt(currentIndex + 1);
+		if (resumed instanceof Promise) return resumed.then(ok => this.showResumedSession(ok, selected));
+		this.showResumedSession(resumed, selected);
+	}
+
+	private showResumedSession(resumed: boolean, selected: SessionListItem): void {
+		if (this.disposed) return;
+		if (!resumed) {
 			this.write("该会话已不可用，请重新选择。");
 			return;
 		}
+		const harness = this.harness;
 		this.update({ resumeChoices: null });
 		this.permissions.resetSession();
 		this.update({ transcript: harness.getSessionHistory ? projectSessionHistory(harness.getSessionHistory(), () => this.nextId++)
@@ -525,6 +565,9 @@ export class ReplController {
 		if (this.disposed || this.snapshot.closed) return;
 		this.update({ lastEventAt: Date.now() });
 		switch (event.type) {
+			case "agent_start":
+				this.update({ acceptsSteering: Boolean(this.harness.steer) });
+				break;
 			case "message_start":
 				if (event.message.role === "assistant") {
 					this.streamedBlocks.clear();
@@ -592,6 +635,7 @@ export class ReplController {
 			case "compaction_error": break;
 			case "turn_end": this.flushLive(); break;
 			case "agent_end": {
+				this.update({ acceptsSteering: false });
 				this.flushLive();
 				break;
 			}

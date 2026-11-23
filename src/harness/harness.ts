@@ -42,6 +42,7 @@ import { McpRuntime } from "../mcp/runtime.ts";
 import { McpToolSource } from "../mcp/tool-source.ts";
 import { McpResourceSource } from "../mcp/resource-source.ts";
 import type { ToolSource, AcquiredToolSource } from "./tool-source.ts";
+import { SubagentManager, type SubagentRun, type SubagentSettings } from "./subagents.ts";
 
 export interface HarnessModelSettings {
 	model: Model;
@@ -76,6 +77,12 @@ export interface HarnessDisplayState {
 	modelName: string; thinking: ThinkingPreferences; contextUsed: number; contextWindow?: number; sessionTitle: string;
 }
 
+interface ChildExecution {
+	run: SubagentRun;
+	parent: Harness;
+	baseTools: AgentTool[];
+}
+
 export class Harness {
 	readonly agent: Agent;
 	private readonly skills: SkillRuntime;
@@ -95,6 +102,12 @@ export class Harness {
 	}
 	private readonly cwd: string;
 	private readonly sessionStorage: SessionStorage;
+	private tasks?: SubagentManager;
+	private includeTaskCatalog = false;
+	private stoppingChildren?: Promise<void>;
+	private switchingSessions = false;
+	private submissionBaseTools?: AgentTool[];
+	private readonly childModels = new Map<string, HarnessModelSettings>();
 	private session!: SessionFile;
 	private usedTokens = 0;
 	private promptController: AbortController | undefined;
@@ -111,14 +124,14 @@ export class Harness {
 	private justCompacted?: AgentMessage[];
 	private readonly displayListeners = new Set<(event: HarnessEvent, signal: AbortSignal) => Promise<void> | void>();
 
-	constructor(options: HarnessOptions) {
+	constructor(private readonly options: HarnessOptions, private readonly child?: ChildExecution) {
 		const paths = options.paths ?? getAppPaths(options);
 		const shells = options.shellEnvironment ?? getShellEnvironment();
 		this.shells = shells;
 		this.skillPaths = skillDirectories(options.cwd, paths.userSkillsDir);
 		this.skills = new SkillRuntime(new SkillRegistry(this.skillPaths));
 		this.skillTool = createSkillTool(this.skills, () => this.session.header.id, () => this.agent.state.tools.map(tool => tool.name));
-		const tools = [
+		const tools = child ? child.baseTools.filter(tool => !["agent_task", "wait_agent", "skill"].includes(tool.name)) : [
 			createReadTool(options.cwd),
 			...(shells.powershell ? [createPowerShellTool(options.cwd, shells.powershell, paths)] : []),
 			...(shells.bash ? [createBashTool(options.cwd, shells.bash, paths)] : []),
@@ -132,12 +145,16 @@ export class Harness {
 		this.modelRef = options.modelRef ? { ...options.modelRef } : undefined;
 		this.resolveModel = options.resolveModel;
 		this.agent = new Agent({
-			streamFn: options.streamFn,
+			streamFn: (model, context, settings) => {
+				const catalog = this.includeTaskCatalog ? this.tasks?.catalog() : undefined;
+				return options.streamFn(model, catalog ? { ...context, systemPrompt: `${context.systemPrompt}\n\n${catalog}` } : context, settings);
+			},
 			apiKey: options.apiKey,
 			beforeModelRequest: (request, signal) => this.prepareModelRequest(request, signal),
 			initialState: {
 				systemPrompt: buildSystemPrompt({
 					cwd: options.cwd,
+					subagent: Boolean(child),
 					toolNames: tools.map((tool) => tool.name),
 					skillDirectories: this.skillPaths,
 					platform: shells.platform,
@@ -150,14 +167,30 @@ export class Harness {
 		});
 		this.generatedPrompt = this.agent.state.systemPrompt;
 		if (options.model) this.agent.getApiKey = this.createRequestSettings(false).getApiKey;
-		this.mcp = new McpRuntime({ cwd: options.cwd, paths, assertIdle: () => this.assertIdle() });
+		this.mcp = child?.parent.mcp ?? new McpRuntime({ cwd: options.cwd, paths, assertIdle: () => this.assertIdle() });
 		this.toolSources = [new McpResourceSource(), new McpToolSource(), ...(options.toolSources ?? [])];
-		this.newSession();
+		if (child) {
+			this.session = child.run.session;
+			this.agent.state.messages = child.run.messages;
+			this.skills.restore(this.session.entries.flatMap(entry => entry.type === "message" ? [entry.message] : []));
+			this.refreshSkills();
+			this.agent.beforeToolCall = (context, signal) => {
+				const hook = child.parent.agent.beforeToolCall;
+				if (!hook) return Promise.resolve(context.permission ? { block: true, reason: "此工具需要授权，当前入口未配置审批处理程序。" } : undefined);
+				return hook({ ...context, agentSource: { agent_id: child.run.agentId, summary: child.run.prompt.slice(0, 120) },
+					skillAccess: { activeTools: () => this.getActiveSkillTools(), permissionTools: name => this.getSkillPermissionTools(name) } }, signal);
+			};
+		} else this.resetSession();
 		this.agent.subscribe((event) => {
 			if (event.type !== "message_end") {
 				return;
 			}
+			if (event.message.role === "assistant" && event.message.content.some(block => block.type === "toolCall")) {
+				this.tasks?.claimForToolBatch();
+			}
 			appendEntry(this.session, { type: "message", message: event.message });
+			// A steer starts its permission scope when delivered after the whole tool batch.
+			if (event.message.role === "user" && !event.message.isMeta) this.skills.beginTurn();
 			this.skills.accept(event.message);
 			if (event.message.role === "assistant") {
 				this.usageBaseline = event.message.usage && this.requestKey ? { message: event.message, key: this.requestKey } : undefined;
@@ -168,6 +201,13 @@ export class Harness {
 
 	async prompt(text: string, images?: ImageContent[]): Promise<void> {
 		return this.submitPrompt(text, images);
+	}
+
+	steer(text: string, images?: ImageContent[]): boolean {
+		if (!this.promptController || this.promptController.signal.aborted || !this.agent.state.isStreaming) return false;
+		if (images?.length) text = this.withImagePaths(text, images);
+		this.agent.queueSteering(text, images);
+		return true;
 	}
 
 	async invokeSkill(name: string, args = "", images?: ImageContent[]): Promise<void> {
@@ -189,7 +229,7 @@ export class Harness {
 	private updateTools(tools: AgentTool[], context?: AgentContext): void {
 		const currentPrompt = context?.systemPrompt ?? this.agent.state.systemPrompt;
 		const systemPrompt = currentPrompt === this.generatedPrompt
-			? buildSystemPrompt({ cwd: this.cwd, toolNames: tools.map(tool => tool.name), skillDirectories: this.skillPaths, platform: this.shells.platform, powerShellVersion: this.shells.powershell?.majorVersion }) + this.sourceInstructions : currentPrompt;
+			? buildSystemPrompt({ cwd: this.cwd, subagent: Boolean(this.child), toolNames: tools.map(tool => tool.name), skillDirectories: this.skillPaths, platform: this.shells.platform, powerShellVersion: this.shells.powershell?.majorVersion }) + this.sourceInstructions : currentPrompt;
 		if (currentPrompt === this.generatedPrompt) this.generatedPrompt = systemPrompt;
 		this.agent.state.tools = tools;
 		this.agent.state.systemPrompt = systemPrompt;
@@ -204,7 +244,8 @@ export class Harness {
 		const originalPrompt = this.agent.state.systemPrompt;
 		const customPrompt = originalPrompt !== this.generatedPrompt;
 		try {
-			const reservedNames = new Set(["skill", ...this.agent.state.tools.map(tool => tool.name)]);
+			this.submissionBaseTools = this.agent.state.tools.slice();
+			const reservedNames = new Set(["agent_task", "wait_agent", "skill", ...this.submissionBaseTools.map(tool => tool.name)]);
 			const instructions: string[] = [];
 			for (const provider of this.toolSources) {
 				const source = await provider.acquire({
@@ -240,13 +281,16 @@ export class Harness {
 					await this.emitDisplay({ type: "tool_source_diagnostic", message: String(failure.reason) }, signal);
 				}
 			} finally {
+				this.submissionBaseTools = undefined;
 				binding.release();
 			}
 		}
 	}
 
 	private async submitPrompt(text: string, images?: ImageContent[], invocation?: { name: string; args: string }): Promise<void> {
+		if (this.stoppingChildren && !this.promptController) await this.stoppingChildren;
 		this.assertIdle();
+		this.tasks?.allowRuns();
 		this.skills.beginTurn();
 		this.refreshSkills();
 		const finish = this.trackWork();
@@ -274,6 +318,7 @@ export class Harness {
 				return resolver(provider, model);
 			};
 			result = await this.withRunTools(settings.model, controller.signal, async () => {
+				if (this.session.flushed) this.tasks?.claimForToolBatch();
 				// Persist the effective settings before adding messages to a restored session.
 				this.recordSettings(this.settings);
 				const instruction = invocation ? this.skills.prepare(invocation.name, invocation.args, "user", this.session.header.id, this.agent.state.tools.map(tool => tool.name)) : undefined;
@@ -285,11 +330,14 @@ export class Harness {
 		} finally {
 			if (result.status !== "success") this.skills.beginTurn();
 			try {
+				// Admission is closed once the Agent is idle, including after overflow recovery.
+				await this.agent.flushSteering(controller.signal);
 				await this.emitDisplay({ type: "prompt_end", result }, controller.signal);
 			} finally {
 				this.promptController = undefined;
 				this.activeUserMessage = undefined;
 				finish();
+				this.tasks?.releaseIdleClaim();
 			}
 		}
 	}
@@ -298,13 +346,8 @@ export class Harness {
 		// Images stay in context as real blocks (so the model sees them right away) and are also
 		// written next to the session jsonl, so the model can `read` one back after compaction
 		// replaces that part of the history with a summary.
-		let promptText = text;
-		if (images && images.length > 0) {
-			const paths = images.map((image) => saveSessionImage(this.session.path, image));
-			const note = `[Attached image(s) saved at: ${paths.join(", ")}]`;
-			promptText = promptText.length > 0 ? `${promptText}\n\n${note}` : note;
-		}
-		await this.agent.prompt(promptText, images, settings, instruction ? [instruction] : []);
+		if (this.child) await this.agent.continueFromContext(settings);
+		else await this.agent.prompt(images?.length ? this.withImagePaths(text, images) : text, images, settings, instruction ? [instruction] : []);
 		const effectiveSettings = this.requestSettings ?? settings;
 		if (signal.aborted) return { status: "aborted", message: "已中断。" };
 		const lastMessage = this.agent.state.messages.at(-1);
@@ -329,6 +372,12 @@ export class Harness {
 			await this.agent.continueFromContext(effectiveSettings);
 		}
 		return this.promptResult(signal, this.requestSettings?.model.contextWindow ?? window);
+	}
+
+	private withImagePaths(text: string, images: ImageContent[]): string {
+		const paths = images.map(image => saveSessionImage(this.session.path, image));
+		const note = `[Attached image(s) saved at: ${paths.join(", ")}]`;
+		return text ? `${text}\n\n${note}` : note;
 	}
 
 	private promptResult(signal: AbortSignal, window: number): PromptResult {
@@ -392,15 +441,26 @@ export class Harness {
 		}
 	}
 
-	abort(): void {
+	abort(): Promise<void> {
+		const stopped = this.stoppingChildren ?? this.tasks?.pauseAll() ?? Promise.resolve();
+		if (!this.stoppingChildren && this.tasks?.hasActiveRuns()) {
+			this.stoppingChildren = stopped.finally(() => { this.stoppingChildren = undefined; });
+		}
 		this.promptController?.abort();
 		this.compactionController?.abort();
 		this.agent.abort();
+		return this.stoppingChildren ?? stopped;
 	}
 
 	/** Embedders own this lifecycle; CLI awaits it on every owned exit path. */
 	close(): Promise<void> {
-		if (!this.closing) { this.abort(); this.closing = Promise.all([this.mcp.close(), ...this.activeWork]).then(() => {}); }
+		if (!this.closing) {
+			const stopped = this.abort();
+			this.closing = Promise.allSettled([stopped, ...this.activeWork]).then(async results => {
+				await this.tasks?.close();
+				for (const result of results) if (result.status === "rejected") throw result.reason;
+			}).finally(() => this.mcp.close());
+		}
 		return this.closing;
 	}
 
@@ -429,14 +489,108 @@ export class Harness {
 		for (const listener of this.displayListeners) await listener(event, signal);
 	}
 
-	newSession(): void {
-		this.assertIdle();
+	private createTaskManager(session: SessionFile): SubagentManager {
+		return new SubagentManager(session, {
+			settings: agentId => {
+				const request = (this.promptController && this.requestSettings) || this.createRequestSettings();
+				const { model, thinking, getApiKey } = request;
+				const configured = this.requireModel();
+				const modelRef = model.id === configured.id && this.sameConnection(model, configured) ? this.modelRef : undefined;
+				this.childModels.set(agentId, { model: structuredClone(model), apiKey: request.apiKey,
+					getApiKey: getApiKey && (requested => getApiKey(requested.provider, requested)) });
+				return { thinking, modelRef, modelId: model.id, modelProvider: model.provider };
+			},
+			prepareResume: (id, settings) => this.resolveSubagentModel(id, settings),
+			run: run => this.runSubagent(run),
+			hasSteering: () => this.agent.hasPendingSteering(),
+			subscribeSteering: listener => this.agent.onSteering(listener),
+		});
+	}
+
+	private resolveSubagentModel(id: string, settings: SubagentSettings): HarnessModelSettings {
+		const cached = this.childModels.get(id);
+		if (cached) return cached;
+		const matches = (model: Model) => (!settings.modelId || settings.modelId === model.id) &&
+			(!settings.modelProvider || settings.modelProvider === model.provider);
+		const reference = settings.modelRef;
+		const model = this.agent.state.model;
+		const sameRef = reference?.configPath === this.modelRef?.configPath && reference?.modelKey === this.modelRef?.modelKey;
+		let resolved: HarnessModelSettings | undefined;
+		if (model && sameRef && matches(model)) resolved = { model: structuredClone(model), apiKey: this.agent.apiKey, getApiKey: this.getApiKey };
+		else if (reference && this.resolveModel) resolved = this.resolveModel(reference);
+		if (!resolved) throw new Error("无法解析子任务创建时的模型，请重新加载原模型配置。");
+		if (!matches(resolved.model)) {
+			const expected = [settings.modelProvider, settings.modelId].filter(Boolean).join("/");
+			throw new Error(`子任务需要模型 ${expected}，当前配置指向 ${resolved.model.provider}/${resolved.model.id}。请重新加载原模型配置。`);
+		}
+		this.childModels.set(id, resolved);
+		return resolved;
+	}
+
+	private async runSubagent(run: SubagentRun): Promise<string> {
+		const modelSettings = this.resolveSubagentModel(run.agentId, run.settings);
+		const child = new Harness({ ...this.options, ...modelSettings, modelRef: run.settings.modelRef, thinking: run.settings.thinking,
+			// A resolved model may intentionally provide only a dynamic key resolver.
+			apiKey: modelSettings.apiKey, getApiKey: modelSettings.getApiKey,
+		}, { run, parent: this, baseTools: this.submissionBaseTools ?? this.agent.state.tools });
+		const controller = new AbortController();
+		child.promptController = controller;
+		const stop = () => { controller.abort(); child.compactionController?.abort(); child.agent.abort(); };
+		run.signal.addEventListener("abort", stop, { once: true });
+		try {
+			run.signal.throwIfAborted();
+			const settings = child.createRequestSettings();
+			const result = await child.withRunTools(settings.model, controller.signal, () => child.runPrompt("", undefined, controller.signal, settings));
+			if (result.status !== "success") throw new Error(result.message);
+			const last = child.agent.state.messages.at(-1);
+			if (last?.role !== "assistant") throw new Error("子任务没有给出最终答复。");
+			return last.content.filter(block => block.type === "text").map(block => block.text).join("");
+		} finally {
+			run.signal.removeEventListener("abort", stop);
+			child.promptController = undefined;
+			if (!run.signal.aborted) this.childModels.delete(run.agentId);
+		}
+	}
+
+	/** Preserve synchronous switching for idle sessions and await active child writers before replacement. */
+	private switchSession<T>(replace: () => T): T | Promise<T> {
+		const previous = this.tasks;
+		if (!previous?.hasActiveRuns()) {
+			const value = replace();
+			if (previous !== this.tasks) previous?.closeIdle();
+			return value;
+		}
+		this.switchingSessions = true;
+		const finish = this.trackWork();
+		return previous.pauseAll().then(() => {
+			if (this.closing) throw new Error("Harness 已关闭。");
+			const value = replace();
+			if (previous !== this.tasks) previous.closeIdle();
+			return value;
+		}).finally(() => { this.switchingSessions = false; finish(); });
+	}
+
+	newSession(): void | Promise<void> {
+		this.assertIdle(true);
+		return this.switchSession(() => this.resetSession());
+	}
+
+	private installTaskManager(manager: SubagentManager): void {
+		this.tasks = manager;
+		this.childModels.clear();
+		const tools = this.agent.state.tools.filter(tool => tool.name !== "agent_task" && tool.name !== "wait_agent");
+		this.updateTools([...tools, ...manager.tools()]);
+	}
+
+	private resetSession(): void {
 		this.agent.reset();
+		this.includeTaskCatalog = false;
 		this.skills.reset();
 		this.usedTokens = 0;
 		this.usageBaseline = undefined;
 		this.justCompacted = undefined;
 		this.session = createSessionFile(this.cwd, this.sessionStorage);
+		this.installTaskManager(this.createTaskManager(this.session));
 		this.restoreWarning = undefined;
 		this.recordSettings(this.settings);
 	}
@@ -445,8 +599,8 @@ export class Harness {
 		return listSessionFiles(this.cwd, this.sessionStorage);
 	}
 
-	resumeAt(index: number): boolean {
-		this.assertIdle();
+	resumeAt(index: number): boolean | Promise<boolean> {
+		this.assertIdle(true);
 		if (!Number.isInteger(index) || index < 1) {
 			return false;
 		}
@@ -454,7 +608,11 @@ export class Harness {
 		if (!item) {
 			return false;
 		}
-		const loaded = loadSession(item.filePath);
+		return this.switchSession(() => this.restoreSession(item.filePath));
+	}
+
+	private restoreSession(filePath: string): boolean {
+		const loaded = loadSession(filePath);
 		let restored: HarnessModelSettings | undefined;
 		let warning: string | undefined;
 		if (loaded.settings?.modelRef) {
@@ -466,16 +624,27 @@ export class Harness {
 				warning = `未恢复模型 ${loaded.settings.modelRef.modelKey}：${error.message} 当前模型：${this.agent.state.model?.name ?? "未配置"}；会话历史已保留。`;
 			}
 		}
-		touchSession(item.filePath);
-		this.agent.reset();
-		this.agent.state.messages = loaded.messages;
-		this.skills.restore(loaded.entries.flatMap(entry => entry.type === "message" ? [entry.message] : []));
-		this.session = {
-			path: item.filePath,
+		const session: SessionFile = {
+			path: filePath,
 			header: loaded.header,
 			entries: loaded.entries,
 			flushed: true,
 		};
+		const existing = this.session.path === filePath ? this.tasks : undefined;
+		const manager = existing ?? this.createTaskManager(session);
+		try {
+			manager.recoverParent(loaded.messages);
+			touchSession(filePath);
+		} catch (error) {
+			if (!existing) manager.closeIdle();
+			throw error;
+		}
+		if (!existing) this.session = session;
+		this.agent.reset();
+		this.includeTaskCatalog = true;
+		this.agent.state.messages = loaded.messages;
+		this.skills.restore(this.session.entries.flatMap(entry => entry.type === "message" ? [entry.message] : []));
+		if (manager !== this.tasks) this.installTaskManager(manager);
 		this.usedTokens = estimateMessagesTokens(loaded.messages);
 		this.usageBaseline = undefined;
 		this.justCompacted = undefined;
@@ -546,10 +715,10 @@ export class Harness {
 		appendEntry(this.session, { type: "settings", ...structuredClone(settings) });
 	}
 
-	private assertIdle(): void {
+	private assertIdle(allowPausingChildren = false, busyMessage = "Cannot change settings or sessions while the agent is processing."): void {
 		if (this.closing) throw new Error("Harness 已关闭。");
-		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
-			throw new Error("Cannot change settings or sessions while the agent is processing.");
+		if (this.switchingSessions || (!allowPausingChildren && this.stoppingChildren) || this.agent.state.isStreaming || this.promptController || this.compactionController) {
+			throw new Error(busyMessage);
 		}
 	}
 
@@ -591,10 +760,7 @@ export class Harness {
 	}
 
 	async manualCompact(): Promise<"compacted" | "below-threshold" | "nothing-to-compact"> {
-		if (this.closing) throw new Error("Harness 已关闭。");
-		if (this.agent.state.isStreaming || this.promptController || this.compactionController) {
-			throw new Error("Cannot compact while the agent is processing");
-		}
+		this.assertIdle(false, "Cannot compact while the agent is processing");
 		const model = this.requireModel();
 		if (this.usedTokens <= model.contextWindow / 4) {
 			return "below-threshold";
@@ -606,10 +772,7 @@ export class Harness {
 	}
 
 	async compact(customInstructions?: string): Promise<boolean> {
-		if (this.closing) throw new Error("Harness 已关闭。");
-		if (this.promptController || this.agent.state.isStreaming || this.compactionController) {
-			throw new Error("Cannot compact while the agent is processing");
-		}
+		this.assertIdle(false, "Cannot compact while the agent is processing");
 		return Boolean(await this.compactContext(this.liveContext(), undefined, this.createRequestSettings(false), { customInstructions }));
 	}
 
@@ -623,13 +786,16 @@ export class Harness {
 		if (cutIndex === 0) {
 			return undefined;
 		}
-		// Keep this submission verbatim even when earlier tool rounds in the same task
-		// are summarized. This is the original user message, never a previous summary.
+		// Preserve the original task and every user input still awaiting a model response,
+		// including steering handed off at the end of the previous submission.
 		const task = this.activeUserMessage;
-		const retained = (index: number) => {
-			const tail = messages.slice(index);
-			return task && messages.includes(task) && !tail.includes(task) ? [task, ...tail] : tail;
-		};
+		let unansweredStart = messages.length;
+		while (unansweredStart > 0 && messages[unansweredStart - 1].role === "user") unansweredStart--;
+		const unanswered = new Set(messages.slice(unansweredStart).filter(message =>
+			message.role === "user" && !message.isMeta && (this.promptController || message.metadata?.kind === "steering")));
+		const hasFollowup = [...unanswered].some(message => message !== task);
+		const retained = (cut: number) => messages.filter((message, i) =>
+			i >= cut || message === task || unanswered.has(message));
 		let keptMessages = retained(cutIndex);
 		const originalTokens = estimateMessagesTokens(messages);
 		if (estimateMessagesTokens(keptMessages) >= originalTokens || estimateMessagesTokens(keptMessages) > retainedBudget) {
@@ -648,7 +814,10 @@ export class Harness {
 		try {
 			signal.throwIfAborted();
 			await this.emitDisplay({ type: "compaction_start", tokensBefore }, signal);
-			const converted = await this.agent.convertToLlm(messages);
+			// The pending follow-ups go to the executor verbatim. Keep their text and
+			// attachments out of the summary request's context budget.
+			const summaryHistory = hasFollowup ? messages.filter(message => message === task || !unanswered.has(message)) : messages;
+			const converted = await this.agent.convertToLlm(summaryHistory);
 			signal.throwIfAborted();
 			const summary = await summarizeConversation({
 				streamFn: this.agent.streamFunction,
@@ -688,7 +857,14 @@ export class Harness {
 				next = replacement(keptMessages);
 			}
 			const { wrappedSummary, compactedMessages, skillMessages } = next;
-			if (estimateMessagesTokens(compactedMessages) >= originalTokens) throw new Error("Compaction did not reduce the context.");
+			if (estimateMessagesTokens(compactedMessages) >= originalTokens) {
+				// Keep the original history if pinning undelivered input leaves no useful saving.
+				if (hasFollowup) {
+					await this.emitDisplay({ type: "compaction_error", message: "Compaction did not reduce the context." }, signal);
+					return undefined;
+				}
+				throw new Error("Compaction did not reduce the context.");
+			}
 			appendEntry(this.session, {
 				type: "compaction",
 				summary: wrappedSummary,
@@ -700,6 +876,7 @@ export class Harness {
 			this.agent.state.messages = compactedMessages;
 			this.usageBaseline = undefined;
 			this.justCompacted = compactedMessages;
+			this.includeTaskCatalog = true;
 			this.usedTokens = estimateMessagesTokens(compactedMessages);
 			await this.emitDisplay({ type: "compaction_end", tokensBefore, tokensAfter: this.usedTokens, summary: wrappedSummary }, signal);
 			return compactedMessages;

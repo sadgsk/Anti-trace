@@ -220,6 +220,11 @@ export interface ToolPermission {
 
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> extends Tool<TParameters> {
 	label: string;
+	/** Reserve a shared resource from permission preview through execution. */
+	acquireExecution?: (params: Static<TParameters>, signal?: AbortSignal) => Promise<{
+		execute: AgentTool<TParameters, TDetails>["execute"];
+		release(): void;
+	}>;
 	resolvePermission?: (args: Static<TParameters>) => ToolPermission;
 	prepareArguments?: (args: unknown) => Static<TParameters>;
 	execute: (
@@ -255,6 +260,13 @@ export interface AfterToolCallResult {
 }
 
 export interface BeforeToolCallContext {
+	/** An interactive preview can reserve the target until this call finishes. */
+	reserveForApproval?: (signal: AbortSignal) => Promise<void>;
+	agentSource?: { agent_id: string; summary: string };
+	skillAccess?: {
+		permissionTools(name: string): readonly string[] | undefined;
+		activeTools(): readonly string[];
+	};
 	permission?: ToolPermission;
 	assistantMessage: AssistantMessage;
 	toolCall: AgentToolCall;

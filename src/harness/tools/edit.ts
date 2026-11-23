@@ -2,6 +2,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { type Static, Type } from "typebox";
 import type { AgentTool } from "../../types.ts";
 import { resolveCwdPath } from "./path-utils.ts";
+import { serializeFileMutations } from "./file-mutation.ts";
 import { buildDiff, type DiffDetails } from "./diff.ts";
 
 const replaceEditSchema = Type.Object({
@@ -28,7 +29,7 @@ export interface EditToolDetails extends DiffDetails {
 }
 
 export function createEditTool(cwd: string): AgentTool<typeof editSchema, EditToolDetails> {
-	return {
+	return serializeFileMutations<typeof editSchema, EditToolDetails>(cwd, {
 		name: "edit",
 		label: "edit",
 		description:
@@ -122,5 +123,5 @@ export function createEditTool(cwd: string): AgentTool<typeof editSchema, EditTo
 				details: { path: absolutePath, replacements: edits.length, ...buildDiff(absolutePath, original, next) },
 			};
 		},
-	};
+	}, args => args.path);
 }

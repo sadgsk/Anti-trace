@@ -38,8 +38,9 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	const cwd = options.cwd ?? process.cwd();
 	let host: TerminalHost | undefined;
 	let active = true;
-	let resolveDone!: () => void;
-	const done = new Promise<void>(resolve => { resolveDone = resolve; });
+	let resolveDone!: (code: number) => void;
+	let rejectDone!: (error: unknown) => void;
+	const done = new Promise<number>((resolve, reject) => { resolveDone = resolve; rejectDone = reject; });
 	let prompt!: PromptInputController;
 	const repl = new ReplController({ harness: options.harness, byok: options.byok, cwd, locale: options.locale, interactive: true, permissionMode: options.permissionMode,
 		onAccept: () => prompt.reset(), getDraftEditor: () => prompt, onExit: () => stop() });
@@ -77,10 +78,14 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	let menuOpen = false;
 	const configureTargets = () => { const open = suggestions.getSnapshot().open; if (open !== menuOpen) { host?.invalidate(); menuOpen = open; } focus.set("suggestion", suggestions.target, open); };
 	const unsubscribeSuggestions = suggestions.subscribe(configureTargets);
-	const configurePermission = () => { host?.invalidate(); focus.set("modal", repl.permissions.target, Boolean(repl.permissions.getSnapshot().request)); };
-	const unsubscribePermission = repl.permissions.subscribe(configurePermission);
-	const configureDialog = () => { host?.invalidate(); focus.set("modal", repl.dialogs.target, Boolean(repl.dialogs.getSnapshot())); };
-	const unsubscribeDialog = repl.dialogs.subscribe(configureDialog);
+	const configureModal = () => {
+		host?.invalidate();
+		const permission = Boolean(repl.permissions.getSnapshot().request);
+		focus.set("modal", repl.dialogs.target, !permission && Boolean(repl.dialogs.getSnapshot()));
+		focus.set("modal", repl.permissions.target, permission);
+	};
+	const unsubscribePermission = repl.permissions.subscribe(configureModal);
+	const unsubscribeDialog = repl.dialogs.subscribe(configureModal);
 	repl.dialogs.setColumns(columns());
 	configureTargets();
 	let epoch = repl.getSnapshot().renderEpoch;
@@ -106,7 +111,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		repl.dialogs.setColumns(columns());
 		renderView();
 	};
-	const cleanup = () => {
+	const cleanup = (exitCode = 0) => {
 		if (!active) return;
 		active = false;
 		streams.stdout.off("resize", resize);
@@ -116,9 +121,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		unsubscribeRepl();
 		suggestions.dispose();
 		prompt.dispose();
-		repl.dispose();
-		resolveDone();
-		options.onExit?.();
+		void repl.dispose().then(() => options.onExit?.()).then(() => resolveDone(exitCode), rejectDone);
 	};
 	function stop(): void {
 		try { host?.stop(); }

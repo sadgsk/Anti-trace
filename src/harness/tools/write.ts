@@ -3,6 +3,7 @@ import path from "node:path";
 import { type Static, Type } from "typebox";
 import type { AgentTool } from "../../types.ts";
 import { resolveCwdPath } from "./path-utils.ts";
+import { serializeFileMutations } from "./file-mutation.ts";
 import { buildDiff, type StructuredDiffHunk } from "./diff.ts";
 
 export const writeSchema = Type.Object({
@@ -24,7 +25,7 @@ export interface WriteToolDetails {
 }
 
 export function createWriteTool(cwd: string): AgentTool<typeof writeSchema, WriteToolDetails> {
-	return {
+	return serializeFileMutations<typeof writeSchema, WriteToolDetails>(cwd, {
 		name: "write",
 		label: "write",
 		description:
@@ -60,5 +61,5 @@ export function createWriteTool(cwd: string): AgentTool<typeof writeSchema, Writ
 					...(previous === undefined ? {} : buildDiff(absolutePath, previous, content)) },
 			};
 		},
-	};
+	}, args => args.path);
 }
