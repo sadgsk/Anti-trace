@@ -228,7 +228,12 @@ export class SubagentManager {
 	tools(): AgentTool[] {
 		const control: AgentTool<typeof taskSchema> = {
 			name: "agent_task", label: "Manage subagent", parameters: taskSchema,
-			description: "Delegate an independent task asynchronously with start and prompt. Pause or resume it using its agent_id. Pause is recoverable. Only wait_agent retrieves a report.",
+			description: [
+				"Delegate an independent task to a subagent that runs asynchronously.",
+				'To start a new task, set action to "start" and provide a self-contained prompt with the goal, relevant context, scope, and expected report.',
+				"Starting returns an agent_id and status immediately. Use wait_agent with that ID to retrieve the final report.",
+				'To pause or resume an existing task, set action to "pause" or "resume" and provide its agent_id.',
+			].join(" "),
 			execute: async (callId, args, signal) => {
 				signal?.throwIfAborted();
 				if (args.action === "start") {
@@ -242,7 +247,12 @@ export class SubagentManager {
 		};
 		const wait: AgentTool<typeof waitSchema> = {
 			name: "wait_agent", label: "Wait for subagent", parameters: waitSchema,
-			description: "Wait for a task and read its final report. A paused task needs resume. User input may interrupt this wait while the task continues.",
+			description: [
+				'Wait for a subagent task using the agent_id returned by agent_task with action "start".',
+				'A status of "completed" includes the final report. A status of "failed" includes the error.',
+				'If the status is "paused", call agent_task with action "resume" and the same agent_id before waiting again.',
+				'If user input interrupts the wait, the status is "interrupted" and the task keeps running. Call wait_agent again with the same agent_id when you need the report.',
+			].join(" "),
 			execute: async (_callId, { agent_id }, signal) => result(await this.wait(this.lookup(agent_id), signal)),
 		};
 		return [control, wait];
