@@ -1,8 +1,15 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { TestContext } from "node:test";
 import { fileURLToPath } from "node:url";
+
+export function configureCli(root: string, url: string) {
+	writeFileSync(join(root, "byok.json"), JSON.stringify({ version: 1, currentModel: "main",
+		connections: { local: { api: "openai-completions", baseUrl: url, apiKey: "e2e-fake-secret" } },
+		models: { main: { connection: "local", id: "test", contextWindow: 128000, maxOutputTokens: 2048 } },
+	}));
+}
 
 export async function cli(t: TestContext, cwd: string, input: string, env: NodeJS.ProcessEnv = {}, fromCmd = false) {
 	const args = [

@@ -81,16 +81,22 @@ test("error deduplication does not hide a different exception after the final re
 	} finally { unsubscribe(); stdin.destroy(); stdout.destroy(); stderr.destroy(); }
 });
 
-for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]] as const) test(`pipe ${signal} preserves exit code ${code} during an outstanding model request`, async (t) => {
+for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]] as const) test(`pipe ${signal} preserves exit code ${code} during an outstanding model request`, { timeout: 30000 }, async (t) => {
 	const root = tempWorkspace(t);
 	const child = spawn(process.execPath, ["--import", new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url).href,
 		fileURLToPath(new URL("../support/context-signal-worker.ts", import.meta.url)), root, signal],
 	{ env: process.env, stdio: ["ignore", "pipe", "pipe", "ipc"], windowsHide: true });
 	let output = ""; child.stdout!.on("data", chunk => { output += chunk.toString(); }); child.stderr!.on("data", chunk => { output += chunk.toString(); });
-	const timeout = setTimeout(() => child.kill(), 10000);
+	let timeout: NodeJS.Timeout | undefined;
 	t.after(() => { clearTimeout(timeout); if (child.exitCode === null) child.kill(); });
-	child.on("message", message => { if (message === "request-started") child.send("interrupt"); });
-	const exit = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("exit", resolve); });
+	// Bound signal handling separately from cold Node/tsx startup under coverage.
+	child.once("message", message => {
+		if (message !== "request-started") return;
+		timeout = setTimeout(() => child.kill(), 10000);
+		child.send("interrupt");
+	});
+	const exit = await new Promise<number | null>((resolve, reject) => { child.once("error", reject); child.once("close", resolve); });
+	assert.ok(timeout, "worker must reach the outstanding model request");
 	assert.equal(exit, code, output);
 	assert.doesNotMatch(output, /must not display after cancellation/);
 });
