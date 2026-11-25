@@ -205,7 +205,7 @@ test("model management adds to the same configuration and field pages cancel ind
 
 test("language switches all command/configuration screens, persists locally and preserves model/user content", async () => {
 	const f = fixture();
-	const view = () => snapshot(createElement(LocaleProvider, { locale: f.app.repl.locale, children: createElement(ReplScreen, { repl: f.app.repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 }) }));
+	const view = (expected?: RegExp) => snapshot(createElement(LocaleProvider, { locale: f.app.repl.locale, children: createElement(ReplScreen, { repl: f.app.repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 }) }), 100, 28, expected);
 	try {
 		await f.command("/language"); f.stdin.write("\x1b[B\r");
 		assert.equal(f.app.repl.locale.getSnapshot(), "en"); assert.equal(new UiLocale(f.root).getSnapshot(), "en");
@@ -220,7 +220,7 @@ test("language switches all command/configuration screens, persists locally and 
 		f.app.repl.dialogs.close(); await f.command("/help"); assert.doesNotMatch(await view(), /[\u4e00-\u9fff]/);
 		await f.command("保持用户原文"); assert.ok(f.h.agent.state.messages.some(message => message.role === "user" && message.content.some(block => block.type === "text" && block.text === "保持用户原文")));
 		await f.command("/language"); f.stdin.write("\x1b[A\r"); assert.equal(f.app.repl.locale.getSnapshot(), "zh");
-		assert.match(await view(), /语言已切换/);
+		await view(/语言已切换/);
 	} finally { f.close(); }
 });
 
