@@ -1,6 +1,6 @@
 {
 	"name": "residualx",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"license": "MIT",
 	"description": "Terminal AI coding agent with bring-your-own-key model support",
 	"repository": {
