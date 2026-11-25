@@ -85,7 +85,7 @@ test("skill tool cards show the selected name, safe arguments and errors without
 	try {
 		await waitFor(() => frames.some(frame => frame.includes("Loaded skill")), "skill tool card");
 		const frame = frames.find(frame => frame.includes("Loaded skill"))!;
-		assert.match(frame, /Skill.*review/); assert.match(frame, /review\/SKILL.md/); assert.match(frame, /branch/);
+		assert.match(frame, /SKILL.*review/); assert.match(frame, /review\/SKILL.md/); assert.match(frame, /branch/);
 		assert.doesNotMatch(frame, /PRIVATE_INJECTED_INSTRUCTIONS|\x1b\[2J/);
 		app.rerender(createElement(TranscriptItemView, { ...props, item: { ...item, status: "error", result: { content: [{ type: "text", text: "Unknown skill: review" }], details: {} } } }));
 		await waitFor(() => frames.some(value => value.includes("Unknown skill")), "skill tool error");

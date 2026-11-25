@@ -66,9 +66,9 @@ export class CommandDialogController {
 		this.set({ kind: "preview", title: options.title, text: options.text, acceptLabel: options.acceptLabel,
 			alternateText: options.alternateText, showingRaw: false, selected: 0, ...previewPage(options.text, 0, this.previewColumns) });
 	}
-	openInput(options: { title: string; description?: string; placeholder?: string; onAccept: (value: string) => void; onBack?: () => void }): void {
-		this.clearEditor(); this.acceptInput = options.onAccept; this.acceptChoice = undefined; this.saveForm = undefined; this.goBack = options.onBack;
-		this.set({ kind: "input", selected: 0, title: options.title, description: options.description, field: { key: "value", label: options.title, value: "", placeholder: options.placeholder } });
+	openInput(options: { title: string; description?: string; placeholder?: string; value?: string; onAccept: (value: string) => void; onBack?: () => void }): void {
+		this.editor.replaceState(createTextInputState(options.value ?? "")); this.acceptInput = options.onAccept; this.acceptChoice = undefined; this.saveForm = undefined; this.goBack = options.onBack;
+		this.set({ kind: "input", selected: 0, title: options.title, description: options.description, field: { key: "value", label: options.title, value: options.value ?? "", placeholder: options.placeholder } });
 	}
 	showError(error: unknown): void { if (this.state) this.set({ ...this.state, error: error instanceof Error ? error.message : String(error) }); }
 	close(): void { this.state = null; this.acceptChoice = undefined; this.acceptInput = undefined; this.acceptPreview = undefined; this.saveForm = undefined; this.goBack = undefined; this.clearEditor(); this.publish(); }

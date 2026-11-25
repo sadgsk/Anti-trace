@@ -85,7 +85,7 @@ startLine(index + segment.length);
 | 对话与工具 | Harness、多轮对话、`read` / `write` / `edit` / `bash`、流式和 abort 已接入新 REPL；交互入口已恢复 |
 | 装配与会话 | 工具和系统提示在 `src/harness/`；`Harness` 装配 Agent，按 cwd 保存 jsonl；新 REPL 已接回 `/new`、`/resume` 列表与序号选择 |
 | 终端输入 | 输入迁移已完成；唯一 stdin 宿主、协议解析、焦点分发、多行字素编辑、粘贴合并、完整附件草稿、撤销/重做和提交展开已接通；非 TTY 在 EOF 提交一次原文 |
-| 命令入口与 TUI | / 菜单、@ 文件补全、结构化消息与工具卡、Markdown／Diff、权限审批、主题／焦点与状态栏已接入；模型／思考／会话／配置／语言使用二级界面，显式参数继续兼容 |
+| 命令入口与 TUI | / 菜单、@ 文件补全、结构化消息与工具卡、Markdown／Diff、权限审批、主题／焦点与容量提醒已接入；模型／思考／会话／配置／语言使用二级界面，显式参数继续兼容 |
 | 图片输入 | `read` 与输入支持 jpeg/png/gif/webp；异步图片路径/剪贴板读取交给完整草稿，输入中显示可删除/撤销的引用，提交时发送真实图片内容 |
 | 协议适配 | 上层使用 streamModel；已实现 Chat、Responses、Anthropic 的请求、思考、工具与图文转换。SSE 处理分块、usage、错误与取消，缺少结束原因时报错 |
 | 上下文容量 | 窗口、用量、摘要、自动压缩及手动 `/compact` 已接回新 REPL，`/context` 与每轮 `ctx` 显示可用；本地 HTTP 摘要与续聊验证通过。窗口由 BYOK 模型配置提供，用量优先取接口 `usage`；真实模型压缩验收暂缓 |
@@ -130,12 +130,12 @@ Agent / loop（已有，不改职责）
 
 新 REPL 从输入组件接收完整草稿、展开引用、处理斜杠命令、订阅事件并处理中断；不创建工具，不 `new Agent`。`main.ts` 先装配 Harness，再尝试加载配置，最后选择 TTY 交互或非 TTY EOF 提交。`ByokRuntime.reload()` 只负责候选配置的加载、校验与应用；通过 main 注入的回调调用现有 `Harness.configureModel()`，不持有或创建 Harness。无配置时 Agent 的 model 为 `undefined`，工具、消息和会话管理照常工作；具体模型操作内部检查配置。`/reload` 重试最近的路径与选择，`/config [路径]` 查看状态或更换文件，`/model <模型键>` 选择本次运行的模型；失败候选与当前生效配置分别保存，设置成功应用后才提交配置状态。重载不重建 Harness、Agent、会话或订阅。交互输出统一经 Ink，非 TTY 增量写回复；终端事件、编辑和提交各自分层。
 
-**命令与界面：** `command-registry.ts` 统一定义 14 条命令，供识别、帮助和菜单使用。`PromptSuggestionsController` 提供 / 命令与 @ 文件补全。模型／effort／思考／思考展示／恢复会话／配置管理／语言无参数时进入 `CommandDialogController` 管理的二级界面，经同一 `InputDispatcher` 接管模态输入；确认调用真实 `ByokRuntime`／`Harness` 接口。`ConfigProfiles` 提供配置发现、表单映射、校验与原子保存，应用失败回滚文件。`ReplScreen` 在单一视窗中组合历史与活跃消息，输入框固定底部。具体职责与交互见 §4。
+**命令与界面：** `command-registry.ts` 统一定义 14 条命令，供识别、帮助和菜单使用。`PromptSuggestionsController` 提供 / 命令与 @ 文件补全。模型／effort／思考／思考展示／恢复会话／配置管理／语言无参数时进入 `CommandDialogController` 管理的二级界面，经同一 `InputDispatcher` 接管模态输入；确认调用真实 `ByokRuntime`／`Harness` 接口。`ConfigProfiles` 提供配置发现、表单映射、校验与原子保存，应用失败回滚文件。`ReplScreen` 在单一视窗中组合历史与活跃消息，输入区紧接当前对话。具体职责与交互见 §4。
 
 磁盘采用按项目分桶的线性会话，格式为：
 
 ```text
-~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/<ISO时间戳>_<id>.jsonl
+~/.residualx/profiles/local/projects/<cwd SHA-256>/sessions/<ISO时间戳>_<id>.jsonl
 ```
 
 项目 ID：先将 cwd 转成规范化绝对路径，再计算 SHA-256；项目路径同时保存在 `project.json`。同一目录多个 jsonl = 多次聊天。启动默认**新会话**；`/new` 再开一份。第一条 assistant 出现才建文件。
@@ -183,7 +183,7 @@ jsonl 首行 header，之后每行一条，使用线性 append，不包含 `pare
 
 ### Skills 的运行结构
 
-`Harness` 持有 `SkillRuntime`，装配统一的 `skill` 工具；`loader` 发现并缓存 SKILL.md，`registry` 管理定义与诊断，`runtime` 处理参数和调用快照。项目技能目录固定为 `cwd/.anti-trace/skills/`，不向父目录扫描；用户目录为应用根目录下的 `skills/`（默认 `~/.anti-trace/skills/`），跨项目和 profile 共用；同名技能项目优先。Harness 用同一组实际目录装配注册表和系统提示词，创建默认项目级，用户指定个人／跨项目时写用户目录。提示词始终提供目录和基本格式，因此空技能集合也支持通过既有文件工具创建首个技能。没有可供模型调用的技能时不暴露 `skill` 工具和初始技能列表。
+`Harness` 持有 `SkillRuntime`，装配统一的 `skill` 工具；`loader` 发现并缓存 SKILL.md，`registry` 管理定义与诊断，`runtime` 处理参数和调用快照。项目技能目录固定为 `cwd/.residualx/skills/`，不向父目录扫描；用户目录为应用根目录下的 `skills/`（默认 `~/.residualx/skills/`），跨项目和 profile 共用；同名技能项目优先。Harness 用同一组实际目录装配注册表和系统提示词，创建默认项目级，用户指定个人／跨项目时写用户目录。提示词始终提供目录和基本格式，因此空技能集合也支持通过既有文件工具创建首个技能。没有可供模型调用的技能时不暴露 `skill` 工具和初始技能列表。
 
 `/skill` 是固定一级命令，二级菜单从技能集合动态生成；`/skill <name> [args]` 支持显式和管道调用。用户选择和模型调用共用 `SkillRuntime.prepare()`。目录在模型请求前作为 `isMeta` 用户消息注入，只含名称与描述；工具激活后通过通用 `AgentToolResult.newMessages` 注入正文。loop 先完成整批工具结果，再追加上下文消息，三种协议沿用普通工具／文本编码。
 
@@ -238,24 +238,24 @@ ReplController → Harness → Agent / loop → LLM 适配器与工具
 ThemeProvider → LocaleProvider → FocusStackProvider → ReplScreen
   ├── TranscriptViewport：当前可见终端行，前后各 8 行缓存预取
   │     └── TranscriptLayoutCache → RowIndex → RowRenderer（仅内存排版）
-  ├── 固定底部输入、Spinner、命令二级界面、补全、审批、状态栏
+  ├── 对话输入、思考动画、命令面板、补全、审批与容量提醒
   └── Markdown / HighlightedCode / MarkdownTable / StructuredDiff
 ```
 
 CLI 负责装配，TUI 负责交互与展示；真实 stdin 和终端输出始终只有一个宿主。主 Ink 实例只生成一屏 ANSI 帧，`RowRenderer` 复用另一个仅写内存流的 Ink 根，将现有消息组件排版为可缓存的终端行；该根不读真实输入、不运行动画。`ScrollbackOutput` 接收按范围取行的数据源与当前视窗／页脚，保存屏幕尾部检查点，增量输出到主屏幕的原生滚动历史；不再逐帧拼接、拆分或保留完整历史字符串。缩放时保留未滚入历史的行，并拒绝尺寸、会话版本或阅读模式过时的帧。不启用备用屏幕、重放 Static 或重建终端宿主。滚轮／PgUp 回看与 Ctrl+O 展开按消息 ID／消息内行位置锚定，Ctrl+End 返回最新并补齐期间生成的内容。原生投影收起，阅读视图独立展开，终端滚动条仍可查看已打印快照。管道继续使用文字投影。
 
-历史缓存与每帧绘制分开：`TranscriptLayoutCache` 保留消息／分段的高度元数据，终端行采用最多 8 MiB、2048 个条目的 LRU 缓存；宽度、展开、思考展示和语言最多保留四种排版变体，主题或会话内容替换时失效。`RowIndex` 用 Fenwick 高度索引定位可见范围与更新实测高度，滚动不扫描和测量全部消息；未访问区域沿用已知高度或估计值，访问时才排版并校正。Markdown 按顶层块缓存，代码每 64 个源行、思考每 64 个显示行分段，代码高亮保留整块词法上下文。主界面只挂载可见行，工具指示灯和底部 Spinner 的动画不触发历史排版。打开对话框保留缓存，关闭后复用；首次恢复会话写入原生历史仍需输出完整内容一次。
+历史缓存与每帧绘制分开：`TranscriptLayoutCache` 保留消息／分段的高度元数据，终端行采用最多 8 MiB、2048 个条目的 LRU 缓存；宽度、展开、思考展示和语言最多保留四种排版变体，主题或会话内容替换时失效。`RowIndex` 用 Fenwick 高度索引定位可见范围与更新实测高度，滚动不扫描和测量全部消息；未访问区域沿用已知高度或估计值，访问时才排版并校正。Markdown 按顶层块缓存，代码每 64 个源行、思考每 64 个显示行分段，代码高亮保留整块词法上下文。主界面只挂载可见行，只有可见思考节点播放循环动画，正文和工具行使用静态排版。打开对话框保留缓存，关闭后复用；首次恢复会话写入原生历史仍需输出完整内容一次。
 
 `useFrameSnapshot` 将 TUI 的连续 REPL 通知在 16ms 窗口内合并，控制器和非 TTY 订阅保持同步；宿主也在 React 重排前合并根刷新请求。视窗准备在 React 提交之外执行，之后只提交与该排版请求匹配的帧。返回测量结果时校验对应的滚动偏移，避免较早的一帧覆盖新的滚轮输入。
 
-启动品牌使用 `WelcomeHeader → BrandMark → brand-art.ts`，固定 54×6 的完整阴影艺术字，青色立体闪电代表 I，方向为左上到右下；真彩下黄色／青色逐行明暗变化，闪电侧边单独变暗。画稿为整体绘制的阴影轮廓与逐行明暗层次，不在运行时按字母表拼接。60／120 列使用同一份画稿；极窄时实际字符在进入 Ink 前按列数裁剪，各行固定一格高，窗口恢复后显示完整画稿。256／16 色与无色终端沿主题降级，没有终端图片协议依赖。
+开场从 ∇ 过渡到 ResidualX 字标。字标随可用宽度选择 30、42 或 54 列，低矮或极窄的终端使用单行名称。SIXEL 终端按单元格像素绘制线条，纯文字终端使用字符帧。用户消息、助手消息和每次工具调用各有一个菱形节点。思考动画跟随思考标题，输出正文或执行工具时即收起。工作目录、模型、上下文和权限模式可在 `/context` 查看。
 
 ### 4.1 TUI 组件与数据边界
 
 | 模块 | 当前职责 |
 |---|---|
 | `src/cli/repl/` | `ReplController` 将 Harness 事件投影为 `transcript`／`activeItems`／显示状态，保留非 TTY 的 `entries`／`liveText`；`terminal-repl.tsx` 装配生命周期与终端 |
-| `src/tui/layout/`、`messages/` | 根界面、启动头部、输入外框、状态／告警、叶子动画；结构化用户／正文／思考／通知／压缩边界与工具历史，不把 JSX 或展开状态写入模型消息 |
+| `src/tui/layout/`、`messages/` | 根界面、启动头部、时间线输入区、容量告警、叶子动画；结构化用户／正文／思考／通知／压缩边界与工具历史，不把 JSX 或展开状态写入模型消息 |
 | `src/tui/markdown/`、`diff/`、`tools/` | Markdown、代码高亮、窄屏表格、行号与词级 Diff；Read 分组、Edit／Write 预览、Bash 实时尾部／退出码／耗时。展示元数据放在工具 `details`，原 `content` 继续供模型读取 |
 | `src/tui/theme/`、`design-system/` | 主题 Provider、24／256／16 色及无色降级、符号；Divider／Pane／Dialog／Tabs／Select／MultiSelect／FuzzyPicker 等通用原语 |
 | `src/tui/focus/`、`suggestions/` | `FocusStack` 按 modal → suggestion → editor → global 分发，模态期间保留全局中断；组件不自行读取 stdin。异步文件索引排除生成目录且不跟随符号链接 |
@@ -267,10 +267,10 @@ CLI 负责装配，TUI 负责交互与展示；真实 stdin 和终端输出始�
 
 ### 4.2 交互、配置与权限
 
-- 启动从 `src/storage/app-paths.ts` 统一取得路径。配置选择顺序为显式路径／`CLI_AGENT_CONFIG`、项目上次选择、用户默认选择、用户配置目录中唯一有效的文件；多个配置无选择记录时通过 `/config` 选择。保存选择失败只提示、不阻止本次使用；无配置也能操作界面和恢复新目录中的会话。旧目录不再自动读取，旧会话不迁移。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
+- 启动从 `src/storage/app-paths.ts` 统一取得路径。配置选择顺序为显式路径／`RESIDUALX_CONFIG`、项目上次选择、用户默认选择、用户配置目录中唯一有效的文件；多个配置无选择记录时通过 `/config` 选择。保存选择失败只提示、不阻止本次使用；无配置也能操作界面和恢复新目录中的会话。旧目录不再自动读取，旧会话不迁移。Enter 提交，Shift／Alt+Enter 换行；菜单中 ↑↓ 选择、Enter 确认、Tab 只补全、Esc 返回；`@` 补入文件后继续编辑，支持撤销及带空格路径。
 - `/model`、`/effort`、`/thinking`、`/thinking-display`、`/resume`、`/config`、`/language` 使用二级界面；显式参数继续兼容。模型思考开关与思考正文展示分别控制请求和显示。
 - `/config` 的已有配置、添加、修改位于同一菜单；修改进入模型列表，可在同一文件新增模型。字段列表 Enter 进入独立编辑页，确认只改草稿，Esc 放弃该字段；最终保存项或 Ctrl+S 才校验、写盘和应用。共享连接独立复制，API Key 遮挡且留空保留，不进入消息或会话。
-- 配置发现范围为当前用户空间的 `configs/` 和显式选择的文件。新增配置默认写入 `~/.anti-trace/profiles/local/configs/`；语言偏好保存在 `~/.anti-trace/preferences.json`，即时更新当前界面。配置、默认模型、项目选择、会话和工具输出按 profile 隔离，默认 profile 为 `local`；`ANTI_TRACE_HOME` 可覆盖数据根目录。用户文字、模型内容与工具原始输出保留原文。
+- 配置发现范围为当前用户空间的 `configs/` 和显式选择的文件。新增配置默认写入 `~/.residualx/profiles/local/configs/`；语言偏好保存在 `~/.residualx/preferences.json`，即时更新当前界面。配置、默认模型、项目选择、会话和工具输出按 profile 隔离，默认 profile 为 `local`；`RESIDUALX_HOME` 可覆盖数据根目录。用户文字、模型内容与工具原始输出保留原文。
 - 默认 `default` 模式直接读取，编辑与 Shell 先审批；`auto-edit` 自动允许编辑，Shell 仍审批；`yolo` 直接执行工具。启动可传 `--auto-edit`／`--yolo`，Shift+Tab 循环切换。审批支持本次允许、会话记住与拒绝建议；新会话清理会话授权。非 TTY 无法审批时直接拒绝，不等待输入。
 - 权限通过 `Harness.setBeforeToolCall()` 接入既有 Agent 钩子，保留原调用方的前置检查并支持卸载恢复。中断审批或生成时，为同批剩余工具补齐取消结果，不继续请求下一轮模型；最终 Review 仍须核对实际执行链路。
 - 滚轮／PgUp／PgDn 回看；Ctrl+O 在回看处原位展开／收起，在最新处定位最近工具；Ctrl+End 返回最新并收起。回看时新输出保持阅读位置，返回后补齐历史；Shift+拖动使用终端原生选字。
@@ -340,7 +340,7 @@ export class Harness {
 
 **做什么：** 按统一项目路径定位会话、建文件、append、读回 AgentMessage；会话名和列表也在这里。消息中的 thinking／replay 随 JSONL 保存，settings 行只保存模型目录引用和偏好。loadSession 分别返回消息和最后设置，不从会话加载旧 URL／Key。
 
-- `sessionDirForCwd(cwd, storage?: string | AppPaths): string` → 默认 `~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/`；传入字符串根目录时使用 `<根目录>/<cwd SHA-256>/`
+- `sessionDirForCwd(cwd, storage?: string | AppPaths): string` → 默认 `~/.residualx/profiles/local/projects/<cwd SHA-256>/sessions/`；传入字符串根目录时使用 `<根目录>/<cwd SHA-256>/`
 - `sessionTitleFromUserText(text): string` → 前 10 个字符，见 §2
 - `createSessionFile(...)` 只准备路径和 header（此时 `name` 可空），第一条 assistant 才 `writeFile` header + 已攒的行；flush 前用第一条 user 文本填 `header.name`
 - `appendEntry(entry)`
@@ -430,7 +430,7 @@ Chat 可按配置解析 reasoning_content 或 reasoning 字符串，保留与正
 
 ### 5.6 MCP
 
-Anti-trace 作为 MCP Host，通过客户端连接本机 stdio server 或 Streamable HTTP server，将 server 提供的 Tools、Resources、Prompts 接入现有会话。业务操作由 server 执行，Agent 负责选择、校验、授权、调用和结果回传。
+ResidualX 作为 MCP Host，通过客户端连接本机 stdio server 或 Streamable HTTP server，将 server 提供的 Tools、Resources、Prompts 接入现有会话。业务操作由 server 执行，Agent 负责选择、校验、授权、调用和结果回传。
 
 运行期按服务器管理连接、身份和目录。一次用户提交在模型凭据确认后取得 binding，所有工具续接及溢出恢复共用这份快照。服务器管理、模型工具和资源／模板三条入口共享协议层和内容转换。
 
@@ -500,11 +500,11 @@ Tools 在 binding 创建时固定目录；按需读取的 Resources／Templates�
 
 #### 配置、信任与服务器管理
 
-配置路径由 `getAppPaths()` 按 `ANTI_TRACE_HOME`／`appHome` 和 `profileId` 解析。默认使用以下位置。
+配置路径由 `getAppPaths()` 按 `RESIDUALX_HOME`／`appHome` 和 `profileId` 解析。默认使用以下位置。
 
-- 用户配置：`~/.anti-trace/profiles/local/mcp.json`。
-- 项目配置：当前工作目录 `.anti-trace/mcp.json`，可共享。
-- 用户私有状态：`~/.anti-trace/profiles/local/mcp/`，保存项目信任、本机启停覆盖和凭据；不写入项目 JSONL。
+- 用户配置：`~/.residualx/profiles/local/mcp.json`。
+- 项目配置：当前工作目录 `.residualx/mcp.json`，可共享。
+- 用户私有状态：`~/.residualx/profiles/local/mcp/`，保存项目信任、本机启停覆盖和凭据；不写入项目 JSONL。
 
 同名 server 采用项目整条配置覆盖用户配置，不拼接 command、args、headers 或 auth。管理界面显示生效来源与被覆盖来源。项目配置按当前工作目录读取，不向父目录递归搜索；相对路径相对于配置文件目录解析。
 
@@ -591,7 +591,7 @@ Ctrl+C 取消当前请求／准备工作，不默认关闭仍健康的共享连�
 | audio／其他二进制 | 保存附件与类型说明；没有音频能力时不声称模型已听到内容 |
 | 未知内容类型 | 返回明确的不支持说明，保留有界诊断，不把整个调用伪装成空结果 |
 
-模型可见文本的总量预算默认 32 KiB，可按服务器配置调整。图片及二进制附件有独立的展示和存储上限。耗尽模型可见预算时，仍在传输接收上限内的完整内容写入 `~/.anti-trace/profiles/local/projects/<项目ID>/tool-results/mcp/`，模型收到摘要和路径。超过传输接收上限会产生诊断。
+模型可见文本的总量预算默认 32 KiB，可按服务器配置调整。图片及二进制附件有独立的展示和存储上限。耗尽模型可见预算时，仍在传输接收上限内的完整内容写入 `~/.residualx/profiles/local/projects/<项目ID>/tool-results/mcp/`，模型收到摘要和路径。超过传输接收上限会产生诊断。
 
 存储文件由宿主生成名称，URI 不用作本机目标路径。已完成结果文件允许保留供后续 read；取消期间不把半份文件标成完整结果，保存失败不得返回不存在的路径。认证元数据不写入结果存储。复用 shell 输出的预算思想，不把 `BashOutput` 变成不适合结构化内容的通用流容器。
 
@@ -690,7 +690,7 @@ MCP 的服务器管理、模型工具和上下文材料三条入口已接通。�
 | 4+6 | 思考等级与 BYOK：约定功能与选定厂商范围已实现 | 模型请求、工具、设置恢复和压缩本地验证通过；真实接口范围见开发进度 | 各厂商官方文档 |
 | 7 | REPL 按 §7 验收 | 功能验证完成并记录未覆盖的网关差异 | — |
 
-session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions`）。
+session / 上下文探针只用临时目录，不要往 `src/` 或用户家目录的真实项目会话里写测试数据（probe 可把根目录指到 tmp，或抽 `sessionsRoot` 参数，默认 `~/.residualx/profiles/local/projects/<cwd SHA-256>/sessions`）。
 
 ---
 
@@ -699,7 +699,7 @@ session / 上下文探针只用临时目录，不要往 `src/` 或用户家目�
 新 REPL 已接通，输入、实际 Harness、本地 HTTP SSE、自动压缩与溢出恢复已纳入 `tests/` 的自动化套件，维护流程和三端 CI 见 [测试指南](#8-测试与-ci)。此前 macOS 真实 POSIX PTY 验收记录保留在进度文档。下列清单仍包含真实模型、特定终端应用及仍需真实账户覆盖的思考/BYOK 验收，不能以离线测试替代。手动压缩只有在 `used > window / 4` 且存在可压旧历史时才发起摘要请求。例如配置窗口为 `256000` 时，手动门槛是 `64000`。
 
 1. 普通对话 + `read` `package.json` 仍能工作（框架没把工具弄丢）。
-2. 说一句话之后，`~/.anti-trace/profiles/local/projects/<cwd SHA-256>/sessions/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
+2. 说一句话之后，`~/.residualx/profiles/local/projects/<cwd SHA-256>/sessions/` 下出现 jsonl，里面有 user / assistant；header 的 `name` 是那句话的前 10 个字符。
 3. `/new` 后再说一句，同目录多一个文件，两份 `name` 能分开。
 4. 退出再启动，整行输入 `/resume` 打印「名字 + 上次打开时间」列表，再输入序号接上那一份（能问「我刚才说了什么」对得上）。
 5. 每轮结束后能看到 `ctx used/window`；`/context` 能打印；改窗口配置或 `/context <n>` 后窗口跟着变。假流探针覆盖阈值压缩、溢出报错、空 `length` 重试和 `stop` 超窗只压。`/compact` 在用量未过 1/4 时提示无需压缩；过线且有可压旧历史时用真实模型生成摘要，jsonl 有 `compaction` 行，续聊能利用摘要和保留的尾部。
@@ -767,7 +767,7 @@ tests/
 
 ### 环境隔离
 
-`scripts/run-tests.mjs` 每次创建独立的 HOME、用户配置、缓存、临时目录和工作目录，只传递必要的平台环境变量，不继承 API key、代理、`NODE_OPTIONS` 或 `CLI_AGENT_CONFIG`。结束后清理本次创建的根目录。
+`scripts/run-tests.mjs` 每次创建独立的 HOME、用户配置、缓存、临时目录和工作目录，只传递必要的平台环境变量，不继承 API key、代理、`NODE_OPTIONS` 或 `RESIDUALX_CONFIG`。结束后清理本次创建的根目录。
 
 `support/setup.ts` 在加载产品代码前拦截 Node socket 连接，默认只允许回环地址。协议测试使用真实的本地 HTTP 服务，其余模型行为由 `streamFn` 替身驱动。独立 CLI 子进程也加载该限制。这用于防止测试误连远端，不是针对不可信代码的系统级网络沙箱。
 

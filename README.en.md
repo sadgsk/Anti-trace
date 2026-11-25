@@ -1,31 +1,30 @@
-# Anti-trace
+# ResidualX
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
-[![npm version](https://img.shields.io/npm/v/anti-trace)](https://www.npmjs.com/package/anti-trace)
-[![CI](https://github.com/sadgsk/Anti-trace/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sadgsk/Anti-trace/actions/workflows/ci.yml)
-[![Release](https://github.com/sadgsk/Anti-trace/actions/workflows/release.yml/badge.svg)](https://github.com/sadgsk/Anti-trace/actions/workflows/release.yml)
+[![CI](https://github.com/sadgsk/ResidualX/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sadgsk/ResidualX/actions/workflows/ci.yml)
+[![Release](https://github.com/sadgsk/ResidualX/actions/workflows/release.yml/badge.svg)](https://github.com/sadgsk/ResidualX/actions/workflows/release.yml)
 <br>
-[Quick start](#quick-start) · [Documentation](#documentation) · [Issues](https://github.com/sadgsk/Anti-trace/issues) · [中文](README.md)
+[Quick start](#quick-start) · [Documentation](#documentation) · [Issues](https://github.com/sadgsk/ResidualX/issues) · [中文](README.md)
 
-Anti-trace is an AI coding assistant for your terminal. It reads and edits project files, runs builds and tests, and follows up on tool results. Connect a supported model provider with your own API key and review commands, output, and diffs in the terminal.
+ResidualX is an AI coding assistant for your terminal. It reads and edits project files, runs builds and tests, and follows up on tool results. Connect a supported model provider with your own API key and review commands, output, and diffs in the terminal.
 
 ## Install
 
 Requires Node.js 22 or newer.
 
 ```sh
-npm install -g anti-trace
+npm install -g residualx
 ```
 
-`ati` and `anti-trace` launch the same CLI. Shell tools use Bash on macOS and Linux. On Windows, Anti-trace prefers PowerShell 7 and falls back to Windows PowerShell 5.1. Git for Windows also enables Git Bash. If Anti-trace cannot find a custom installation, set `ANTI_TRACE_GIT_BASH_PATH` to the absolute path of Git for Windows' `bin\bash.exe`.
+After installation, launch `rex` or `residualx`. Existing installations keep their configuration and session directories. Shell tools use Bash on macOS and Linux. On Windows, ResidualX prefers PowerShell 7 and falls back to Windows PowerShell 5.1. Git for Windows also enables Git Bash. If ResidualX cannot find a custom installation, set `RESIDUALX_GIT_BASH_PATH` to the absolute path of Git for Windows' `bin\bash.exe`.
 
 ## Quick start
 
-1. Open a terminal in your project directory and launch Anti-trace.
+1. Open a terminal in your project directory and launch ResidualX.
 
    ```sh
    cd your-project
-   ati
+   rex
    ```
 
 2. Enter `/config` and choose **Add configuration**. Fill in the configuration file name, provider API URL, API key, model ID, and API protocol. Set the context window for your model and optionally set an output limit. Choose **Save and use configuration** or press `Ctrl+S`.
@@ -38,7 +37,7 @@ npm install -g anti-trace
 Once a model is configured, you can also pipe in a single prompt. The CLI reads standard input as one message, processes it, and exits. Pipe mode blocks tools that require interactive approval.
 
 ```sh
-echo "Explain the entry points in this project." | ati
+echo "Explain the entry points in this project." | residualx
 ```
 
 ## Key features
@@ -46,13 +45,13 @@ echo "Explain the entry points in this project." | ati
 - **File and shell tools.** Read, create, and edit files. Use the shell to search the project, build, and run tests. Shell commands default to a 120-second timeout. Long output is shortened in the transcript, with the full output saved for later reads.
 - **Terminal UI.** Stream responses with Markdown, syntax highlighting, tables, tool cards, and diffs. Type `/` to open the command menu or `@` to find and complete workspace file paths. Edit multiline drafts with undo and redo, and switch between English and Chinese with `/language`.
 - **Image input.** Paste a path to an image file or use `Alt+V` (Windows) or `Ctrl+V` (macOS and Linux) to try reading an image from the clipboard. Supported formats include PNG, JPEG, GIF, and WebP. Clipboard support depends on the terminal and system tools, and the selected model must accept images.
-- **Sessions and context.** Save conversations and attachments per project and continue with `/resume`. The status line shows context usage. Anti-trace can compact older messages automatically, and `/compact` lets you request compaction manually.
+- **Sessions and context.** Save conversations and attachments per project and continue with `/resume`. Use `/context` to see the working directory, model, reasoning effort and context usage. ResidualX can compact older messages automatically, and `/compact` lets you request compaction manually.
 
 ## Skills
 
 Open `/skill` for a second-level picker, use `/skill review current branch` to invoke directly, or `/skill --reload` for diagnostics. Skills with argument hints ask for arguments first. Individual skills do not become top-level commands.
 
-Store project skills at `cwd/.anti-trace/skills/<name>/SKILL.md`; discovery uses only the current working directory, without walking its parents. Store user skills at `~/.anti-trace/skills/<name>/SKILL.md` (relative to `ANTI_TRACE_HOME`, shared across projects and profiles). Project definitions override user definitions.
+Store project skills at `cwd/.residualx/skills/<name>/SKILL.md`; discovery uses only the current working directory, without walking its parents. Store user skills at `~/.residualx/skills/<name>/SKILL.md` (relative to `RESIDUALX_HOME`, shared across projects and profiles). Project definitions override user definitions.
 
 The system prompt supplies both resolved directories and the file format, even before any skills exist. Ask in chat to create a skill: project storage is the default; personal or cross-project skills use user storage. Existing file/shell tools create the files, which are discovered before the next model request.
 
@@ -85,11 +84,11 @@ Reads are allowed by default. Writes, edits, and shell commands prompt for appro
 | `auto-edit` | Allow writes and edits automatically and ask before shell commands |
 | `yolo` | Allow all tool calls automatically |
 
-Press `Shift+Tab` to cycle through modes, or launch with `ati --auto-edit` or `ati --yolo`. Tools run with the current user's system permissions.
+Press `Shift+Tab` to cycle through modes, or launch with `residualx --auto-edit` or `residualx --yolo`. Tools run with the current user's system permissions.
 
 ## Model configuration
 
-Use `/config` to create, select, and edit configuration files. Each file can define multiple models, which you can switch between with `/model`. Anti-trace supports these APIs.
+Use `/config` to create, select, and edit configuration files. Each file can define multiple models, which you can switch between with `/model`. ResidualX supports these APIs.
 
 | API | JSON `api` value |
 | --- | --- |
@@ -97,12 +96,12 @@ Use `/config` to create, select, and edit configuration files. Each file can def
 | OpenAI Responses | `openai-responses` |
 | Anthropic Messages | `anthropic-messages` |
 
-You can also copy the [example configuration](byok.example.json) to `~/.anti-trace/profiles/local/configs/main.json`. Replace the example URL, key, and model ID, then set `contextWindow` and optionally `maxOutputTokens` for your model. Each entry in `models` references a connection in `connections`, and `currentModel` is the key of the selected model entry.
+You can also copy the [example configuration](byok.example.json) to `~/.residualx/profiles/local/configs/main.json`. Replace the example URL, key, and model ID, then set `contextWindow` and optionally `maxOutputTokens` for your model. Each entry in `models` references a connection in `connections`, and `currentModel` is the key of the selected model entry.
 
 - Set either `apiKey` or `apiKeyEnv` for each connection. `apiKeyEnv` refers to an environment variable available to the CLI process. You can also use a connection from the [provider presets example](byok.providers.example.json).
 - Set `baseUrl` to the API root, including any required version prefix such as `/v1`. Put a full inference URL in `endpoint` when needed.
-- Startup checks `CLI_AGENT_CONFIG`, the project's last selection, the user's default selection, and the sole valid configuration in the config directory, in that order. When several valid configurations are available on first launch, choose one with `/config`.
-- Local data lives in `~/.anti-trace` by default. Override it with `ANTI_TRACE_HOME`. Model configurations are stored in `profiles/local/configs/`. Conversations, attachments, and long tool output are grouped by working directory under `profiles/local/projects/`.
+- Startup checks `RESIDUALX_CONFIG`, the project's last selection, the user's default selection, and the sole valid configuration in the config directory, in that order. When several valid configurations are available on first launch, choose one with `/config`.
+- Local data lives in `~/.residualx` by default. Override it with `RESIDUALX_HOME`. Model configurations are stored in `profiles/local/configs/`. Conversations, attachments, and long tool output are grouped by working directory under `profiles/local/projects/`.
 
 ## Commands and shortcuts
 
@@ -121,7 +120,7 @@ Type `/` and keep typing to filter the command menu. Use the arrow keys to selec
 | `/thinking [on\|off\|default]` | Enable reasoning, disable it, or use the provider default |
 | `/effort` | Select `low`, `medium`, `high`, `xhigh`, or `max`. The effect depends on the model and API |
 | `/thinking-display [on\|off]` | Choose whether reasoning text starts expanded |
-| `/context [positive integer]` / `/compact` | Inspect or adjust the context window, or request compaction |
+| `/context [positive integer]` / `/compact` | View session information, adjust the context window, or request compaction |
 | `/language [zh\|en]` | Switch and remember the interface language |
 | `/skill [name arguments\|--reload]` | Open the skill picker, invoke a skill, or reload |
 | `/exit` | Exit |
@@ -140,10 +139,10 @@ Shortcut support depends on the terminal.
 
 Start the CLI and enter `/mcp` to add, edit, trust, connect, disable or remove servers and inspect Tools, Resources, URI Templates and Prompts. Model configuration is not required. Choose a scope and transport when adding a server:
 
-- Current project: `<cwd>/.anti-trace/mcp.json`. Explicit trust is required before starting or connecting.
-- All projects: `~/.anti-trace/profiles/local/mcp.json`. A project entry replaces the entire user entry with the same name.
+- Current project: `<cwd>/.residualx/mcp.json`. Explicit trust is required before starting or connecting.
+- All projects: `~/.residualx/profiles/local/mcp.json`. A project entry replaces the entire user entry with the same name.
 
-User configuration and private state follow `ANTI_TRACE_HOME` and are isolated by profile. Project configuration can be committed to Git; reference credentials through environment variables. OAuth credentials, trust and local enable/disable overrides live in the private user directory `~/.anti-trace/profiles/local/mcp/`. Example:
+User configuration and private state follow `RESIDUALX_HOME` and are isolated by profile. Project configuration can be committed to Git; reference credentials through environment variables. OAuth credentials, trust and local enable/disable overrides live in the private user directory `~/.residualx/profiles/local/mcp/`. Example:
 
 ```json
 {
@@ -172,8 +171,8 @@ The model can use `mcp_list_resources` and `mcp_read_resource` to discover and r
 ## Development
 
 ```sh
-git clone https://github.com/sadgsk/Anti-trace.git
-cd Anti-trace
+git clone https://github.com/sadgsk/ResidualX.git
+cd ResidualX
 npm ci
 npm start
 ```

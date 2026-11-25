@@ -119,7 +119,12 @@ test("BYOK load and request failures keep the actual TTY CLI and session command
 			const extra = scenario.prepare(f) ?? {};
 			done = runCli({ cwd: f.root, configPath: f.path, sessionsRoot: f.sessionsRoot, ...extra, streams: { stdin, stdout, stderr } });
 			void done.then(() => { settled = true; });
-			await until(() => (scenario.requestOnly ? /first-model/ : scenario.expected).test(output));
+			if (scenario.requestOnly) {
+				await until(() => output.includes("first-model"));
+				await enter(stdin, "/context");
+				await until(() => /当前模型\s+first-model/.test(output));
+				stdin.write("\x1b"); await delay();
+			} else await until(() => scenario.expected.test(output));
 			assert.equal(settled, false); assert.equal(stdin.isRaw, true);
 			if (scenario.requestOnly) assert.doesNotMatch(output, scenario.expected);
 			await enter(stdin, "/help");
@@ -127,7 +132,8 @@ test("BYOK load and request failures keep the actual TTY CLI and session command
 			await enter(stdin, "/new");
 			await until(() => /已开始新会话/.test(output));
 			await enter(stdin, "/context");
-			await until(() => (scenario.requestOnly ? /ctx 0\/100000/ : /ctx 0\/未配置/).test(output));
+			await until(() => (scenario.requestOnly ? /上下文用量\s+0 \/ 100000/ : /上下文用量\s+0 \/ 未配置/).test(output));
+			stdin.write("\x1b"); await delay();
 			await enter(stdin, "/resume");
 			await until(() => /没有可恢复的会话/.test(output));
 			await enter(stdin, "hello");
@@ -169,7 +175,8 @@ test("TTY repairs a missing file and stale default without restarting, then keep
 		const config = catalog(); config.currentModel = "deleted"; f.write(config);
 		await enter(stdin, "/reload"); await until(() => output.includes("currentModel 引用了不存在的模型 deleted"));
 		await enter(stdin, "/model main"); await until(() => output.includes("已切换到 main"));
-		await enter(stdin, "/context"); await until(() => output.includes("ctx 0/100000"));
+		await enter(stdin, "/context"); await until(() => /上下文用量\s+0 \/ 100000/.test(output));
+		stdin.write("\x1b"); await delay();
 		await enter(stdin, "/context 120000"); await until(() => output.includes("ctx 0/120000"));
 		assert.equal(settled, false);
 		await enter(stdin, "/exit"); assert.equal(await done, 0);
@@ -366,12 +373,14 @@ test("actual TTY resumes existing history without a config and keeps it through 
 		await until(() => output.includes("缺少 BYOK 配置"));
 		await enter(stdin, "/resume"); await until(() => output.includes("↑↓ 选择会话"));
 		stdin.write("\r"); await until(() => output.includes("已恢复会话：saved user"));
-		await enter(stdin, "/context"); await until(() => /ctx\s+\d+\s*\/\s*未配置/.test(output));
+		await enter(stdin, "/context"); await until(() => /上下文用量\s+\d+\s*\/\s*未配置/.test(output));
+		stdin.write("\x1b"); await delay();
 		await enter(stdin, "blocked"); await until(() => /尚无可用模型配置/.test(output));
 		assert.equal(readFileSync(seeded.path, "utf8"), persisted);
 		f.write(catalog());
 		await enter(stdin, "/reload"); await until(() => output.includes("已加载 BYOK 配置"));
-		await enter(stdin, "/context"); await until(() => /ctx\s+[1-9][\d.]*k?\s*\/\s*100000/.test(output));
+		await enter(stdin, "/context"); await until(() => /上下文用量\s+[1-9]\d*\s*\/\s*100000/.test(output));
+		stdin.write("\x1b"); await delay();
 		assert.ok(readFileSync(seeded.path, "utf8").startsWith(persisted));
 		assert.equal(loadSession(seeded.path).messages.length, 2);
 		assert.equal(loadSession(seeded.path).settings?.modelRef?.modelKey, "main");

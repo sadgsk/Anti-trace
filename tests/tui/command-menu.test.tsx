@@ -32,21 +32,23 @@ async function renderMenu(snapshot: PromptSuggestionsSnapshot, columns: number, 
 	} finally { app.unmount(); app.cleanup(); stdin.destroy(); stdout.destroy(); }
 }
 
-test("P09 shows six commands, required arguments, overflow, shortcuts and a counter", async () => {
-	const frame = await renderMenu(state(), 100, 16);
-	assert.match(frame, /❯ \/help/);
-	for (const name of ["new", "resume", "model", "thinking", "effort"]) assert.match(frame, new RegExp(`/${name}`));
+test("a tall menu shows eleven commands, navigation and a counter without growing past the footer", async () => {
+	const frame = await renderMenu(state(), 42, 35);
+	assert.match(frame, /◢\/help/);
+	for (const command of SLASH_COMMANDS.slice(0, 11)) assert.ok(frame.includes("/" + command.name));
 	assert.doesNotMatch(frame, /\/exit/);
 	assert.match(frame, /\/model.*打开模型选择/); assert.doesNotMatch(frame, /\[需参数\]/);
-	assert.match(frame, new RegExp(`还有 ${SLASH_COMMANDS.length - 6} 条`));
-	assert.match(frame, new RegExp(`↑↓ 选择  Enter 确认  Tab 补全  Esc 收起.*1/${SLASH_COMMANDS.length}`));
-	assert.match(frame, /╭/);
-	assert.match(frame, /│❯.*│/);
+	assert.match(frame, new RegExp(`还有 ${SLASH_COMMANDS.length - 11} 条`));
+	assert.match(frame, new RegExp(`↑↓ 选择  Enter 确认.*1/${SLASH_COMMANDS.length}`));
+	assert.match(frame, /╭─+┐/);
+	assert.match(frame, /└─+╯$/);
+	assert.equal(frame.split("\n").length, 17);
+	assert.match(frame, /◇ ◢ 命令 ◤/);
 });
 
 test("scrolling keeps the last selected command visible with its global position", async () => {
 	const frame = await renderMenu(state(SLASH_COMMANDS.length - 1), 80, 12);
-	assert.match(frame, /❯ \/exit/);
+	assert.match(frame, /◢\/exit/);
 	assert.doesNotMatch(frame, /\/help/);
 	assert.match(frame, new RegExp(`上方 ${SLASH_COMMANDS.length - 6} 条 · 下方 0 条`));
 	assert.match(frame, new RegExp(`${SLASH_COMMANDS.length}/${SLASH_COMMANDS.length}`));
@@ -54,18 +56,18 @@ test("scrolling keeps the last selected command visible with its global position
 
 test("filtered commands remove the overflow hint and required parameters retain their badge", async () => {
 	const filtered = await renderMenu(state(0, SLASH_COMMANDS.filter(command => command.name.startsWith("con"))), 80, 12);
-	assert.match(filtered, /❯ \/context/);
+	assert.match(filtered, /◢\/context/);
 	assert.match(filtered, /1\/2/);
 	assert.doesNotMatch(filtered, /还有|上方|\/help/);
 	const required = await renderMenu(state(0, [SLASH_COMMANDS[3]]), 28, 5);
-	assert.match(required, /❯ \/model/); assert.doesNotMatch(required, /\[需参数\]/);
+	assert.match(required, /◢\/model/); assert.doesNotMatch(required, /\[需参数\]/);
 });
 
 test("empty results retain the dismiss action and render a zero counter", async () => {
 	const frame = await renderMenu(state(0, []), 80, 12);
 	assert.match(frame, /无匹配命令/);
 	assert.match(frame, /Esc 收起.*0\/0/);
-	assert.doesNotMatch(frame, /Enter|❯/);
+	assert.doesNotMatch(frame, /Enter/);
 });
 
 test("rendered output fits both dimensions from tiny terminals to wide screens", async () => {
@@ -74,7 +76,7 @@ test("rendered output fits both dimensions from tiny terminals to wide screens",
 			const frame = await renderMenu(state(SLASH_COMMANDS.length - 1), columns, rows);
 			assert.ok(frame.split("\n").length <= rows, `${columns}×${rows}: height ${frame.split("\n").length}`);
 			for (const line of frame.split("\n")) assert.ok(stringWidth(line) <= columns, `${columns}×${rows}: ${line}`);
-			assert.match(frame, /❯/, `${columns}×${rows}: selected item disappeared`);
+			assert.match(frame, /◢/, `${columns}×${rows}: selected item disappeared`);
 			if (columns >= 20) assert.match(frame, /\/exit/);
 			if (rows >= 2 && columns >= 5) assert.match(frame, new RegExp(`${SLASH_COMMANDS.length}/${SLASH_COMMANDS.length}`));
 		}
@@ -85,7 +87,7 @@ test("changing selection does not change the row count or panel width", async ()
 	for (const index of [0, 3, 5, 8, 11]) {
 		const frame = await renderMenu(state(index), 80, 12);
 		assert.equal(frame.split("\n").length, 12);
-		assert.equal(frame.split("\n").filter(line => line.includes("❯")).length, 1);
+		assert.equal(frame.split("\n").filter(line => line.includes("◢/")).length, 1);
 	}
 });
 

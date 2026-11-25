@@ -1,18 +1,19 @@
 {
-	"name": "anti-trace",
-	"version": "0.1.8",
+	"name": "residualx",
+	"version": "0.2.0",
 	"license": "MIT",
 	"description": "Terminal AI coding agent with bring-your-own-key model support",
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/sadgsk/Anti-trace.git"
+		"url": "git+https://github.com/sadgsk/ResidualX.git"
 	},
-	"homepage": "https://github.com/sadgsk/Anti-trace#readme",
+	"homepage": "https://github.com/sadgsk/ResidualX#readme",
 	"bugs": {
-		"url": "https://github.com/sadgsk/Anti-trace/issues"
+		"url": "https://github.com/sadgsk/ResidualX/issues"
 	},
 	"files": [
 		"dist/",
+		"assets/",
 		"README.en.md",
 		"byok.example.json",
 		"byok.providers.example.json",
@@ -24,8 +25,8 @@
 	},
 	"type": "module",
 	"bin": {
-		"ati": "dist/cli/bin.js",
-		"anti-trace": "dist/cli/bin.js"
+		"residualx": "dist/cli/bin.js",
+		"rex": "dist/cli/bin.js"
 	},
 	"scripts": {
 		"start": "tsx src/cli/main.ts",
@@ -57,6 +58,7 @@
 		"highlight.js": "11.12.0",
 		"ink": "6.5.1",
 		"marked": "18.1.2",
+		"omggif": "1.0.10",
 		"react": "19.2.4",
 		"react-devtools-core": "6.1.2",
 		"string-width": "8.3.0",
@@ -65,6 +67,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "22.19.19",
+		"@types/omggif": "1.0.5",
 		"@types/react": "19.2.18",
 		"@xterm/headless": "6.0.0",
 		"c8": "12.0.0",

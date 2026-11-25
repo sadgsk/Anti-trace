@@ -16,7 +16,7 @@ export const SLASH_COMMANDS = [
 	{ name: "thinking", description: "打开模型思考开关", argumentHint: "[on|off|default]" },
 	{ name: "effort", description: "打开思考档位选择", argumentHint: "[low|medium|high|xhigh|max]" },
 	{ name: "thinking-display", description: "打开思考文字展示开关", argumentHint: "[on|off]" },
-	{ name: "context", description: "查看或调整上下文窗口", argumentHint: "[正整数]" },
+	{ name: "context", description: "会话信息与上下文窗口", argumentHint: "[正整数]" },
 	{ name: "compact", description: "压缩上下文" },
 	{ name: "skill", description: "选择并使用技能", argumentHint: "[技能名 参数|--reload]" },
 	{ name: "config", description: "管理配置文件／新增／修改", argumentHint: "[路径]" },

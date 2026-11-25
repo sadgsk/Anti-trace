@@ -119,7 +119,7 @@ export function shrinkImageBytes(bytes: Uint8Array): Uint8Array {
 	if (!detectSupportedImageMimeType(bytes)) {
 		return bytes;
 	}
-	const filePath = join(tmpdir(), `anti-trace-read-${randomUUID()}.img`);
+	const filePath = join(tmpdir(), `residualx-read-${randomUUID()}.img`);
 	const resizedPath = `${filePath}.resized.png`;
 	try {
 		writeFileSync(filePath, bytes);

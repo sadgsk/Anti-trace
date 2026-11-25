@@ -1,22 +1,35 @@
-import { homedir } from "node:os";
-import stringWidth from "string-width";
-import { Box, Text } from "ink";
-import type { HarnessDisplayState } from "../../harness/harness.ts";
-import type { PermissionMode } from "../../cli/permissions/permission-policy.ts";
-import { BrandMark } from "./BrandMark.tsx";
+import { createRequire } from "node:module";
+import { Box } from "ink";
 import { ThemedText } from "../theme/ThemeProvider.tsx";
-import { formatTokens, truncateText } from "../utils/text.ts";
-import { useLocale } from "../locale/LocaleProvider.tsx";
-export function WelcomeHeader({ cwd, display, columns }: { cwd: string; display: HarnessDisplayState; columns: number; rows: number; permissionMode: PermissionMode }) {
-	const { t } = useLocale(), path = cwd.startsWith(homedir()) ? `~${cwd.slice(homedir().length)}` : cwd;
-	const suffix = ` · ${formatTokens(display.contextUsed)} / ${display.contextWindow ? formatTokens(display.contextWindow) : t("未配置")} · ${display.thinking.effort}`;
-	const right = Math.min(columns, stringWidth(display.modelName + suffix)), left = Math.max(0, columns - right - 2);
-	const together = left >= 8, cyan = together ? right : Math.min(columns, Math.max(16, Math.floor(columns / 3)));
-	const model = <Text wrap="truncate-end"><ThemedText color="brand">{truncateText(display.modelName === "模型未配置" ? t(display.modelName) : display.modelName, Math.max(1, right - stringWidth(suffix)))}</ThemedText><ThemedText color="muted">{suffix}</ThemedText></Text>;
-	return <Box flexDirection="column" marginBottom={1} width={columns} flexShrink={0} overflow="hidden">
-		<BrandMark columns={columns} />
-		<Text wrap="truncate-end"><ThemedText color="brand">{"─".repeat(Math.max(0, columns - cyan - 1))}</ThemedText> <ThemedText color="accent">{"─".repeat(cyan)}</ThemedText></Text>
-		{together ? <Box justifyContent="space-between"><ThemedText color="muted" wrap="truncate-end">{truncateText(path, left)}</ThemedText><Box width={right} flexShrink={0}>{model}</Box></Box>
-			: <><ThemedText color="muted" wrap="truncate-end">{truncateText(path, columns)}</ThemedText><Box justifyContent="flex-end">{model}</Box></>}
+import { displayText } from "../utils/text.ts";
+import { BrandMark } from "./BrandMark.tsx";
+import { hasLargeLogo, logoHeight, logoWidth } from "./brand-art.ts";
+
+const { version } = createRequire(import.meta.url)("../../../package.json") as { version: string };
+const versionLabel = "v" + version;
+
+/** Static scrollback and the moving wordmark use the same terminal cells. */
+export function WelcomeRow({ columns, brandColumns, cwd, band, frame, graphic, compact = false }: {
+	columns: number; brandColumns: number; cwd: string; band: number; frame?: number; graphic?: boolean; compact?: boolean;
+}) {
+	const markWidth = compact ? Math.min(9, columns) : logoWidth(brandColumns);
+	const space = columns - markWidth - 3;
+	const versionBand = compact ? 0 : logoHeight(brandColumns) - (space >= 8 ? 2 : 1);
+	const showVersion = space >= versionLabel.length && band === versionBand;
+	const showPath = compact ? space >= versionLabel.length + 12 : space >= 8 && band === versionBand + 1;
+	return <Box height={1} width={columns} flexShrink={0}>
+		<Box width={markWidth} flexShrink={0}>{compact ? <ThemedText bold wrap="truncate-end">ResidualX</ThemedText>
+			: <BrandMark columns={brandColumns} band={band} frame={frame} graphic={graphic} />}</Box>
+		{(showVersion || showPath) && <Box flexGrow={1} marginLeft={3} justifyContent="flex-end">
+			{showVersion && <Box flexShrink={0} marginRight={showPath ? 2 : 0}><ThemedText>{versionLabel}</ThemedText></Box>}
+			{showPath && <ThemedText wrap="truncate-start">{displayText(cwd).replace(/\n/g, " ")}</ThemedText>}
+		</Box>}
 	</Box>;
+}
+
+export function WelcomeHeader({ columns, brandColumns = columns, rows, cwd, gap = true }: { columns: number; brandColumns?: number; rows: number; cwd: string; gap?: boolean }) {
+	const compact = !hasLargeLogo(columns, rows);
+	return <Box flexDirection="column" paddingBottom={gap ? 1 : 0}>{Array.from({ length: compact ? 1 : logoHeight(brandColumns) }, (_, band) =>
+		<WelcomeRow key={band} columns={columns} brandColumns={brandColumns} cwd={cwd} band={band} compact={compact} />
+	)}</Box>;
 }

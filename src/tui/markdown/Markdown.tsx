@@ -21,12 +21,12 @@ function inline(tokens: readonly Token[] | undefined, fallback = ""): ReactNode 
 			case "link": return <FilePathLink key={index} href={node.href ?? ""}>{node.text}</FilePathLink>;
 			case "image": return <ThemedText key={index} color="muted">[Image: {displayText(node.text ?? "")}]</ThemedText>;
 			case "br": return "\n";
-			default: return <Text key={index}>{children}</Text>;
+			default: return <ThemedText key={index}>{children}</ThemedText>;
 		}
 	});
 }
 function blocks(tokens: readonly Token[], columns: number, depth = 0): ReactNode {
-	if (depth > 12) return <Text>{tokens.map(token => token.raw).join("")}</Text>;
+	if (depth > 12) return <ThemedText>{tokens.map(token => token.raw).join("")}</ThemedText>;
 	return tokens.map((token, index) => {
 		switch (token.type) {
 			case "space": case "def": return null;
@@ -39,7 +39,7 @@ function blocks(tokens: readonly Token[], columns: number, depth = 0): ReactNode
 				return <Box key={i}><ThemedText color="muted">{marker}</ThemedText><Box flexDirection="column" width={Math.max(1, columns - marker.length)}>{blocks(item.tokens, columns - marker.length, depth + 1)}</Box></Box>;
 			})}</Box>; }
 			case "table": { const table = token as Tokens.Table; return <MarkdownTable key={index} header={table.header.map(cell => cell.text)} rows={table.rows.map(row => row.map(cell => cell.text))} columns={columns} />; }
-			default: { const text = token as Tokens.Paragraph; return <Text key={index}>{inline(text.tokens, text.text ?? text.raw)}</Text>; }
+			default: { const text = token as Tokens.Paragraph; return <ThemedText key={index}>{inline(text.tokens, text.text ?? text.raw)}</ThemedText>; }
 		}
 	});
 }

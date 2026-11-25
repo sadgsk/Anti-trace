@@ -1,6 +1,6 @@
 import { join, resolve } from "node:path";
 import { existsSync } from "node:fs";
-import { loadByokConfig, type LoadedByokConfig, type LoadByokConfigOptions } from "../config/byok.ts";
+import { explicitConfigPath, loadByokConfig, type LoadedByokConfig, type LoadByokConfigOptions } from "../config/byok.ts";
 import { ByokConfigError } from "../config/errors.ts";
 import type { ModelReference, SessionSettings } from "../types.ts";
 import type { HarnessModelSettings } from "../harness/harness.ts";
@@ -37,7 +37,7 @@ export class ByokRuntime {
 		this.defaultSelectionStore = new ModelSelectionStore(this.paths.defaultSelectionFile, cwd);
 		this.profiles = new ConfigProfiles(cwd, env, this.paths);
 		const projectSaved = this.selectionStore.read();
-		const explicitPath = options.configPath ?? env.CLI_AGENT_CONFIG;
+		const explicitPath = explicitConfigPath(options);
 		this.rememberDefaultOnStartup = explicitPath !== undefined || options.model !== undefined || !projectSaved;
 		let saved: ModelReference | undefined;
 		if (explicitPath === undefined) {
@@ -64,7 +64,7 @@ export class ByokRuntime {
 	get modelName(): string { return this.config?.model.name ?? "模型未就绪"; }
 	get hasConfig(): boolean { return this.config !== undefined; }
 	get modelKeys(): string[] { return this.config ? Object.keys(this.config.models) : []; }
-	get configPath(): string { return this.config?.configPath ?? resolve(this.selection.cwd ?? process.cwd(), this.selection.configPath ?? (this.selection.env ?? process.env).CLI_AGENT_CONFIG ?? join(this.paths.configsDir, "main.json")); }
+	get configPath(): string { return this.config?.configPath ?? resolve(this.selection.cwd ?? process.cwd(), explicitConfigPath(this.selection) ?? join(this.paths.configsDir, "main.json")); }
 	get selectedModel(): string | undefined { return this.readSettings?.().modelRef?.modelKey ?? this.config?.currentModel; }
 	get modelChoices() { return Object.entries(this.config?.models ?? {}).map(([key, model]) => ({ id: key, label: model.name, description: `${key} · ${model.id}`, current: key === this.selectedModel })); }
 	saveProfile(values: Record<string, string>, edit?: ProfileEdit): string[] {
@@ -108,7 +108,7 @@ export class ByokRuntime {
 		if (change.configPath !== undefined && !Object.hasOwn(change, "model")) this.selection.model = undefined;
 		const current = this.readSettings?.();
 		const sameFile = change.configPath === undefined && this.config &&
-			resolve(this.selection.cwd ?? process.cwd(), this.selection.configPath ?? (this.selection.env ?? process.env).CLI_AGENT_CONFIG ?? join(this.paths.configsDir, "main.json")) === this.config.configPath;
+			resolve(this.selection.cwd ?? process.cwd(), explicitConfigPath(this.selection) ?? join(this.paths.configsDir, "main.json")) === this.config.configPath;
 		if (sameFile && change.model === undefined && current?.modelRef?.configPath === this.config!.configPath) {
 			this.selection.model = current.modelRef.modelKey;
 		}
@@ -147,7 +147,7 @@ export class ByokRuntime {
 	}
 
 	describe(): string {
-		const path = this.selection.configPath ?? (this.selection.env ?? process.env).CLI_AGENT_CONFIG ?? join(this.paths.configsDir, "main.json");
+		const path = explicitConfigPath(this.selection) ?? join(this.paths.configsDir, "main.json");
 		return [
 			`BYOK 配置：${path.trim() ? resolve(this.selection.cwd ?? process.cwd(), path) : "（路径为空）"}`,
 			...(this.lastError ? [`配置错误：${this.lastError}`] : []),

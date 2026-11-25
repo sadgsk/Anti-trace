@@ -13,5 +13,5 @@ export function Tabs({ children, selectedTab, onTabChange, active = true }: { ch
 		return { id: Symbol("tabs"), context: "Tabs", actions: { "tabs:previous": () => move(-1), "tabs:next": () => move(1) } };
 	}, [tabs, index, onTabChange]);
 	useInputTarget("modal", target, active);
-	return <Box flexDirection="column"><Text>{tabs.map((tab, i) => <ThemedText key={tab.props.id} color={i === index ? "accent" : "dim"} underline={i === index}> {tab.props.title} </ThemedText>)}</Text>{tabs[index]}</Box>;
+	return <Box flexDirection="column"><Text>{tabs.map((tab, i) => <ThemedText key={tab.props.id} color={i === index ? "accent" : "dim"} inverse={i === index} bold={i === index}> {tab.props.title} </ThemedText>)}</Text>{tabs[index]}</Box>;
 }

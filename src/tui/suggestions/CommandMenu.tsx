@@ -2,6 +2,8 @@ import { Box, Text } from "ink";
 import { useTheme } from "../theme/ThemeProvider.tsx";
 import { layoutCommandMenu, layoutCommandMenuFooter, layoutCommandMenuRow, truncateMenuText } from "./command-menu-layout.ts";
 import type { PromptSuggestionsSnapshot } from "./prompt-suggestions-controller.ts";
+import { cutBorder, PanelTitle } from "../design-system/Pane.tsx";
+import { ListItem } from "../design-system/ListItem.tsx";
 import { useLocale } from "../locale/LocaleProvider.tsx";
 
 export interface CommandMenuProps {
@@ -20,25 +22,17 @@ export function CommandMenu({ state, availableColumns, availableRows }: CommandM
 	const { width, marginLeft, framed, contentWidth, start, count } = layout;
 	const footer = layoutCommandMenuFooter(contentWidth, state.selectedIndex, state.items.length, state.kind === "file", t);
 	return <Box flexDirection="column" flexShrink={0} width={width} marginLeft={marginLeft}
-		marginTop={framed ? 1 : 0} paddingX={framed ? 1 : 0}
-		borderStyle={framed ? "round" : undefined} borderColor={theme.faint}
-		backgroundColor={framed ? theme.bgBar || undefined : undefined} aria-role="menu" aria-label={state.kind === "file" ? "文件补全" : "命令菜单"}>
+		paddingX={framed ? 1 : 0}
+		borderStyle={framed ? cutBorder : undefined} borderColor={theme.faint || undefined}
+		aria-role="menu" aria-label={state.kind === "file" ? "文件补全" : "命令菜单"}>
+		{framed && <PanelTitle title={t(state.kind === "file" ? "文件补全" : "命令")} width={contentWidth} />}
 		{state.items.length === 0 ? <Text color={theme.muted} wrap="truncate-end">
 			{truncateMenuText(t(state.loading ? "正在查找文件…" : state.kind === "file" ? "无匹配文件" : "无匹配命令"), contentWidth)}
 		</Text> : state.items.slice(start, start + count).map((command, index) => {
 			const selected = start + index === state.selectedIndex;
-			const pointer = selected ? "❯" : " ";
-			const prefix = framed ? `${selected ? "│" : " "}${pointer} ` : contentWidth >= 2 ? `${pointer} ` : pointer;
-			const suffix = framed ? selected ? " │" : "  " : "";
-			const row = layoutCommandMenuRow({ ...command, description: t(command.description) }, Math.max(0, contentWidth - (framed ? 5 : Math.min(2, contentWidth))), state.kind === "file" ? "@" : "/");
-			return <Box key={command.name} flexShrink={0} height={1} width={contentWidth}
-				backgroundColor={selected && framed ? theme.selectionBackground : undefined}
-				aria-role="menuitem" aria-state={{ selected }}>
-				<Text wrap="truncate-end">
-					<Text color={theme.accent}>{prefix}{row.name}</Text>
-					{row.gap}<Text color={selected ? undefined : theme.muted}>{row.description}</Text>
-					<Text color={theme.accent}>{suffix}</Text>
-				</Text>
+			const row = layoutCommandMenuRow({ ...command, description: t(command.description) }, Math.max(0, contentWidth - 2), state.kind === "file" ? "@" : "/");
+			return <Box key={command.name} aria-role="menuitem" aria-state={{ selected }}>
+				<ListItem selected={selected} width={contentWidth}>{row.name + row.gap + row.description}</ListItem>
 			</Box>;
 		})}
 		{layout.more ? <Text color={theme.dim} wrap="truncate-end">{truncateMenuText(t(layout.more), contentWidth)}</Text> : null}

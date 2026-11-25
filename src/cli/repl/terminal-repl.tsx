@@ -16,6 +16,12 @@ import { mouseWheelDirection } from "../ink/mouse-wheel.ts";
 import type { TranscriptFrame } from "../../tui/layout/TranscriptViewport.tsx";
 import type { UiLocale } from "../locale.ts";
 import { ArrayRows, appendRows, overlayTail } from "../../tui/layout/terminal-rows.ts";
+import { ReplyGraphics, replyGraphicsQuery } from "../ink/reply-graphics.ts";
+import { inputInset } from "../../tui/layout/PromptInputBox.tsx";
+import { dialogLayout } from "../../tui/design-system/Pane.tsx";
+import { logoHeight } from "../../tui/layout/brand-art.ts";
+import { ReplyGraphicsContext } from "../../tui/messages/ReplyMark.tsx";
+import { railInset } from "../../tui/messages/MessageFrame.tsx";
 
 export interface TerminalReplOptions {
 	harness: ReplHarness;
@@ -33,8 +39,11 @@ export interface TerminalReplOptions {
 /** One terminal host feeds draft actions and global REPL actions through one dispatcher. */
 export function startTerminalRepl(options: TerminalReplOptions) {
 	const streams = options.streams ?? { stdin: process.stdin, stdout: process.stdout };
+	const graphics = new ReplyGraphics();
+	const probeGraphics = process.env.TERM !== "dumb" && process.env.NO_COLOR === undefined;
 	const columns = () => Math.max(1, (streams.stdout.columns || 80) - 1);
-	const inputColumns = () => Math.max(1, columns() - 3);
+	const panel = () => dialogLayout(columns(), streams.stdout.rows || 24);
+	const inputColumns = () => Math.max(1, columns() - inputInset(columns()) - 1);
 	const cwd = options.cwd ?? process.cwd();
 	let host: TerminalHost | undefined;
 	let active = true;
@@ -62,7 +71,10 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		},
 		"app:exit": () => repl.exit(),
 		"app:expand": () => repl.toggleExpanded(),
-		"app:permission-mode": () => repl.permissions.cycleMode(),
+		"app:permission-mode": () => {
+			repl.permissions.cycleMode();
+			repl.write(repl.locale.t("权限模式") + " · " + repl.permissions.getSnapshot().mode);
+		},
 		"app:scroll-up": () => { host?.invalidate(); repl.scroll(Math.max(1, (streams.stdout.rows || 24) - 6)); },
 		"app:scroll-down": () => { host?.invalidate(); repl.scroll(-Math.max(1, (streams.stdout.rows || 24) - 6)); },
 		"app:scroll-latest": () => repl.returnToLatest(),
@@ -72,7 +84,6 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		"app:exit": () => repl.exit(),
 	} };
 	const suggestions = new PromptSuggestionsController(prompt, repl, { cwd });
-	repl.permissions.feedback.setAvailableColumns(Math.max(1, columns() - 5));
 	const focus = new FocusStack(dispatcher, options.bindings ?? REPL_KEYBINDINGS);
 	focus.set("global", global); focus.set("editor", inputTarget);
 	let menuOpen = false;
@@ -86,7 +97,7 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	};
 	const unsubscribePermission = repl.permissions.subscribe(configureModal);
 	const unsubscribeDialog = repl.dialogs.subscribe(configureModal);
-	repl.dialogs.setColumns(columns());
+	repl.dialogs.setColumns(panel().width);
 	configureTargets();
 	let epoch = repl.getSnapshot().renderEpoch;
 	let historyVersion = repl.getSnapshot().historyVersion;
@@ -100,15 +111,15 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 	let transcriptFrame: TranscriptFrame | undefined;
 	const onTranscriptFrame = (frame?: TranscriptFrame) => { transcriptFrame = frame; };
 	const isConversation = () => !repl.dialogs.getSnapshot() && !repl.permissions.getSnapshot().request && !suggestions.getSnapshot().open && !repl.getSnapshot().viewingHistory && repl.getSnapshot().scrollOffset === 0;
-	const tree = () => { layoutSize = { columns: columns(), rows: streams.stdout.rows || 24 }; return <ThemeProvider depth={detectColorDepth(streams.stdout)}><LocaleProvider locale={repl.locale}><FocusStackProvider stack={focus}>
-		<ReplScreen repl={repl} prompt={prompt} suggestions={suggestions} cwd={cwd} columns={columns()} rows={streams.stdout.rows || 24} nativeScrollback onTranscriptFrame={onTranscriptFrame} />
+	const tree = () => { layoutSize = { columns: columns(), rows: streams.stdout.rows || 24 }; return <ThemeProvider depth={detectColorDepth(streams.stdout)} paper={graphics.background}><LocaleProvider locale={repl.locale}><FocusStackProvider stack={focus}>
+		<ReplyGraphicsContext.Provider value={probeGraphics && graphics.available}><ReplScreen repl={repl} prompt={prompt} suggestions={suggestions} cwd={cwd} columns={columns()} rows={streams.stdout.rows || 24} nativeScrollback onTranscriptFrame={onTranscriptFrame} /></ReplyGraphicsContext.Provider>
 	</FocusStackProvider></LocaleProvider></ThemeProvider>; };
 	const renderView = () => host?.rerender(tree());
 	const resize = () => {
 		host?.reflow();
+		if (probeGraphics) { const sixel = graphics.resize(); streams.stdout.write((sixel ? "\x1b[16t" : "") + "\x1b]11;?\x1b\\"); }
 		prompt.setAvailableColumns(inputColumns());
-		repl.permissions.feedback.setAvailableColumns(Math.max(1, columns() - 5));
-		repl.dialogs.setColumns(columns());
+		repl.dialogs.setColumns(panel().width);
 		renderView();
 	};
 	const cleanup = (exitCode = 0) => {
@@ -131,6 +142,12 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 		if (options.startupMessage) repl.write(options.startupMessage);
 		repl.writeContext();
 		host = startTerminalHost(event => {
+			if (event.type === "response" && probeGraphics) {
+				const before = graphics.available, paper = graphics.background;
+				graphics.response(event.raw);
+				if (before !== graphics.available || paper !== graphics.background) renderView();
+				return;
+			}
 			if (event.type === "mouse") {
 				const direction = mouseWheelDirection(event.raw);
 				if (direction && !repl.dialogs.getSnapshot() && !repl.permissions.getSnapshot().request && !suggestions.getSnapshot().open) { host?.invalidate(); repl.scroll(direction * 3); }
@@ -141,15 +158,31 @@ export function startTerminalRepl(options: TerminalReplOptions) {
 			layoutSize: () => layoutSize,
 			frameRows: frame => {
 				const rows = frame.replace(/\n$/, "").split("\n");
-				if (repl.dialogs.getSnapshot() || repl.permissions.getSnapshot().request) return new ArrayRows(rows);
-				if (!transcriptFrame || transcriptFrame.columns !== columns() || transcriptFrame.native !== isConversation() || transcriptFrame.historyVersion !== repl.getSnapshot().historyVersion) return undefined;
+				const permission = repl.permissions.getSnapshot().request;
+				const dialog = repl.dialogs.getSnapshot();
+				const modal = Boolean(dialog || permission);
+				if (dialog && !permission && panel().position === "solo") return new ArrayRows(rows);
+				if (!transcriptFrame || transcriptFrame.modal !== modal || transcriptFrame.columns !== columns() || transcriptFrame.native !== isConversation() || transcriptFrame.historyVersion !== repl.getSnapshot().historyVersion) return undefined;
+				const { thinkingRow, viewportRows, brandColumns, logoOffset } = transcriptFrame;
+				if (logoOffset !== undefined) {
+					for (let i = 0; i < Math.min(viewportRows, logoHeight(brandColumns) - logoOffset); i++) {
+						if (rows[i]) rows[i] = graphics.paintLogo(rows[i]!, logoOffset + i, brandColumns);
+					}
+				}
+				if (thinkingRow !== undefined && rows[thinkingRow]) rows[thinkingRow] = graphics.paint(rows[thinkingRow]!);
+				if (graphics.available) {
+					const railColumn = railInset(brandColumns);
+					const firstMessageRow = logoOffset === undefined ? 0 : Math.max(0, logoHeight(brandColumns) - logoOffset);
+					for (let i = firstMessageRow; i < viewportRows && i < rows.length; i++) rows[i] = graphics.paintJunction(rows[i]!, railColumn);
+				}
 				if (!transcriptFrame.native) return new ArrayRows(rows);
-				const { rows: history, viewportRows } = transcriptFrame;
-				return appendRows(overlayTail(history, rows.slice(0, viewportRows)), [...Array<string>(Math.max(0, viewportRows - history.length)).fill(""), ...rows.slice(viewportRows)]);
+				const history = transcriptFrame.rows;
+				return appendRows(overlayTail(history, rows.slice(0, viewportRows)), rows.slice(viewportRows));
 			},
 			onFrameWritten: () => { if (isConversation()) transcriptFrame?.onWrite(); },
 			isConversation });
 		streams.stdout.on("resize", resize);
+		if (probeGraphics) streams.stdout.write(replyGraphicsQuery);
 		renderView();
 	} catch (error) {
 		stop();

@@ -5,7 +5,7 @@ export function skillText(name = "review", body = "PRIVATE_REVIEW_INSTRUCTIONS: 
 	return `---\n${Object.entries({ name, description: `Use ${name} for its specialized task.`, ...fields }).map(([key, value]) => `${key}: ${JSON.stringify(value)}`).join("\n")}\n---\n${body}\n`;
 }
 
-export function writeSkill(root: string, name = "review", body?: string, fields?: Record<string, unknown>, directory = join(root, ".anti-trace", "skills")): string {
+export function writeSkill(root: string, name = "review", body?: string, fields?: Record<string, unknown>, directory = join(root, ".residualx", "skills")): string {
 	const path = join(directory, name, "SKILL.md");
 	mkdirSync(join(directory, name), { recursive: true });
 	writeFileSync(path, skillText(name, body, fields));

@@ -27,8 +27,10 @@ async function capture(item: ToolUseItem, columns: number, expanded = false, com
 function assertCard(frame: string, columns: number) {
 	assert.doesNotMatch(frame, /\r/);
 	const rows = strip(frame).split("\n").filter(Boolean);
-	assert.ok(rows[0]?.startsWith("╭")); assert.ok(rows.at(-1)?.startsWith("╰"));
-	for (const row of rows) { assert.equal(stringWidth(row), columns, row); assert.ok(/[│╮╯]$/.test(row), row); }
+	assert.match(rows[0]!, /^\s*◇──\s+\S/);
+	assert.doesNotMatch(frame, /[✓✔✗✘●∇]/);
+	for (const row of rows) assert.ok(stringWidth(row) <= columns, row);
+	for (const row of rows.slice(1)) assert.match(row, /^\s*│/);
 }
 test("MCP card shows live progress and restores errors, durations and attachment paths offline", async () => {
 	const name = "mcp__repo__build", args = { branch: "beta" };

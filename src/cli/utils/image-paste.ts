@@ -176,7 +176,7 @@ async function resizeImageBytes(bytes: Buffer, dimensions: ImageDimensions): Pro
 	if (dimensions.width <= MAX_IMAGE_EDGE && dimensions.height <= MAX_IMAGE_EDGE) return bytes;
 	let directory: string | undefined;
 	try {
-		directory = await mkdtemp(join(tmpdir(), "anti-trace-image-"));
+		directory = await mkdtemp(join(tmpdir(), "residualx-image-"));
 		const input = join(directory, "input.img");
 		const output = join(directory, "resized.png");
 		await writeFile(input, bytes);
@@ -410,7 +410,7 @@ function positiveDimensions(width: number, height: number): ImageDimensions | nu
 async function captureDesktopBitmap(deadline: number): Promise<Buffer | null> {
 	let directory: string | undefined;
 	try {
-		directory = await mkdtemp(join(tmpdir(), "anti-trace-clipboard-"));
+		directory = await mkdtemp(join(tmpdir(), "residualx-clipboard-"));
 		const output = join(directory, "clipboard.png");
 		let result: Buffer | null;
 		if (process.platform === "win32") {

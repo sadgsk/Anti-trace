@@ -67,11 +67,16 @@ export interface LoadedByokConfig {
 	getApiKey(model?: string | Model): string;
 }
 
+export function explicitConfigPath(options: Pick<LoadByokConfigOptions, "configPath" | "env">): string | undefined {
+	const env = options.env ?? process.env;
+	return options.configPath ?? env.RESIDUALX_CONFIG ?? env.CLI_AGENT_CONFIG;
+}
+
 /** Read the BYOK catalog, validate every entry, then select the current model. */
 export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokConfig {
 	const cwd = resolve(options.cwd ?? process.cwd());
 	const env = options.env ?? process.env;
-	const explicitPath = options.configPath ?? env.CLI_AGENT_CONFIG;
+	const explicitPath = explicitConfigPath(options);
 	if (explicitPath !== undefined && !explicitPath.trim()) throw new ByokConfigError("BYOK 配置路径不能为空。");
 	const configPath = resolve(cwd, explicitPath ?? join(getAppPaths({ ...options, cwd }).configsDir, "main.json"));
 	let text: string;
@@ -80,7 +85,7 @@ export function loadByokConfig(options: LoadByokConfigOptions = {}): LoadedByokC
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
 		if (code === "ENOENT") {
-			throw new ByokConfigError(`缺少 BYOK 配置 ${configPath}。请复制 byok.example.json 到该位置并填写模型，或用 CLI_AGENT_CONFIG 指定文件。`);
+			throw new ByokConfigError(`缺少 BYOK 配置 ${configPath}。请复制 byok.example.json 到该位置并填写模型，或用 RESIDUALX_CONFIG 指定文件。`);
 		}
 		throw new ByokConfigError(`无法读取 BYOK 配置 ${configPath}（${code ?? "读取失败"}）。`);
 	}

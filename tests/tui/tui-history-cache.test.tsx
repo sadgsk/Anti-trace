@@ -24,12 +24,40 @@ test("cached Markdown and segmented code preserve the existing rows, borders, nu
   } finally { renderer.dispose(); cache.dispose(); }
 });
 
-test("thinking segments preserve exact wrapping including Chinese and emoji", () => {
+test("a single nabla marks the start of a reply across wrapped reasoning and answer paragraphs", () => {
   const renderer = new RowRenderer(), cache = new TranscriptLayoutCache();
   try {
-    const item: TranscriptGroup = { id:1,kind:"assistant",timestamp:0,blocks:[{kind:"thinking",index:0,text:"中文🙂👩‍💻换行连续性 wrap continuity ".repeat(800)}]};
-    assert.deepEqual(clean(cache.prepare([item],null,"",options).slice(0)),clean(renderer.rows(<TranscriptItemView item={item} {...options}/>,79,theme,"zh")));
+    const item: TranscriptGroup = { id: 1, kind: "assistant", timestamp: 0, blocks: [
+      { kind: "thinking", index: 0, text: "中文🙂👩‍💻换行连续性 wrap continuity ".repeat(800) },
+      { kind: "text", index: 1, text: "第一段回复\n\n第二段回复" },
+    ] };
+    const rows = clean(cache.prepare([item], null, "", options).slice(0));
+    assert.deepEqual(rows, clean(renderer.rows(<TranscriptItemView item={item} {...options}/>, 79, theme, "zh")));
+    assert.match(rows[0]!, /^\s*∇──\s+思考过程/);
+    assert.equal(rows.filter(row => /^\s*∇/.test(row)).length, 1);
+    assert.equal(rows.filter(row => /^\s*│\s+第[一二]段回复$/.test(row)).length, 2);
   } finally { renderer.dispose(); cache.dispose(); }
+});
+
+test("only the active reasoning heading gets an animation slot, even with wrapped text and literal symbols", () => {
+  const cache = new TranscriptLayoutCache();
+  const item: TranscriptGroup = { id: 9, kind: "assistant", timestamp: 0, blocks: [
+    { kind: "text", index: 0, text: "∇ body" },
+    { kind: "thinking", index: 1, text: "thinking ".repeat(70) },
+  ] };
+  try {
+    for (const columns of [79, 24, 12]) {
+      const live = cache.prepare([item], null, "", { ...options, columns, thinkingId: item.id });
+      const rows = clean(live.slice(0));
+      assert.equal(rows.filter(line => /^\s*∇─/.test(line)).length, 1);
+      assert.match(rows[0]!, /^\s*∇─/);
+      assert.ok(rows[0]?.includes("∇ body"));
+      assert.match(rows[live.thinkingHeading!]!, /思考中/);
+      const end = cache.prepare([item], null, "", { ...options, columns });
+      assert.equal(end.thinkingHeading, undefined);
+      assert.match(clean(end.slice(0)).join("\n"), /思考过程/);
+    }
+  } finally { cache.dispose(); }
 });
 
 test("row cache eviction keeps height and allows lossless random access", () => {

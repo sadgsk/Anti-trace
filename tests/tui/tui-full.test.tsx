@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, dirname, basename } from "node:path";
 import { PassThrough, Writable } from "node:stream";
+import { stripVTControlCharacters } from "node:util";
 import { createElement } from "react";
 import { render } from "ink";
 import stringWidth from "string-width";
@@ -13,8 +14,10 @@ import { createPromptDraft } from "../../src/cli/input/prompt-draft.ts";
 import { PromptInputController } from "../../src/cli/input/prompt-input-controller.ts";
 import { PromptSuggestionsController } from "../../src/tui/suggestions/prompt-suggestions-controller.ts";
 import { startTerminalRepl } from "../../src/cli/repl/terminal-repl.tsx";
-import { PermissionPolicy } from "../../src/cli/permissions/permission-policy.ts";
-import { PermissionDialog } from "../../src/tui/permissions/PermissionDialog.tsx";
+import { PermissionPolicy, type PermissionSnapshot } from "../../src/cli/permissions/permission-policy.ts";
+import { layoutPermissionDialog, PermissionDialog } from "../../src/tui/permissions/PermissionDialog.tsx";
+import { railInset } from "../../src/tui/messages/MessageFrame.tsx";
+import { TerminalScreen } from "../support/terminal-screen.ts";
 import { WorkspaceFileIndex, fileSuggestionQuery } from "../../src/tui/suggestions/file-index.ts";
 import { createEditTool } from "../../src/harness/tools/edit.ts";
 import { createWriteTool } from "../../src/harness/tools/write.ts";
@@ -153,6 +156,43 @@ test("terminal shows each child approval's origin and Escape denies only the vis
 	} finally { await f.close(); }
 });
 
+test("approval occupies the prompt slot below the chat across resizes and restores the draft", async () => {
+	const f = await terminalFixture([]);
+	const screen = new TerminalScreen(f.stdout.columns, f.stdout.rows);
+	f.stdout.on("data", chunk => screen.write(chunk.toString()));
+	try {
+		f.app.repl.write("approval-context");
+		f.stdin.write("unsent draft");
+		await until(() => screen.text.includes("unsent draft"));
+		const pending = f.app.repl.permissions.beforeToolCall(context("bash", { command: "echo approval-target" }));
+		for (const [columns, rows] of [[100, 28], [52, 16], [36, 12], [100, 28]] as const) {
+			screen.resize(columns, rows);
+			Object.assign(f.stdout, { columns, rows }); f.stdout.emit("resize");
+			await until(() => {
+				const lines = screen.text.split("\n"), title = lines.findIndex(line => line.includes(" · bash "));
+				const context = lines.findIndex(line => line.includes("approval-context"));
+				const border = lines[title - 1] ?? "";
+				return context >= 0 && title > context && border.indexOf("╭") === railInset(columns - 1)
+					&& border.indexOf("┐") === columns - 2 && lines.some(line => line.includes("echo approval-target"))
+					&& lines.some(line => line.includes("Enter")) && !screen.text.includes("unsent draft");
+			});
+		}
+		f.stdin.write("3");
+		const feedback = "Please review the working directory before running this command";
+		f.stdin.write(feedback);
+		await until(() => screen.text.includes(feedback));
+		f.stdin.write("\r");
+		assert.equal((await pending)?.reason, feedback);
+		await until(() => screen.text.includes("unsent draft") && !screen.text.includes("approval-target"));
+		f.app.prompt.reset();
+		f.stdin.write("/");
+		await until(() => screen.text.split("\n").some(line => {
+			const command = line.indexOf("/help");
+			return command >= 0 && stringWidth(line.slice(0, command)) > f.stdout.columns / 2;
+		}));
+	} finally { await f.close(); screen.dispose(); }
+});
+
 test("workspace file indexing excludes generated directories and handles fuzzy matching", async () => {
 	const f = await fixture();
 	try {
@@ -203,16 +243,31 @@ test("Diff renders actual line numbers, additions/deletions and collapse informa
 	const short = await snapshot(createElement(StructuredDiff, { hunks: diff.hunks, columns: 50, maxLines: 1 })); assert.match(short, /Ctrl\+O/);
 });
 
-test("welcome keeps identical logo geometry on narrow and wide terminals, color depth honors explicit settings", async () => {
-	const display = { modelName: "Test model", thinking: { enabled: false, effort: "medium" as const }, contextUsed: 0, contextWindow: 128000, sessionTitle: "New" };
-	const narrow = await snapshot(createElement(WelcomeHeader, { cwd: "demo", display, columns: 60, rows: 24, permissionMode: "default" }), 60);
-	assert.match(narrow, /Test model · 0 \/ 128k · medium/); assert.doesNotMatch(narrow, /ctx|thinking/);
-	const wide = await snapshot(createElement(WelcomeHeader, { cwd: "demo", display, columns: 120, rows: 24, permissionMode: "yolo" }), 120);
-	assert.match(narrow.split("\n")[0]!, /^▄██▄  █▄ █╗ ████╗/);
-	assert.deepEqual(narrow.split("\n").slice(0, 6), wide.split("\n").slice(0, 6));
-	assert.ok(narrow.split("\n").slice(0, 6).every(line => stringWidth(line) <= 54));
+test("welcome aligns version and working directory at the lower right and keeps the path tail on resize", async () => {
+	const cwd = "E:/pi-harness/终端/cli-agent";
+	const narrow = await snapshot(createElement(WelcomeHeader, { columns: 60, rows: 24, cwd }), 60);
+	const wide = await snapshot(createElement(WelcomeHeader, { columns: 120, rows: 24, cwd }), 120);
+	for (const [frame, width] of [[narrow, 60], [wide, 120]] as const) {
+		const rows = stripVTControlCharacters(frame).trimEnd().split("\n");
+		const v = rows.findIndex(line => /v\d+\.\d+\.\d+$/.test(line));
+		assert.equal(v, rows.length - 2);
+		assert.equal(stringWidth(rows[v]!), width);
+		assert.equal(stringWidth(rows[v + 1]!), width);
+		assert.ok(rows[v + 1]!.endsWith("cli-agent"));
+	}
+	assert.ok(wide.includes(cwd));
+	assert.match(narrow, /…[^\n]*cli-agent/);
+	assert.doesNotMatch(narrow + wide, /ctx|medium|切换|╱─/);
+	assert.match(narrow, /[\u2801-\u28ff]/);
+	assert.ok(Math.max(...wide.split("\n").map(row => stringWidth(row))) > Math.max(...narrow.split("\n").map(row => stringWidth(row))));
 	assert.equal(detectColorDepth({ isTTY: true } as NodeJS.WriteStream, { NO_COLOR: "1" }), 0);
-	assert.equal(resolveTheme(8).accent, "ansi256(51)"); assert.equal(resolveTheme(8).brand, "ansi256(226)"); assert.equal(resolveTheme(0).accent, "");
+	for (const depth of [4, 8, 24] as const) {
+		const dark = Object.values(resolveTheme(depth, [41, 69, 102])), light = Object.values(resolveTheme(depth, [244, 239, 220]));
+		assert.equal(new Set(dark).size, 1);
+		assert.equal(new Set(light).size, 1);
+		assert.notEqual(dark[0], light[0]);
+	}
+	assert.equal(resolveTheme(24, [41, 69, 102]).accent, "#FFFFFF"); assert.equal(resolveTheme(24, [244, 239, 220]).brand, "#101010"); assert.equal(resolveTheme(8).brand, ""); assert.equal(resolveTheme(0).accent, "");
 });
 
 test("resuming a compacted JSONL restores original conversation and its compaction boundary", async () => {
@@ -249,7 +304,8 @@ test("approval keeps all choices and confirmation visible when diff lines exceed
 	const policy = new PermissionPolicy(process.cwd(), true);
 	const hunks = buildDiff("a", "old".repeat(150) + "\n", "new".repeat(150) + "\n").hunks;
 	try {
-		const frame = await snapshot(createElement(PermissionDialog, { state: { mode: "default", request: { id: "1", name: "edit", args: { path: "a" }, hunks }, selectedIndex: 0, editingFeedback: false }, policy, columns: 40, availableRows: 10 }), 40);
+		const state: PermissionSnapshot = { mode: "default", request: { id: "1", name: "edit", args: { path: "a" }, hunks }, selectedIndex: 0, editingFeedback: false };
+		const frame = await snapshot(createElement(PermissionDialog, { state, policy, layout: layoutPermissionDialog(state, 40, 12) }), 40);
 		assert.match(frame, /1\./); assert.match(frame, /2\./); assert.match(frame, /3\./); assert.match(frame, /Enter/);
 		assert.ok(frame.split("\n").length <= 10);
 	} finally { policy.dispose(); }

@@ -64,6 +64,6 @@ test("Windows launched from CMD deletes through PowerShell and completes the mod
 	assert.equal(result.code, 0, result.stdout + result.stderr); assert.equal(existsSync(file), false);
 	assert.match(result.stdout, /WINDOWS_DELETE_FINISHED/); assert.equal(http.requests.length, 2);
 	const request = JSON.stringify(http.requests[0]!.body), followup = JSON.stringify(http.requests[1]!.body);
-	assert.match(request, /You are Anti-trace/); assert.match(request, /Platform: Windows/); assert.match(request, /Prefer powershell/);
+	assert.match(request, /You are ResidualX/); assert.match(request, /Platform: Windows/); assert.match(request, /Prefer powershell/);
 	assert.match(followup, /DELETE_OK/); assert.match(followup, /powershell_result/);
 });

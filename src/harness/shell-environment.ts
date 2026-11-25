@@ -47,9 +47,10 @@ export function detectShellEnvironment(
 		bashCandidates.push(win32.join(root, "bin", "bash.exe"));
 	}
 	const validBash = (path: string) => probe.isFile(path) && probe.run(path, ["--version"])?.startsWith("GNU bash,");
-	const explicitBash = value("ANTI_TRACE_GIT_BASH_PATH");
+	const bashVariable = value("RESIDUALX_GIT_BASH_PATH") ? "RESIDUALX_GIT_BASH_PATH" : "ANTI_TRACE_GIT_BASH_PATH";
+	const explicitBash = value(bashVariable);
 	if (explicitBash && (!win32.isAbsolute(explicitBash) || !validBash(explicitBash))) {
-		throw new Error(`Invalid ANTI_TRACE_GIT_BASH_PATH: ${explicitBash}. Set it to Git for Windows' bin\\bash.exe.`);
+		throw new Error(`Invalid ${bashVariable}: ${explicitBash}. Set it to Git for Windows' bin\\bash.exe.`);
 	}
 	const bash = explicitBash ?? [...new Set(bashCandidates)].find(validBash);
 	let powershell: PowerShellConfig | undefined;
@@ -65,6 +66,6 @@ export function detectShellEnvironment(
 		const majorVersion = Number(version);
 		if (Number.isInteger(majorVersion) && (majorVersion === 5 || majorVersion >= 7)) { powershell = { path, majorVersion }; break; }
 	}
-	if (!bash && !powershell) throw new Error("No supported shell found. Install PowerShell or Git for Windows; set ANTI_TRACE_GIT_BASH_PATH for a custom Git Bash installation.");
+	if (!bash && !powershell) throw new Error("No supported shell found. Install PowerShell or Git for Windows; set RESIDUALX_GIT_BASH_PATH for a custom Git Bash installation.");
 	return { platform, bash, powershell };
 }

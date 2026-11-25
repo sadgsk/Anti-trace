@@ -159,6 +159,7 @@ test("uses only process environment references and never loads a local .env file
 		const loaded = temp.load({ configPath: undefined, env: { CLI_AGENT_CONFIG: temp.path, BYOK_TEST_KEY: "env-fake-key" } });
 		assert.equal(loaded.configPath, temp.path);
 		assert.equal(loaded.getApiKey(), "env-fake-key");
+		assert.equal(temp.load({ configPath: undefined, env: { RESIDUALX_CONFIG: temp.path, CLI_AGENT_CONFIG: "missing.json" } }).configPath, temp.path);
 		assert.throws(() => temp.load({ configPath: "missing.json" }), /缺少 BYOK 配置/);
 	} finally { temp.cleanup(); }
 });

@@ -19,7 +19,7 @@ test("MCP config merges whole entries, applies defaults, resolves paths and reco
 	assert.equal(shared.config.type, "stdio");
 	if (shared.config.type !== "stdio") return;
 	assert.deepEqual(shared.config.args, []); assert.equal(shared.config.cwd, store.cwd);
-	assert.equal(shared.config.command, join(store.cwd, ".anti-trace", "server.mjs"));
+	assert.equal(shared.config.command, join(store.cwd, ".residualx", "server.mjs"));
 	assert.equal(shared.config.requestTimeoutMs, 60000);
 	store.save("project", "shared", undefined);
 	assert.equal(store.load().servers.find(server => server.id === "shared")?.source.scope, "user");

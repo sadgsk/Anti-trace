@@ -41,6 +41,8 @@ jobs:
           assert.equal(tag, `v${pkg.version}`, "The tag must match package.json version");
           assert.equal(lock.version, pkg.version, "Update package-lock.json with npm version");
           assert.equal(lock.packages[""].version, pkg.version, "The lockfile root version must match");
+          assert.equal(pkg.name, "residualx");
+          assert.deepEqual(Object.keys(pkg.bin).sort(), ["residualx", "rex"]);
           assert.notEqual(pkg.private, true, "The package must allow publishing");
           console.log(`Validated ${pkg.name}@${pkg.version}`);
           NODE
@@ -73,17 +75,17 @@ jobs:
       - name: Build and pack
         id: pack
         run: |
-          npm pack --pack-destination "$RUNNER_TEMP" --json > "$RUNNER_TEMP/anti-trace-pack.json"
+          npm pack --pack-destination "$RUNNER_TEMP" --json > "$RUNNER_TEMP/residualx-pack.json"
           node --input-type=module <<'NODE'
           import assert from "node:assert/strict";
           import { appendFileSync, readFileSync } from "node:fs";
           import { join } from "node:path";
-          const [pkg] = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "anti-trace-pack.json"), "utf8"));
+          const [pkg] = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "residualx-pack.json"), "utf8"));
           const files = pkg.files.map(file => file.path);
-          for (const path of ["dist/cli/bin.js", "dist/cli/main.js", "README.md", "LICENSE", "byok.example.json"]) {
+          for (const path of ["dist/cli/bin.js", "dist/cli/main.js", "assets/residualx-entrance-paths.json", "assets/residualx-reply-loop.gif", "README.md", "LICENSE", "byok.example.json"]) {
             assert.ok(files.includes(path), `Missing package file: ${path}`);
           }
-          const allowed = /^(dist\/|README\.md$|README\.en\.md$|LICENSE$|package\.json$|byok\.example\.json$|byok\.providers\.example\.json$|docs\/assets\/target-architecture\.svg$)/;
+          const allowed = /^(dist\/|assets\/residualx-entrance-paths\.json$|assets\/residualx-(?:entrance|reply-loop)\.gif$|README\.md$|README\.en\.md$|LICENSE$|package\.json$|byok\.example\.json$|byok\.providers\.example\.json$|docs\/assets\/target-architecture\.svg$)/;
           assert.ok(files.every(path => allowed.test(path)), "Unexpected files in the package; review the files list");
           appendFileSync(process.env.GITHUB_OUTPUT, `tarball=${join(process.env.RUNNER_TEMP, pkg.filename)}\n`);
           console.log(`Packed ${pkg.name}@${pkg.version}: ${pkg.entryCount} files`);
@@ -91,14 +93,14 @@ jobs:
       - name: Install and run the packed CLI
         env:
           TARBALL_PATH: ${{ steps.pack.outputs.tarball }}
-          ANTI_TRACE_HOME: ${{ runner.temp }}/anti-trace-smoke-home
+          RESIDUALX_HOME: ${{ runner.temp }}/residualx-smoke-home
           CI: "true"
         run: |
-          smoke_dir="$RUNNER_TEMP/anti-trace-smoke"
+          smoke_dir="$RUNNER_TEMP/residualx-smoke"
           npm install --prefix "$smoke_dir" --omit=dev --ignore-scripts --no-audit --no-fund "$TARBALL_PATH"
           mkdir -p "$smoke_dir/workspace"
           cd "$smoke_dir/workspace"
-          for command in ati anti-trace; do
+          for command in residualx rex; do
             printf /new | "$smoke_dir/node_modules/.bin/$command" > "$smoke_dir/$command.log"
             cat "$smoke_dir/$command.log"
             grep -Eq '新会话|[Nn]ew session' "$smoke_dir/$command.log"

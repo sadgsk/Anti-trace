@@ -303,7 +303,8 @@ test("terminal host shows no command list at startup and connects slash navigati
 	stdout.on("data", chunk => { output += chunk.toString(); });
 	const terminal = startTerminalRepl({ harness, cwd, streams: { stdin, stdout } as unknown as TerminalStreams });
 	try {
-		await waitFor(() => output.includes("输入 / 查看命令"), "initial terminal prompt");
+		await waitFor(() => output.includes("────") && output.includes("> █"), "initial terminal prompt");
+		assert.doesNotMatch(output, /[└│]/);
 		assert.doesNotMatch(output, /\/help|\/new|\/exit/);
 		assert.equal(stdin.listenerCount("data"), 1);
 		stdin.write("/"); await delay(); assert.equal(terminal.suggestions.getSnapshot().open, true);

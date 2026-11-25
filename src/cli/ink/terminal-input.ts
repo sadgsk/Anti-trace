@@ -163,7 +163,7 @@ export class TerminalInputParser {
 				this.paste = "";
 			} else if (raw === PASTE_END) {
 				// Ignore a stray closing marker.
-			} else if (/^\x1b(?:\]|P|_)/.test(raw) || /^\x1b\[(?:\?|>)/.test(raw)) {
+			} else if (/^\x1b(?:\]|P|_)/.test(raw) || /^\x1b\[(?:\?|>)/.test(raw) || /^\x1b\[6;\d+;\d+t$/.test(raw)) {
 				events.push({ type: "response", raw });
 			} else if (/^\x1b\[<\d+;\d+;\d+[Mm]$/.test(raw)) {
 				events.push({ type: "mouse", raw });

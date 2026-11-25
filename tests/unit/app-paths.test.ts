@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { ensureProjectDirectory, getAppPaths, projectIdForCwd } from "../../src/storage/app-paths.ts";
+import { brandedPath, ensureProjectDirectory, getAppPaths, projectIdForCwd } from "../../src/storage/app-paths.ts";
 import { tempWorkspace } from "../support/fixtures.ts";
 
 test("paths are stable, lazy, share user configuration and separate projects and profiles", t => {
@@ -14,7 +14,7 @@ test("paths are stable, lazy, share user configuration and separate projects and
 	assert.equal(a.userSkillsDir, b.userSkillsDir);
 	assert.equal(a.mcpConfigFile, join(a.profileRoot, "mcp.json"));
 	assert.equal(a.mcpConfigFile, b.mcpConfigFile); assert.equal(a.mcpStateDir, b.mcpStateDir);
-	assert.equal(a.projectMcpConfigFile, join(a.cwd, ".anti-trace", "mcp.json"));
+	assert.equal(a.projectMcpConfigFile, join(a.cwd, ".residualx", "mcp.json"));
 	assert.notEqual(a.sessionsDir, b.sessionsDir); assert.notEqual(a.projectSelectionFile, b.projectSelectionFile);
 	const other = getAppPaths({ cwd, appHome, profileId: "user-a" });
 	assert.notEqual(a.configsDir, other.configsDir); assert.notEqual(a.sessionsDir, other.sessionsDir);
@@ -26,6 +26,20 @@ test("paths are stable, lazy, share user configuration and separate projects and
 	assert.equal(existsSync(appHome), false);
 	ensureProjectDirectory(a);
 	assert.deepEqual(JSON.parse(readFileSync(a.projectInfoFile, "utf8")), { version: 1, cwd: a.cwd });
+});
+
+test("existing project configuration remains in place until a ResidualX configuration exists", t => {
+	const cwd = tempWorkspace(t);
+	mkdirSync(join(cwd, ".anti-trace"));
+	const legacy = join(cwd, ".anti-trace", "mcp.json");
+	writeFileSync(legacy, "{}");
+	assert.equal(getAppPaths({ cwd }).projectMcpConfigFile, legacy);
+	mkdirSync(join(cwd, ".residualx"));
+	assert.equal(brandedPath(cwd, "mcp.json"), legacy);
+	const current = join(cwd, ".residualx", "mcp.json");
+	writeFileSync(current, "{}");
+	assert.equal(getAppPaths({ cwd }).projectMcpConfigFile, current);
+	assert.equal(readFileSync(legacy, "utf8"), "{}");
 });
 
 test("explicit appHome wins over the environment and environment roots are evaluated per call", t => {

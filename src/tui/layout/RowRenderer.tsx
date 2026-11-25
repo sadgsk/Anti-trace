@@ -29,7 +29,8 @@ export class RowRenderer {
 		if (this.instance) this.instance.rerender(tree);
 		else this.instance = render(tree, { stdin: this.input as unknown as NodeJS.ReadStream, stdout: this.output as NodeJS.WriteStream,
 			stderr: this.output as NodeJS.WriteStream, debug: true, patchConsole: false, exitOnCtrlC: false });
-		return this.frame ? this.frame.replace(/\n$/, "").split("\n") : [];
+		// Ink's debug frame has no terminator. A trailing newline represents a real blank row.
+		return this.frame ? this.frame.split("\n") : [];
 	}
 	dispose(): void {
 		this.instance?.unmount(); this.instance?.cleanup(); this.instance = undefined;

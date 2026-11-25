@@ -27,17 +27,16 @@ export function StructuredDiff({ hunks, columns = 80, maxLines }: { hunks: reado
 					const source = line.slice(1).replace(/\r$/, "");
 					const content = maxLines === undefined ? displayText(source) : truncateText(source, Math.max(1, columns - gutter - 3));
 					const foreground = prefix === "+" ? colors.accent : prefix === "-" ? colors.error : colors.muted;
-					const background = prefix === "+" ? colors.diffAdded : prefix === "-" ? colors.diffRemoved : undefined;
 					const partner = prefix === "-" ? hunk.lines.slice(index + 1).find(value => !value.startsWith("-"))
 						: prefix === "+" ? hunk.lines.slice(0, index).reverse().find(value => value.startsWith("-")) : undefined;
 					const partnerContent = partner ? displayText(partner.slice(1).replace(/\r$/, "")) : "";
 					const changes = maxLines === undefined && partner && ((prefix === "-" && partner.startsWith("+")) || prefix === "+") && content.length < 3000
 						? diffWordsWithSpace(prefix === "-" ? content : partnerContent, prefix === "+" ? content : partnerContent, { timeout: 30 }) : undefined;
 					const similar = changes && changes.filter(change => !change.added && !change.removed).reduce((sum, change) => sum + change.value.length, 0) / Math.max(1, content.length) >= 0.4;
-					return <Box key={index} backgroundColor={background || undefined}>
+					return <Box key={index}>
 						<Text color={colors.dim || undefined}>{String(number).padStart(gutter)} </Text><Text color={foreground || undefined}>{prefix} </Text>
 						<Box width={Math.max(1, columns - gutter - 3)}><Text color={foreground || undefined} wrap="wrap">{similar ? changes!.filter(change => prefix === "+" ? !change.removed : !change.added).map((change, ci) =>
-							<Text key={ci} backgroundColor={(change.added ? colors.diffAddedWord : change.removed ? colors.diffRemovedWord : undefined) || undefined}>{displayText(change.value)}</Text>) : content}</Text></Box>
+							<Text key={ci} underline={change.added || change.removed}>{displayText(change.value)}</Text>) : content}</Text></Box>
 					</Box>;
 				})}
 			</Box>;

@@ -55,6 +55,25 @@ async function snapshot(element: React.ReactNode, columns = 100, rows = 28, expe
 		return frame();
 	} finally { app.unmount(); app.cleanup(); stdin.destroy(); stdout.destroy(); }
 }
+test("session details show cwd and model on demand and edit the effective context window", async () => {
+	const f = fixture();
+	try {
+		await f.command("/context");
+		const dialogs = f.app.repl.dialogs, first = dialogs.getSnapshot();
+		assert.ok(first?.kind === "preview" && first.text.includes(f.root) && first.text.includes("First"));
+		f.stdin.write("\r");
+		assert.equal(dialogs.editor.getState().text, "262144");
+		dialogs.editor.replaceText("-1"); f.stdin.write("\r");
+		assert.equal(dialogs.getSnapshot()?.kind, "input");
+		assert.ok(dialogs.getSnapshot()?.error);
+		dialogs.editor.replaceText("131072"); f.stdin.write("\r");
+		const updated = dialogs.getSnapshot();
+		assert.ok(updated?.kind === "preview" && updated.text.includes("131072"));
+		assert.equal(f.h.contextUsage().window, 131072);
+		dialogs.cancel(); assert.equal(dialogs.getSnapshot(), null);
+	} finally { f.close(); }
+});
+
 test("real terminal pickers update model, effort, thinking and display with isolated modal input", async () => {
 	const f = fixture();
 	try {
@@ -201,16 +220,51 @@ test("language switches all command/configuration screens, persists locally and 
 		f.app.repl.dialogs.close(); await f.command("/help"); assert.doesNotMatch(await view(), /[\u4e00-\u9fff]/);
 		await f.command("保持用户原文"); assert.ok(f.h.agent.state.messages.some(message => message.role === "user" && message.content.some(block => block.type === "text" && block.text === "保持用户原文")));
 		await f.command("/language"); f.stdin.write("\x1b[A\r"); assert.equal(f.app.repl.locale.getSnapshot(), "zh");
-		assert.match(await view(), /输入 \/ 查看命令/);
+		assert.match(await view(), /语言已切换/);
 	} finally { f.close(); }
 });
 
 test("scrollback mode uses the main screen and keeps the footer minimal", async () => {
 	const f = fixture();
 	try {
+		const home = await snapshot(createElement(ReplScreen, { repl: f.app.repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: "E:/ui", columns: 100, rows: 28 }), 100, 28, /E:\/ui/);
+		const homeRows = home.trimEnd().split("\n");
+		const path = homeRows.findIndex(line => line.endsWith("E:/ui"));
+		assert.match(homeRows[path - 1]!, /v\d+\.\d+\.\d+$/);
+		assert.equal(homeRows[path + 1], "");
+		assert.match(homeRows[path + 2]!, /^ *─+$/);
+		assert.doesNotMatch(home, /[│└]/);
 		await f.command("hello"); assert.doesNotMatch(f.output(), /\x1b\[\?1049[hl]|\x1b\[3J/);
 		const frame = await snapshot(createElement(ReplScreen, { repl: f.app.repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 }));
-		const footer = frame.trimEnd().split("\n").at(-1)!; assert.match(footer, /^default · Shift\+Tab 切换$/); assert.doesNotMatch(footer, /权限|Ctrl\+O|PgUp/);
+		assert.doesNotMatch(frame, /Shift\+Tab|Esc 中断|输入 \/ 查看命令/);
+		assert.match(frame, /◇──\s+hello/);
+		const rows = frame.trimEnd().split("\n");
+		const top = rows.findIndex(line => /^ *─+$/.test(line));
+		assert.ok(top > 0);
+		assert.equal(rows[top + 1]!.trim(), "> █");
+		assert.equal(rows[top]!.indexOf("─"), rows[top + 1]!.indexOf(">"));
+		assert.equal(rows[top]!.indexOf("─"), rows[top - 1]!.indexOf("│"));
+		assert.equal(rows[top + 2], rows[top]);
+		assert.match(rows[top + 3]!, /^ *default +First$/);
+		assert.equal(rows[top + 3]!.indexOf("default"), rows[top]!.indexOf("─"));
+		assert.equal(rows[top]!.length, rows[top + 3]!.length);
+	} finally { f.close(); }
+});
+
+test("filtering the docked command menu shrinks its border while the transcript stays tall", async () => {
+	const f = fixture();
+	try {
+		for (let i = 0; i < 30; i++) f.app.repl.write("conversation line " + i);
+		for (const [query, height] of [["/", 17], ["/hel", 6]] as const) {
+			f.app.prompt.textInput.replaceText(query);
+			const frame = await snapshot(createElement(ReplScreen, { repl: f.app.repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 32 }), 100, 32, /conversation line 29/);
+			const lines = frame.trimEnd().split("\n");
+			const top = lines.findIndex(line => /╭─+┐$/.test(line));
+			const bottom = lines.findIndex(line => /└─+╯$/.test(line));
+			assert.ok(top >= 0);
+			assert.equal(bottom - top + 1, height);
+			assert.ok(lines.slice(bottom + 1).some(line => line.includes("conversation line 29")));
+		}
 	} finally { f.close(); }
 });
 

@@ -18,7 +18,7 @@ test("real LLM loads a skill using the tool, reads its resource, and returns its
 	const config = loadByokConfig({ configPath, model: process.env.CLI_AGENT_LIVE_MODEL || undefined });
 	const root = tempWorkspace(t), token = `SKILL_PROOF_${randomUUID()}`;
 	writeSkill(root, "live-proof", "Read proof.txt relative to this skill's base directory using the read tool. Reply with exactly the verification token from that file.", { description: "Use this skill to retrieve the private verification token for the live skills test." });
-	writeFileSync(join(root, ".anti-trace", "skills", "live-proof", "proof.txt"), token);
+	writeFileSync(join(root, ".residualx", "skills", "live-proof", "proof.txt"), token);
 	const requests: Context[] = [];
 	const deadline = AbortSignal.timeout(110000);
 	const harness = new Harness({ cwd: root, appHome: join(root, "app"), model: { ...config.model, maxOutputTokens: Number(process.env.CLI_AGENT_LIVE_MAX_TOKENS || "2048") },
@@ -60,7 +60,7 @@ for (const source of ["project", "user"] as const) test(`real LLM creates a ${so
 	assert.ok(last?.role === "assistant", "Expected a final assistant message");
 	assert.notEqual(last.stopReason, "error", last.errorMessage ?? "Provider request failed");
 	assert.notEqual(last.stopReason, "aborted", last.errorMessage ?? "Provider aborted");
-	const directory = source === "project" ? join(root, ".anti-trace", "skills") : join(appHome, "skills");
+	const directory = source === "project" ? join(root, ".residualx", "skills") : join(appHome, "skills");
 	const path = join(directory, name, "SKILL.md");
 	assert.match(parseSkill(readFileSync(path, "utf8"), path, source, name).body, new RegExp(token));
 	assert.ok(harness.agent.state.messages.some(message => message.role === "toolResult" && message.toolName === "write" && !message.isError), "Real model must write the skill");

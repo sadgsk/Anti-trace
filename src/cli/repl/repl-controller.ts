@@ -42,7 +42,7 @@ export interface ReplSnapshot {
 	readonly thinkingDisplay: boolean;
 	readonly renderEpoch: number;
 	readonly display: HarnessDisplayState;
-	readonly phase: "thinking" | "streaming" | "tool" | "compacting";
+	readonly phase: "idle" | "thinking" | "streaming" | "tool" | "compacting";
 	readonly startedAt: number;
 	readonly lastEventAt: number;
 	readonly outputChars: number;
@@ -70,7 +70,7 @@ export class ReplController {
 	private snapshot: ReplSnapshot = { entries: [], liveText: "", busy: false, acceptsSteering: false, closed: false, resumeChoices: null,
 		transcript: [], activeItems: [], expanded: false, thinkingDisplay: true, renderEpoch: 0,
 		display: { modelName: "模型未配置", thinking: { effort: "medium" }, contextUsed: 0, sessionTitle: "新会话" },
-		phase: "thinking", startedAt: 0, lastEventAt: 0, outputChars: 0, scrollOffset: 0, historyVersion: 0, viewingHistory: false };
+		phase: "idle", startedAt: 0, lastEventAt: 0, outputChars: 0, scrollOffset: 0, historyVersion: 0, viewingHistory: false };
 	private scrollLimit = Number.MAX_SAFE_INTEGER;
 	private viewportAnchor?: TranscriptAnchor;
 	private lastToolAnchor?: TranscriptAnchor;
@@ -143,7 +143,7 @@ export class ReplController {
 		this.promptResultReceived = false;
 		const parsed = parseSlashCommand(text);
 		const contextCommand = this.snapshot.resumeChoices === null && parsed && isMcpContextCommand(parsed.command.name) ? parsed.command.name : undefined;
-		this.update({ busy: true, error: undefined, expanded: false, scrollOffset: 0, viewingHistory: false, reviewAnchor: undefined, phase: "thinking", startedAt: Date.now(), lastEventAt: Date.now(), outputChars: 0 });
+		this.update({ busy: true, error: undefined, expanded: false, scrollOffset: 0, viewingHistory: false, reviewAnchor: undefined, phase: parsed || this.snapshot.resumeChoices ? "idle" : "thinking", startedAt: Date.now(), lastEventAt: Date.now(), outputChars: 0 });
 		try {
 			if (!contextCommand) this.options.onAccept?.();
 			if (this.snapshot.closed) return true;
@@ -405,7 +405,7 @@ export class ReplController {
 	private async runMcpAction(action: (signal: AbortSignal) => Promise<void>): Promise<void> {
 		if (this.snapshot.busy || this.disposed) return;
 		const controller = new AbortController(); this.mcpOperation = controller; this.interrupted = false;
-		this.dialogs.close(); this.update({ busy: true, error: undefined, startedAt: Date.now(), phase: "thinking" });
+		this.dialogs.close(); this.update({ busy: true, error: undefined, startedAt: Date.now(), phase: "idle" });
 		try { await action(controller.signal); }
 		catch (error) { const detail = diagnostic(error); if (!this.disposed) this.write(`${detail.code}: ${detail.message}`, undefined, "error"); }
 		finally {
@@ -417,6 +417,27 @@ export class ReplController {
 	}
 
 	private openCommandDialog(command: string): boolean {
+		if (command === "context") {
+			const display = this.readDisplay(), t = (key: string) => this.locale.t(key);
+			const capacity = display.contextWindow;
+			const details = [
+				t("工作目录") + "　" + (this.options.cwd ?? process.cwd()),
+				t("当前模型") + "　" + (display.modelName === "模型未配置" ? t(display.modelName) : display.modelName),
+				t("思考强度") + "　" + display.thinking.effort,
+				t("上下文用量") + "　" + display.contextUsed + " / " + (capacity ?? t("未配置")),
+				t("权限模式") + "　" + this.permissions.getSnapshot().mode,
+			];
+			this.dialogs.openPreview({ title: "会话信息", text: details.join("\n"), acceptLabel: "调整上下文窗口", onBack: () => this.dialogs.close(),
+				onAccept: () => this.dialogs.openInput({ title: "调整上下文窗口", value: capacity?.toString(), onBack: () => this.openCommandDialog("context"),
+					onAccept: value => {
+						const tokens = Number(value);
+						if (!/^\d+$/.test(value) || !Number.isSafeInteger(tokens) || tokens <= 0) throw new Error(t("用法：/context <正整数>"));
+						this.harness.setContextWindow(tokens);
+						this.writeContext();
+						this.openCommandDialog("context");
+					} }) });
+			return true;
+		}
 		if (command === "language") {
 			this.dialogs.openPicker({ title: "选择语言", description: "切换 CLI 界面语言，不改变对话内容。", choices: [{ id: "zh", label: "中文", literal: true, current: this.locale.getSnapshot() === "zh" }, { id: "en", label: "English", literal: true, current: this.locale.getSnapshot() === "en" }],
 				onAccept: id => this.dialogAction(() => { this.locale.setLanguage(id as UiLanguage); this.write("语言已切换。"); }) }); return true;
@@ -566,16 +587,20 @@ export class ReplController {
 		this.update({ lastEventAt: Date.now() });
 		switch (event.type) {
 			case "agent_start":
-				this.update({ acceptsSteering: Boolean(this.harness.steer) });
+				this.update({ acceptsSteering: Boolean(this.harness.steer), phase: "thinking" });
 				break;
 			case "message_start":
 				if (event.message.role === "assistant") {
 					this.streamedBlocks.clear();
 					this.assistantId = this.nextId++;
-					this.update({ activeItems: [...this.snapshot.activeItems, { id: this.assistantId, kind: "assistant", blocks: [], timestamp: Date.now() }] });
+					this.update({ phase: "thinking", activeItems: [...this.snapshot.activeItems, { id: this.assistantId, kind: "assistant", blocks: [], timestamp: Date.now() }] });
 				}
 				break;
 			case "message_update":
+				if (event.assistantMessageEvent.type === "thinking_start") this.update({ phase: "thinking" });
+				else if (event.assistantMessageEvent.type === "thinking_end") this.update({ phase: "idle" });
+				else if (event.assistantMessageEvent.type === "text_start") this.update({ phase: "streaming" });
+				else if (event.assistantMessageEvent.type === "toolcall_start") this.update({ phase: "tool" });
 				if (event.assistantMessageEvent.type === "text_delta" || event.assistantMessageEvent.type === "thinking_delta") {
 					const delta = event.assistantMessageEvent;
 					this.streamedBlocks.add(delta.contentIndex);
@@ -595,7 +620,7 @@ export class ReplController {
 					const message = event.message;
 					const blocks = message.content.flatMap((block, index): AssistantTurnItem["blocks"] => block.type === "text" ? [{ kind: "text" as const, text: block.text, index }]
 						: block.type === "thinking" ? [{ kind: "thinking" as const, text: block.thinking, index }] : []);
-					this.update({ activeItems: this.snapshot.activeItems.map(item => item.id === this.assistantId && item.kind === "assistant"
+					this.update({ phase: "idle", activeItems: this.snapshot.activeItems.map(item => item.id === this.assistantId && item.kind === "assistant"
 						? { ...item, blocks, durationMs: Date.now() - item.timestamp } : item) });
 					for (const [index, block] of event.message.content.entries()) {
 						if (this.streamedBlocks.has(index)) continue;
@@ -623,7 +648,7 @@ export class ReplController {
 				const details = (event.result as { details?: { exitCode?: number | null; timedOut?: boolean } })?.details;
 				const failed = event.isError || details?.timedOut || (typeof details?.exitCode === "number" && details.exitCode !== 0);
 				this.write(`[${event.toolName}] ${event.isError ? "error" : "ok"}${preview ? `: ${preview}` : ""}`, undefined, "info", true);
-				this.update({ phase: "thinking", activeItems: this.snapshot.activeItems.map(item => item.kind === "tool" && item.callId === event.toolCallId
+				this.update({ phase: "tool", activeItems: this.snapshot.activeItems.map(item => item.kind === "tool" && item.callId === event.toolCallId
 					? { ...item, status: failed ? "error" : "success", result: event.result as NonNullable<Extract<TranscriptItem, { kind: "tool" }>["result"]>, endedAt: Date.now() } : item) });
 				break;
 			}

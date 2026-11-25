@@ -5,6 +5,8 @@ dist/
 /.ant-trace/
 /.anti-trace/*
 !/.anti-trace/mcp.json
+/.residualx/*
+!/.residualx/mcp.json
 # 已退役的 BYOK 文档，避免本地副本重新进入仓库
 /docs/byok-build.md
 /docs/byok-providers.md

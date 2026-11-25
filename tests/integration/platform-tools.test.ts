@@ -9,8 +9,8 @@ import { AssistantMessageEventStream } from "../../src/llm/event-stream.ts";
 import { testModel } from "../support/harness.ts";
 import { tempWorkspace } from "../support/fixtures.ts";
 
-test("POSIX prompt retains its original text apart from the Anti-trace identity", () => {
-	const expected = `You are Anti-trace, a CLI coding assistant.
+test("POSIX prompt retains its original text apart from the ResidualX identity", () => {
+	const expected = `You are ResidualX, a CLI coding assistant.
 
 Working directory: /work
 

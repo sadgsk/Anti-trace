@@ -28,8 +28,8 @@ export const HighlightedCode = memo(function HighlightedCode({ code, language = 
 	return <Box flexDirection="column" width={Math.max(1, columns)} paddingLeft={framed ? 1 : 0}>
 		{framed && showLanguage ? <ThemedText color="dim">{truncateText(language || "text", columns)}</ThemedText> : null}
 		{visible.map((spans, index) => <Box key={index}><Text color={colors.dim || undefined}>{String(startLine + index).padStart(gutter)} │ </Text>
-			<Box width={Math.max(1, columns - gutter - 3 - Number(framed))}><Text wrap="wrap">{spans.map((span, i) =>
-				<Text key={i} color={/comment/.test(span.scope) ? colors.dim || undefined : /string|regexp/.test(span.scope) ? colors.accent || undefined
+			<Box width={Math.max(1, columns - gutter - 3 - Number(framed))}><Text color={colors.brand || undefined} wrap="wrap">{spans.map((span, i) =>
+				<Text key={i} bold={/keyword|title/.test(span.scope)} italic={/comment/.test(span.scope)} color={/comment/.test(span.scope) ? colors.dim || undefined : /string|regexp/.test(span.scope) ? colors.accent || undefined
 					: /keyword|literal|number/.test(span.scope) ? colors.brand || undefined : /title|function|type/.test(span.scope) ? colors.muted || undefined : undefined}>{span.text}</Text>)}</Text></Box>
 		</Box>)}
 		{maxLines && lines.length > maxLines ? <ThemedText color="dim">… +{lines.length - maxLines} lines</ThemedText> : null}

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -35,21 +35,27 @@ export function projectIdForCwd(cwd: string): string {
 	return createHash("sha256").update(canonicalWorkspace(cwd)).digest("hex");
 }
 
+/** Prefer the new location, and read/write an existing installation in place. */
+export function brandedPath(base: string, ...parts: string[]): string {
+	const current = join(base, ".residualx", ...parts), previous = join(base, ".anti-trace", ...parts);
+	return !existsSync(current) && existsSync(previous) ? previous : current;
+}
+
 /** Pure path calculation: reading preferences or constructing a tool must not create directories. */
 export function getAppPaths(options: StorageOptions & { cwd: string }): AppPaths {
 	const profileId = options.profileId ?? "local";
 	if (!/^[a-z0-9][a-z0-9_-]{0,127}$/.test(profileId) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/.test(profileId)) {
 		throw new Error("Invalid storage profile ID");
 	}
-	const home = options.appHome ?? process.env.ANTI_TRACE_HOME ?? join(homedir(), ".anti-trace");
-	if (!home.trim()) throw new Error("ANTI_TRACE_HOME must not be empty");
+	const home = options.appHome ?? process.env.RESIDUALX_HOME ?? process.env.ANTI_TRACE_HOME ?? brandedPath(homedir());
+	if (!home.trim()) throw new Error("ResidualX home directory must not be empty");
 	const appRoot = resolve(home), cwd = canonicalWorkspace(options.cwd);
 	const profileRoot = join(appRoot, "profiles", profileId), projectId = projectIdForCwd(cwd);
 	const projectRoot = join(profileRoot, "projects", projectId);
 	return {
 		appRoot, profileId, profileRoot, cwd, projectId, projectRoot,
 		configsDir: join(profileRoot, "configs"), userSkillsDir: join(appRoot, "skills"), preferencesFile: join(appRoot, "preferences.json"),
-		mcpConfigFile: join(profileRoot, "mcp.json"), mcpStateDir: join(profileRoot, "mcp"), projectMcpConfigFile: join(cwd, ".anti-trace", "mcp.json"),
+		mcpConfigFile: join(profileRoot, "mcp.json"), mcpStateDir: join(profileRoot, "mcp"), projectMcpConfigFile: brandedPath(cwd, "mcp.json"),
 		defaultSelectionFile: join(profileRoot, "default-model.json"),
 		projectInfoFile: join(projectRoot, "project.json"), projectSelectionFile: join(projectRoot, "last-model.json"),
 		sessionsDir: join(projectRoot, "sessions"), toolResultsDir: join(projectRoot, "tool-results"),

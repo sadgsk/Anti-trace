@@ -17,6 +17,10 @@ export class TerminalScreen {
 	}
 	get idle(): boolean { return this.pending === 0; }
 	get paints(): number { return this.rendered; }
+	get cursor(): { row: number; column: number } {
+		const buffer = this.terminal.buffer.active;
+		return { row: buffer.baseY + buffer.cursorY - buffer.viewportY, column: buffer.cursorX };
+	}
 	get text(): string {
 		const buffer = this.terminal.buffer.active;
 		return Array.from({ length: this.terminal.rows }, (_, row) => buffer.getLine(buffer.viewportY + row)?.translateToString(true) ?? "").join("\n");

@@ -37,17 +37,18 @@ export class ScrollbackOutput {
 	private columns = 0;
 	private rows = 0;
 	private wasConversation = true;
+	private caret?: { aboveEnd: number; column: number };
 	constructor(private readonly stdout: NodeJS.WriteStream, private readonly isConversation: () => boolean = () => true) {}
 	invalidate(): void { this.redraw = true; }
 	reflow(): void { if (this.columns !== this.stdout.columns || this.rows !== this.stdout.rows) this.reflowing = true; this.redraw = true; }
 	beginHistory(): void { this.replay = true; }
-	write(frame: string | TerminalRows): void {
+	write(frame: string | TerminalRows, caret?: { aboveEnd: number; column: number }): void {
 		if (typeof frame === "string" && /^\x1b\[\?25[hl]$/.test(frame)) return;
 		if (!frame) return;
 		const next = typeof frame === "string" ? new ArrayRows(frame.replace(/\n$/, "").split("\n")) : frame, old = this.previous;
 		if (!next.length) return;
 		if (old.length && (this.columns !== this.stdout.columns || this.rows !== this.stdout.rows)) this.reflowing = true;
-		// This writer leaves the cursor on the last line (no trailing newline), so all rows are visible.
+		// Paint relative to the final row, then park the terminal cursor at the editor for IME preedit.
 		const budget = Math.max(1, this.stdout.rows || 24);
 		const conversation = this.isConversation();
 		// Explicit CRLF makes every logical row start in column zero, independent of terminal newline mode.
@@ -100,11 +101,16 @@ export class ScrollbackOutput {
 				out = repaint(up, next.slice(from));
 			}
 		}
-		if (out) this.stdout.write(`${SYNC_BEGIN}${out}${SYNC_END}`);
+		if (out || caret?.aboveEnd !== this.caret?.aboveEnd || caret?.column !== this.caret?.column) {
+			const park = caret ? (caret.aboveEnd ? `\x1b[${caret.aboveEnd}A` : "") + `\x1b[${caret.column + 1}G` : "";
+			this.stdout.write(SYNC_BEGIN + this.returnToEnd() + out + park + SYNC_END);
+		}
+		this.caret = caret;
 		this.previous = tailRows(next, budget); this.redraw = false; this.replay = false;
 		this.columns = this.stdout.columns; this.rows = this.stdout.rows;
 		if (conversation) { this.conversation = this.previous; this.conversationBudget = budget; }
 		this.wasConversation = conversation;
 	}
-	finish(): void { this.stdout.write("\x1b[?25h\r\n"); }
+	private returnToEnd(): string { return this.caret?.aboveEnd ? `\x1b[${this.caret.aboveEnd}B` : ""; }
+	finish(): void { this.stdout.write(this.returnToEnd() + "\x1b[?25h\r\n"); }
 }

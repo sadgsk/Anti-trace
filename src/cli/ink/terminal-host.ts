@@ -4,6 +4,7 @@ import { render, Text } from "ink";
 import { TerminalInputParser, type TerminalInputEvent } from "./terminal-input.ts";
 import { ScrollbackOutput } from "./scrollback-output.ts";
 import type { TerminalRows } from "../../tui/layout/terminal-rows.ts";
+import { TerminalCaretContext, type ReadCaret } from "../input/terminal-caret.ts";
 
 const ENABLE_BRACKETED_PASTE = "\x1b[?2004h";
 const DISABLE_BRACKETED_PASTE = "\x1b[?2004l";
@@ -40,6 +41,8 @@ export function startTerminalHost(
 	const inkStdin = new PassThrough();
 	const parser = new TerminalInputParser();
 	const output = options.scrollback ? new ScrollbackOutput(stdout, options.isConversation) : undefined;
+	let readCaret: ReadCaret | undefined;
+	const registerCaret = (read?: ReadCaret) => { readCaret = read; };
 	// Frames are coalesced per tick; see the write callback below.
 	let pendingFrame: string | undefined;
 	let flushTimer: NodeJS.Immediate | undefined;
@@ -50,7 +53,13 @@ export function startTerminalHost(
 		pendingFrame = undefined;
 		if (frame !== undefined) {
 			const rows = options.frameRows ? options.frameRows(frame) : frame;
-			if (rows !== undefined) { output?.write(rows); options.onFrameWritten?.(); }
+			if (rows !== undefined) {
+				const caret = readCaret?.();
+				const aboveEnd = caret ? frame.replace(/\n$/, "").split("\n").length - 1 - caret.row : -1;
+				output?.write(rows, caret && aboveEnd >= 0 && aboveEnd < (stdout.rows || 24)
+					? { aboveEnd, column: Math.min(caret.column, (stdout.columns || 80) - 1) } : undefined);
+				options.onFrameWritten?.();
+			}
 		}
 	};
 	const inkStdout = output ? Object.defineProperties(new Writable({ write(chunk, _encoding, done) {
@@ -175,7 +184,7 @@ export function startTerminalHost(
 
 	return {
 		// Merge root requests before reconciliation/layout, rather than merely discarding their output.
-		rerender: tree => { if (active) { pendingTree = tree; renderTimer ??= setImmediate(() => { renderTimer = undefined; if (active) ink?.rerender(pendingTree); pendingTree = undefined; }); } },
+		rerender: tree => { if (active) { pendingTree = output ? createElement(TerminalCaretContext.Provider, { value: registerCaret }, tree) : tree; renderTimer ??= setImmediate(() => { renderTimer = undefined; if (active) ink?.rerender(pendingTree); pendingTree = undefined; }); } },
 		invalidate: () => output?.invalidate(),
 		beginHistory: () => output?.beginHistory(),
 		reflow: () => output?.reflow(),

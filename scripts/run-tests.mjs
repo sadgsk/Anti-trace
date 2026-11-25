@@ -42,7 +42,7 @@ const env = {};
 // PSModulePath is a native runtime lookup path, like PATH: removing it can
 // stall Windows PowerShell 5.1's auto-loading of built-in cmdlets. Profiles
 // remain disabled by the tool, and HOME/application config are still isolated.
-const allowed = /^(path|psmodulepath|systemroot|systemdrive|windir|comspec|pathext|programfiles|programfiles\(x86\)|processor_architecture|number_of_processors|ci|github_actions|term|colorterm|no_color|force_color|anti_trace_git_bash_path)$/i;
+const allowed = /^(path|psmodulepath|systemroot|systemdrive|windir|comspec|pathext|programfiles|programfiles\(x86\)|processor_architecture|number_of_processors|ci|github_actions|term|colorterm|no_color|force_color|residualx_git_bash_path|anti_trace_git_bash_path)$/i;
 for (const [key, value] of Object.entries(process.env)) {
 	if (allowed.test(key) && value !== undefined) env[key] = value;
 }

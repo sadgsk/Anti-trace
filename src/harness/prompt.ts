@@ -27,8 +27,8 @@ function promptHeader(options: BuildSystemPromptOptions): string {
 		options.toolNames.length > 0 ? options.toolNames.map((name) => `- ${name}`).join("\n") : "(none)";
 
 	const role = options.subagent
-		? "You are a general-purpose subagent of Anti-trace. Carry out the delegated task within its stated scope. Your final answer is your report to the parent. Include findings, evidence locations, changes made and remaining uncertainties as relevant."
-		: "You are Anti-trace, a CLI coding assistant.";
+		? "You are a general-purpose subagent of ResidualX. Carry out the delegated task within its stated scope. Your final answer is your report to the parent. Include findings, evidence locations, changes made and remaining uncertainties as relevant."
+		: "You are ResidualX, a CLI coding assistant.";
 	const delegation = options.toolNames.includes("agent_task") ? "\n\nDelegate independent work with agent_task(start). Continue your own work and use wait_agent when you need the report. An interrupted wait leaves the task running. Pause a task on a pause or cancellation request. Resume a paused task with its existing ID before waiting again." : "";
 	return `${role}
 

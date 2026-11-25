@@ -29,7 +29,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 	}
 	get redirectUrl() { return this.redirect ?? this.data().redirectUrl as string | undefined ?? `http://127.0.0.1:${this.config.callbackPort ?? 0}/callback`; }
 	get clientMetadata(): OAuthClientMetadata {
-		return { client_name: "Anti-trace", redirect_uris: [this.redirectUrl], grant_types: ["authorization_code", "refresh_token"],
+		return { client_name: "ResidualX", redirect_uris: [this.redirectUrl], grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"], token_endpoint_auth_method: this.config.clientSecretEnv ? "client_secret_post" : "none",
 			...(this.config.scopes?.length ? { scope: this.config.scopes.join(" ") } : {}) };
 	}
@@ -76,7 +76,7 @@ export class McpOAuthProvider implements OAuthClientProvider {
 			}
 			consumed = true;
 			const code = result.searchParams.get("code");
-			response.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" }).end("Return to Anti-trace to continue.");
+			response.writeHead(200, { "Content-Type": "text/plain", "Cache-Control": "no-store" }).end("Return to ResidualX to continue.");
 			if (!code || result.searchParams.has("error")) rejectCallback(new McpError("needs-auth", "MCP 登录未获授权。"));
 			else resolveCallback({ code, ...(result.searchParams.get("iss") ? { iss: result.searchParams.get("iss")! } : {}) });
 		});

@@ -62,7 +62,7 @@ test("Enter queues successive busy drafts while the current tool batch stays act
 	try {
 		ui.send("read two files");
 		await entered.promise;
-		await waitFor(() => ui.screen.text.includes("输入补充要求"), "focused busy prompt");
+		await waitFor(() => /^ *> █$/m.test(ui.screen.text) && ui.app.repl.getSnapshot().acceptsSteering, "focused busy prompt");
 		for (const text of ["暂停 A", "也检查配置"]) {
 			ui.send(text);
 			assert.equal(ui.app.prompt.getDraft().text, "");
@@ -104,7 +104,7 @@ test("Enter during wait returns interrupted before the model acts on the pause i
 	const ui = terminal(harness, cwd);
 	try {
 		ui.send("delegate and wait"); await Promise.all([waiting.promise, childEntered.promise]);
-		await waitFor(() => ui.screen.text.includes("wait_agent") && ui.screen.text.includes("输入补充要求"), "pending wait and draft editor");
+		await waitFor(() => ui.screen.text.includes("wait_agent") && /^ *> █$/m.test(ui.screen.text), "pending wait and draft editor");
 		ui.send("暂停 A");
 		await sawSteer.promise;
 		const messages = parent.requests[2]!.context.messages;

@@ -15,14 +15,14 @@ import { HISTORY_TEXT } from "../support/compaction.ts";
 test("the model sees one skill tool and a catalog, then reads a selected skill and its resource", async t => {
 	const f = createTestHarness(t);
 	writeSkill(f.root, "review", "PRIVATE_REVIEW_INSTRUCTIONS: inspect $ARGUMENTS then read references/checklist.md.");
-	mkdirSync(join(f.root, ".anti-trace", "skills", "review", "references"));
-	writeFileSync(join(f.root, ".anti-trace", "skills", "review", "references", "checklist.md"), "CHECKLIST_RESOURCE");
+	mkdirSync(join(f.root, ".residualx", "skills", "review", "references"));
+	writeFileSync(join(f.root, ".residualx", "skills", "review", "references", "checklist.md"), "CHECKLIST_RESOURCE");
 	f.scripted.appendResponses(request => {
 		assert.equal(request.context.tools?.filter(tool => tool.name === "skill").length, 1);
 		assert.equal(request.context.tools?.some(tool => tool.name === "review"), false);
 		const text = request.context.messages.map(messageText).join("\n");
 		assert.match(text, /review: Use review/); assert.doesNotMatch(text, /PRIVATE_REVIEW_INSTRUCTIONS/);
-		return { toolCalls: [{ id: "load", name: "skill", arguments: { skill: "review", args: "current diff" } }, { id: "read", name: "read", arguments: { path: ".anti-trace/skills/review/references/checklist.md" } }] };
+		return { toolCalls: [{ id: "load", name: "skill", arguments: { skill: "review", args: "current diff" } }, { id: "read", name: "read", arguments: { path: ".residualx/skills/review/references/checklist.md" } }] };
 	}, request => {
 		assertToolPairs(request.context.messages);
 		const toolResults = request.context.messages.filter(message => message.role === "toolResult");
@@ -42,7 +42,7 @@ test("the model sees one skill tool and a catalog, then reads a selected skill a
 for (const source of ["project", "user"] as const) test(`the prompt supplies the ${source} creation directory before any skills exist, then write creates a callable skill`, async t => {
 	const appHome = join(tempWorkspace(t), "用户 空间");
 	const f = createTestHarness(t, [], { appHome, profileId: "work" });
-	const expectedDirectory = source === "project" ? join(f.root, ".anti-trace", "skills") : join(appHome, "skills");
+	const expectedDirectory = source === "project" ? join(f.root, ".residualx", "skills") : join(appHome, "skills");
 	f.scripted.appendResponses(request => {
 		assert.equal(request.context.tools?.some(tool => tool.name === "skill"), false);
 		const systemPrompt = request.context.systemPrompt;
@@ -147,8 +147,8 @@ for (const trigger of ["automatic", "overflow"] as const) test(`${trigger} compa
 
 test("ordinary file tools can create and read the skill package without a creator tool", async t => {
 	const f = createTestHarness(t), write = createWriteTool(f.root), read = createReadTool(f.root);
-	await write.execute("create", { path: ".anti-trace/skills/review/SKILL.md", content: skillText("review", "FILE_TOOL_SKILL_BODY") });
-	const result = await read.execute("read", { path: ".anti-trace/skills/review/SKILL.md" });
+	await write.execute("create", { path: ".residualx/skills/review/SKILL.md", content: skillText("review", "FILE_TOOL_SKILL_BODY") });
+	const result = await read.execute("read", { path: ".residualx/skills/review/SKILL.md" });
 	assert.match(result.content.filter(block => block.type === "text").map(block => block.text).join("\n"), /FILE_TOOL_SKILL_BODY/);
 	assert.equal(f.harness.reloadSkills().skills[0]?.name, "review");
 });

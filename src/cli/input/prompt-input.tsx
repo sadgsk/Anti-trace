@@ -1,4 +1,5 @@
-import { Box, Text } from "ink";
+import { Box } from "ink";
+import { ThemedText } from "../../tui/theme/ThemeProvider.tsx";
 import { useSyncExternalStore } from "react";
 import { BaseTextInput } from "./base-text-input.tsx";
 import type { PromptInputController } from "./prompt-input-controller.ts";
@@ -14,6 +15,6 @@ export function PromptInput({ controller, focus = true, showCursor = true }: Pro
 	const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
 	return <Box flexDirection="column">
 		<BaseTextInput controller={controller.textInput} focus={focus} showCursor={showCursor} />
-		{snapshot.isPasting && <Text dimColor>Processing paste…</Text>}
+		{snapshot.isPasting && <ThemedText>Processing paste…</ThemedText>}
 	</Box>;
 }

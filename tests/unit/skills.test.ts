@@ -9,7 +9,7 @@ import { tempWorkspace } from "../support/fixtures.ts";
 import { skillText, writeSkill } from "../support/skills.ts";
 
 test("project skills override user definitions, diagnostics isolate bad files, and rescans discover changes", t => {
-	const root = tempWorkspace(t), user = join(root, "user"), project = join(root, ".anti-trace", "skills");
+	const root = tempWorkspace(t), user = join(root, "user"), project = join(root, ".residualx", "skills");
 	writeSkill(root, "review", "USER", {}, user);
 	const path = writeSkill(root, "review", "PROJECT");
 	writeSkill(root, "bad", "bad", { name: "other" });
@@ -29,7 +29,7 @@ test("project skills override user definitions, diagnostics isolate bad files, a
 test("discovery uses only cwd project skills and user skills, including inside nested Git directories", t => {
 	const root = tempWorkspace(t), nested = join(root, "a", "b"), user = join(root, "user");
 	mkdirSync(nested, { recursive: true });
-	const expected = [{ path: join(nested, ".anti-trace", "skills"), source: "project" }, { path: user, source: "user" }];
+	const expected = [{ path: join(nested, ".residualx", "skills"), source: "project" }, { path: user, source: "user" }];
 	assert.deepEqual(skillDirectories(nested, user), expected);
 	mkdirSync(join(root, ".git"));
 	writeSkill(root, "parent-only"); writeSkill(nested, "local-only"); writeSkill(root, "shared", "USER", {}, user);
@@ -61,7 +61,7 @@ for (const [label, text] of [
 
 test("arguments expand once, preserve Windows paths and support quoting and named parameters", t => {
 	const root = tempWorkspace(t), path = writeSkill(root, "review", "$ARGUMENTS | $0 | $ARGUMENTS[1] | $target | \\$0 | ${CLAUDE_SKILL_DIR} | ${CLAUDE_SESSION_ID}", { arguments: ["target"] });
-	const runtime = new SkillRuntime(new SkillRegistry([{ path: join(root, ".anti-trace", "skills"), source: "project" }]));
+	const runtime = new SkillRuntime(new SkillRegistry([{ path: join(root, ".residualx", "skills"), source: "project" }]));
 	const result = runtime.prepare("review", '"C:\\a folder" "$ARGUMENTS"', "model", "session-123", ["read"]);
 	const body = result.content[0]; assert.equal(body.type, "text");
 	if (body.type === "text") {
@@ -78,7 +78,7 @@ test("raw arguments remain ordinary prose, and catalog budgets preserve all skil
 	const root = tempWorkspace(t);
 	writeSkill(root, "review", "$ARGUMENTS");
 	writeSkill(root, "another", "instructions", { description: "long ".repeat(180) });
-	const runtime = new SkillRuntime(new SkillRegistry([{ path: join(root, ".anti-trace", "skills"), source: "project" }]));
+	const runtime = new SkillRuntime(new SkillRegistry([{ path: join(root, ".residualx", "skills"), source: "project" }]));
 	const message = runtime.prepare("review", "'Please don't rewrite this", "model", "s", []);
 	assert.ok(message.content.some(block => block.type === "text" && block.text.includes("'Please don't rewrite this")));
 	const catalog = runtime.catalog([], 1000)!;
@@ -92,7 +92,7 @@ test("manual and model visibility are separate and context restoration does not 
 	const root = tempWorkspace(t);
 	writeSkill(root, "manual", "$ARGUMENTS", { "disable-model-invocation": true });
 	writeSkill(root, "automatic", "read", { "user-invocable": false, "allowed-tools": ["read"] });
-	const runtime = new SkillRuntime(new SkillRegistry([{ path: join(root, ".anti-trace", "skills"), source: "project" }]));
+	const runtime = new SkillRuntime(new SkillRegistry([{ path: join(root, ".residualx", "skills"), source: "project" }]));
 	assert.throws(() => runtime.prepare("manual", "", "model", "s", ["read"]));
 	assert.throws(() => runtime.prepare("automatic", "", "user", "s", ["read"]));
 	assert.throws(() => runtime.prepare("missing", "", "model", "s", ["read"]));

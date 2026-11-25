@@ -35,16 +35,17 @@ export function layoutCommandMenu(state: PromptSuggestionsSnapshot, columns: num
 	const height = Math.max(0, Math.floor(rows));
 	const availableWidth = Math.max(0, Math.floor(columns));
 	if (!state.open || height === 0 || availableWidth === 0) return null;
-	const framed = availableWidth >= 40 && height >= 7;
-	const marginLeft = framed ? 2 : 0;
+	const framed = availableWidth >= 26 && height >= 7;
+	const marginLeft = 0;
 	const width = Math.min(100, availableWidth - marginLeft);
 	const contentWidth = width - (framed ? 4 : 0);
 	const footer = height >= 2;
-	// Framed chrome: top margin + two borders + footer separator.
+	// Framed chrome: heading + two borders + footer separator.
 	let capacity = height - (framed ? 4 : 0) - Number(footer);
-	const showMore = framed && state.items.length > Math.min(6, capacity) && capacity >= 2;
+	const maxItems = 11;
+	const showMore = framed && state.items.length > Math.min(maxItems, capacity) && capacity >= 2;
 	if (showMore) capacity--;
-	const count = Math.min(state.items.length, 6, capacity);
+	const count = Math.min(state.items.length, maxItems, capacity);
 	const start = Math.max(0, Math.min(state.selectedIndex - Math.floor(count / 2), state.items.length - count));
 	const below = state.items.length - start - count;
 	const more = showMore ? truncateMenuText(start === 0 ? `… 还有 ${below} 条`
@@ -59,7 +60,7 @@ export function layoutCommandMenuRow(command: SlashCommandDefinition, columns: n
 	const description = descriptionWidth >= 8 ? truncateMenuText(command.description, descriptionWidth) : "";
 	const labelWidth = columns - (description ? stringWidth(description) + 2 : 0);
 	const name = truncateMenuText(fullName, labelWidth);
-	const gap = " ".repeat(Math.max(0, columns - stringWidth(name + description)));
+	const gap = description ? " ".repeat(Math.max(2, Math.min(14 - stringWidth(name), columns - stringWidth(name + description)))) : "";
 	return { name, description, gap };
 }
 
@@ -71,9 +72,10 @@ export function layoutCommandMenuFooter(columns: number, selectedIndex: number, 
 		{ shortcut: "Tab", action: "补全" }, { shortcut: "Esc", action: "收起" },
 	];
 	const all = source.map(item => ({ ...item, action: t(item.action) }));
+	const essentials = all.filter(item => item.shortcut === "↑↓" || item.shortcut === "Enter");
 	const primary = all.filter(item => item.shortcut === (total === 0 ? "Esc" : "Enter"));
 	const label = (items: readonly MenuShortcut[]) => items.map(item => `${item.shortcut} ${item.action}`).join("  ");
-	const shortcuts = [all, all.filter(item => item.shortcut !== "Tab"), primary]
+	const shortcuts = [all, all.filter(item => item.shortcut !== "Tab"), essentials, primary]
 		.find(items => stringWidth(label(items)) + 2 + stringWidth(counter) <= columns) ?? [];
 	const gap = " ".repeat(Math.max(0, columns - stringWidth(label(shortcuts) + counter)));
 	return { shortcuts, counter, gap };

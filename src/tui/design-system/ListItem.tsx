@@ -1,9 +1,15 @@
 import type { ReactNode } from "react";
-import { Box, Text } from "ink";
-import { useTheme } from "../theme/ThemeProvider.tsx";
+import { Box } from "ink";
+import stringWidth from "string-width";
+import { ThemedText } from "../theme/ThemeProvider.tsx";
+import { truncateText } from "../utils/text.ts";
+
 export function ListItem({ selected, disabled, children, width }: { selected?: boolean; disabled?: boolean; children: ReactNode; width?: number }) {
-	const colors = useTheme();
-	return <Box width={width} height={1} backgroundColor={selected ? colors.selectionBackground || undefined : undefined}>
-		<Text color={selected ? colors.accent || undefined : colors.muted || undefined} dimColor={disabled} wrap="truncate-end">{selected ? "❯ " : "  "}{children}</Text>
+	if (width === 1) return <ThemedText>{selected ? "◢" : " "}</ThemedText>;
+	const field = width === undefined ? undefined : Math.max(0, width - 2);
+	const text = field !== undefined && typeof children === "string" ? truncateText(children, field) : children;
+	const fill = field !== undefined && typeof text === "string" ? " ".repeat(Math.max(0, field - stringWidth(text))) : "";
+	return <Box width={width} height={1} flexShrink={0}>
+		<ThemedText wrap="truncate-end">{selected ? "◢" : " "}<ThemedText inverse={selected} bold={selected} strikethrough={disabled}>{text}{fill}</ThemedText>{selected ? "◤" : " "}</ThemedText>
 	</Box>;
 }

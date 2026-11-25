@@ -1,4 +1,4 @@
-import { theme, type TerminalTheme } from "./theme.ts";
+import { vectorTheme, type TerminalTheme } from "./theme.ts";
 
 export type ColorDepth = 0 | 4 | 8 | 24;
 export function detectColorDepth(stream: Pick<NodeJS.WriteStream, "isTTY" | "getColorDepth">, env: NodeJS.ProcessEnv = process.env): ColorDepth {
@@ -9,17 +9,26 @@ export function detectColorDepth(stream: Pick<NodeJS.WriteStream, "isTTY" | "get
 	return depth >= 24 ? 24 : depth >= 8 ? 8 : 4;
 }
 
-export function resolveTheme(depth: ColorDepth): TerminalTheme {
-	if (depth === 24) return theme;
-	const mapping: Record<string, string> = {
-		[theme.brand]: depth >= 8 ? "ansi256(226)" : "yellowBright",
-		[theme.accent]: depth >= 8 ? "ansi256(51)" : "cyanBright",
-		[theme.error]: depth >= 8 ? "ansi256(197)" : "redBright",
-		[theme.muted]: depth >= 8 ? "ansi256(245)" : "gray",
-		[theme.dim]: depth >= 8 ? "ansi256(239)" : "gray",
-		[theme.faint]: depth >= 8 ? "ansi256(235)" : "gray",
-	};
-	return Object.fromEntries(Object.entries(theme).map(([key, value]) => [key,
-		depth === 0 ? "" : mapping[value] ?? (depth >= 8 ? key === "diffRemovedWord" ? "ansi256(52)" : key === "diffAddedWord" ? "ansi256(23)"
-			: key.startsWith("diffRemoved") ? "ansi256(233)" : key.startsWith("diffAdded") ? "ansi256(234)" : "ansi256(232)" : "black")])) as unknown as TerminalTheme;
+export type RGB = readonly [number, number, number];
+
+function luminance(rgb: RGB): number {
+	const [r, g, b] = rgb.map(channel => {
+		const s = channel / 255;
+		return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+	});
+	return r! * 0.2126 + g! * 0.7152 + b! * 0.0722;
+}
+
+export function vectorInk(paper: RGB): RGB {
+	const lightness = luminance(paper) + 0.05;
+	const dark: RGB = [16, 16, 16];
+	return 1.05 / lightness >= lightness / (luminance(dark) + 0.05) ? [255, 255, 255] : dark;
+}
+
+export function resolveTheme(depth: ColorDepth, paper?: RGB): TerminalTheme {
+	if (!paper || !depth) return vectorTheme();
+	const white = vectorInk(paper)[0] === 255;
+	if (depth === 24) return vectorTheme(white ? "#FFFFFF" : "#101010");
+	if (depth === 8) return vectorTheme(white ? "ansi256(231)" : "ansi256(233)");
+	return vectorTheme(white ? "whiteBright" : "black");
 }
