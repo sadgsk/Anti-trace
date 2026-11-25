@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync, readFileSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
 import { brandedPath, ensureProjectDirectory, getAppPaths, projectIdForCwd } from "../../src/storage/app-paths.ts";
@@ -29,7 +29,7 @@ test("paths are stable, lazy, share user configuration and separate projects and
 });
 
 test("existing project configuration remains in place until a ResidualX configuration exists", t => {
-	const cwd = tempWorkspace(t);
+	const cwd = realpathSync.native(tempWorkspace(t));
 	mkdirSync(join(cwd, ".anti-trace"));
 	const legacy = join(cwd, ".anti-trace", "mcp.json");
 	writeFileSync(legacy, "{}");
