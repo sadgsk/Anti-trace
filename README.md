@@ -16,7 +16,7 @@ ResidualX 是一个运行在终端里的 AI 编程助手。它能读取和修改
 npm install -g residualx
 ```
 
-安装后用 `rex` 或 `residualx` 启动。已有安装继续读取原有配置和会话目录。macOS 和 Linux 的命令工具使用 Bash。Windows 优先使用 PowerShell 7，找不到时使用 Windows PowerShell 5.1。安装 Git for Windows 后也可使用 Git Bash，若安装路径未被识别，可将 `RESIDUALX_GIT_BASH_PATH` 设为 Git for Windows 中 `bin\bash.exe` 的绝对路径。
+安装后用 `rex` 或 `residualx` 启动。配置和会话默认保存在 `~/.residualx`。首次使用可通过 `/config` 添加模型。macOS 和 Linux 的命令工具使用 Bash。Windows 优先使用 PowerShell 7，找不到时使用 Windows PowerShell 5.1。安装 Git for Windows 后也可使用 Git Bash，若安装路径未被识别，可将 `RESIDUALX_GIT_BASH_PATH` 设为 Git for Windows 中 `bin\bash.exe` 的绝对路径。
 
 ## 快速开始
 

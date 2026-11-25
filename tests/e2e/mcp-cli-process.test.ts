@@ -12,7 +12,7 @@ test("MCP commands run without a model and CLI exit reaps its owned stdio connec
 	const root = tempWorkspace(t), home = join(root, "home"), events = join(root, "mcp-events.jsonl");
 	const store = new McpConfigStore(root, getAppPaths({ cwd: root, appHome: home }));
 	store.save("user", "fixture", { command: process.execPath, args: [fileURLToPath(new URL("../support/mcp-server.mjs", import.meta.url)), "legacy", events] });
-	const env = { ANTI_TRACE_HOME: home, HOME: home, USERPROFILE: home, CLI_AGENT_CONFIG: join(root, "missing.json") };
+	const env = { RESIDUALX_HOME: home, HOME: home, USERPROFILE: home, RESIDUALX_CONFIG: join(root, "missing.json") };
 	const list = await cli(t, root, "/mcp list", env);
 	assert.equal(list.code, 0, list.stderr); assert.match(list.stdout, /fixture.*disconnected/); assert.equal(existsSync(events), false);
 	const connected = await cli(t, root, "/mcp reconnect fixture", env);
@@ -27,7 +27,7 @@ test("MCP resource and prompt pipe commands return source material without a mod
 	const config = new McpConfigStore(root, getAppPaths({ cwd: root, appHome: home }));
 	config.save("user", "docs", { command: process.execPath,
 		args: [fileURLToPath(new URL("../support/mcp-server.mjs", import.meta.url)), "legacy", log] });
-	const env = { ANTI_TRACE_HOME: home, CLI_AGENT_CONFIG: join(root, "missing.json") };
+	const env = { RESIDUALX_HOME: home, RESIDUALX_CONFIG: join(root, "missing.json") };
 	const resource = await cli(t, root, "/mcp-resource docs fixture://notes\n", env);
 	assert.equal(resource.code, 0, resource.stderr + resource.stdout);
 	assert.match(resource.stdout, /fixture:\/\/notes/);

@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { brandedPath } from "../../storage/app-paths.ts";
+import { residualxPath } from "../../storage/app-paths.ts";
 import { parseDocument } from "yaml";
 import type { SkillDefinition, SkillDiagnostic, SkillDirectory, SkillSnapshot } from "./types.ts";
 
@@ -10,7 +10,7 @@ const TOOL_NAMES: Record<string, string> = { read: "read", edit: "edit", write: 
 /** Project discovery and creation share the current working directory. */
 export function skillDirectories(cwd: string, userSkillsDir: string): SkillDirectory[] {
 	return [
-		{ path: brandedPath(resolve(cwd), "skills"), source: "project" },
+		{ path: residualxPath(resolve(cwd), "skills"), source: "project" },
 		{ path: resolve(userSkillsDir), source: "user" },
 	];
 }

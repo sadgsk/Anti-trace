@@ -16,7 +16,7 @@ test("default tests use an isolated home and working directory without BYOK sett
 		const child = relative(root, realpathSync(path));
 		assert.ok(child && !child.startsWith("..") && !isAbsolute(child), `${path} must remain inside ${root}`);
 	}
-	assert.equal(process.env.CLI_AGENT_CONFIG, undefined);
+	assert.equal(process.env.RESIDUALX_CONFIG, undefined);
 	assert.equal(process.env.NODE_OPTIONS, undefined);
 	assert.equal(process.env.OPENAI_API_KEY, undefined);
 	assert.equal(process.env.ANTHROPIC_API_KEY, undefined);

@@ -20,9 +20,9 @@ export async function cli(t: TestContext, cwd: string, input: string, env: NodeJ
 	];
 	const child = fromCmd
 		? spawn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${[process.execPath, ...args].map(arg => `"${arg}"`).join(" ")}"`], {
-			cwd, env: { ...process.env, CLI_AGENT_CONFIG: existsSync(join(cwd, "byok.json")) ? join(cwd, "byok.json") : undefined, ...env }, windowsVerbatimArguments: true, windowsHide: true, signal: AbortSignal.timeout(30000),
+			cwd, env: { ...process.env, RESIDUALX_CONFIG: existsSync(join(cwd, "byok.json")) ? join(cwd, "byok.json") : undefined, ...env }, windowsVerbatimArguments: true, windowsHide: true, signal: AbortSignal.timeout(30000),
 		})
-		: spawn(process.execPath, args, { cwd, env: { ...process.env, CLI_AGENT_CONFIG: existsSync(join(cwd, "byok.json")) ? join(cwd, "byok.json") : undefined, ...env }, windowsHide: true, signal: AbortSignal.timeout(15000) });
+		: spawn(process.execPath, args, { cwd, env: { ...process.env, RESIDUALX_CONFIG: existsSync(join(cwd, "byok.json")) ? join(cwd, "byok.json") : undefined, ...env }, windowsHide: true, signal: AbortSignal.timeout(15000) });
 	t.after(() => { if (child.exitCode === null && !child.killed) child.kill(); });
 	let stdout = "", stderr = "";
 	child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });

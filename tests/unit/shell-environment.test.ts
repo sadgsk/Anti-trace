@@ -13,7 +13,7 @@ function probe(files: Record<string, string>) {
 test("POSIX detection performs no Windows probes and keeps Bash", () => {
 	for (const platform of ["darwin", "linux"] as const) {
 		const io = probe({});
-		assert.deepEqual(detectShellEnvironment(platform, { ANTI_TRACE_GIT_BASH_PATH: "bad" }, io), { platform, bash: "bash" });
+		assert.deepEqual(detectShellEnvironment(platform, { RESIDUALX_GIT_BASH_PATH: "bad" }, io), { platform, bash: "bash" });
 		assert.deepEqual(io.calls, []);
 	}
 });
@@ -27,9 +27,10 @@ test("Windows prefers PowerShell 7 and finds a normal Git Bash installation", ()
 
 test("explicit Bash paths win; invalid explicit paths fail with a configuration error", () => {
 	const custom = "E:\\中文 空格\\Git\\bin\\bash.exe";
-	assert.equal(detectShellEnvironment("win32", { ANTI_TRACE_GIT_BASH_PATH: custom }, probe({ [custom]: "GNU bash, version 5", [git]: "GNU bash, version 4" })).bash, custom);
+	assert.equal(detectShellEnvironment("win32", { RESIDUALX_GIT_BASH_PATH: custom }, probe({ [custom]: "GNU bash, version 5", [git]: "GNU bash, version 4" })).bash, custom);
+	assert.equal(detectShellEnvironment("win32", { ANTI_TRACE_GIT_BASH_PATH: custom }, probe({ [custom]: "GNU bash, version 5", [git]: "GNU bash, version 4" })).bash, git);
 	for (const path of ["relative\\bash.exe", "E:\\missing\\bash.exe", custom]) {
-		assert.throws(() => detectShellEnvironment("win32", { ANTI_TRACE_GIT_BASH_PATH: path }, probe({ [ps5]: "5", [custom]: "not bash" })), /Invalid ANTI_TRACE_GIT_BASH_PATH/);
+		assert.throws(() => detectShellEnvironment("win32", { RESIDUALX_GIT_BASH_PATH: path }, probe({ [ps5]: "5", [custom]: "not bash" })), /Invalid RESIDUALX_GIT_BASH_PATH/);
 	}
 });
 

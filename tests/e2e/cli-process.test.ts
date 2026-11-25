@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { tempWorkspace } from "../support/fixtures.ts";
@@ -56,6 +56,24 @@ test("session commands work without configuration in a standalone process", asyn
 	const result = await cli(t, root, "/new");
 	assert.equal(result.code, 0, result.stderr);
 	assert.match(result.stdout, /新会话/);
+});
+
+test("first launch with only AntiTrace data starts without a configured model", async t => {
+	const home = tempWorkspace(t), cwd = tempWorkspace(t);
+	const oldHome = join(home, ".anti-trace");
+	const oldConfigs = join(oldHome, "profiles", "local", "configs");
+	mkdirSync(oldConfigs, { recursive: true });
+	configureCli(oldConfigs, "http://127.0.0.1:1/v1");
+	const oldModel = join(oldConfigs, "main.json");
+	renameSync(join(oldConfigs, "byok.json"), oldModel);
+	const result = await cli(t, cwd, "/new", {
+		HOME: home, USERPROFILE: home, RESIDUALX_HOME: undefined,
+		ANTI_TRACE_HOME: oldHome, CLI_AGENT_CONFIG: oldModel,
+	});
+	assert.equal(result.code, 0, result.stderr);
+	assert.ok(result.stderr.includes(join(home, ".residualx", "profiles", "local", "configs", "main.json")), result.stderr);
+	assert.match(result.stderr, /\/config/);
+	assert.equal(existsSync(join(oldHome, "profiles", "local", "projects")), false);
 });
 
 test("pipe output remains available with CI mode enabled", async (t) => {

@@ -152,14 +152,14 @@ test("uses only process environment references and never loads a local .env file
 	const temp = fixture();
 	try {
 		temp.write(catalog());
-		writeFileSync(join(temp.root, ".env"), "CLI_AGENT_CONFIG=missing.json\nBYOK_TEST_KEY=dotenv-fake-key\n");
+		writeFileSync(join(temp.root, ".env"), "RESIDUALX_CONFIG=missing.json\nBYOK_TEST_KEY=dotenv-fake-key\n");
 		const env: NodeJS.ProcessEnv = {};
 		assert.throws(() => temp.load({ configPath: undefined, env }).getApiKey(), /BYOK_TEST_KEY/);
 		assert.deepEqual(env, {});
-		const loaded = temp.load({ configPath: undefined, env: { CLI_AGENT_CONFIG: temp.path, BYOK_TEST_KEY: "env-fake-key" } });
+		const loaded = temp.load({ configPath: undefined, env: { RESIDUALX_CONFIG: temp.path, BYOK_TEST_KEY: "env-fake-key" } });
 		assert.equal(loaded.configPath, temp.path);
 		assert.equal(loaded.getApiKey(), "env-fake-key");
-		assert.equal(temp.load({ configPath: undefined, env: { RESIDUALX_CONFIG: temp.path, CLI_AGENT_CONFIG: "missing.json" } }).configPath, temp.path);
+		assert.equal(temp.load({ configPath: undefined, env: { CLI_AGENT_CONFIG: "missing.json" } }).configPath, temp.path);
 		assert.throws(() => temp.load({ configPath: "missing.json" }), /缺少 BYOK 配置/);
 	} finally { temp.cleanup(); }
 });

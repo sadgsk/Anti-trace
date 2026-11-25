@@ -9,13 +9,13 @@ const previousHomes: Array<string | undefined> = [];
 beforeEach(() => {
 	const root = process.env.CLI_AGENT_TEST_ROOT;
 	if (!root) throw new Error("Storage tests require the isolated test runner");
-	previousHomes.push(process.env.ANTI_TRACE_HOME);
-	process.env.ANTI_TRACE_HOME = join(root, "storage", randomUUID());
+	previousHomes.push(process.env.RESIDUALX_HOME);
+	process.env.RESIDUALX_HOME = join(root, "storage", randomUUID());
 });
 afterEach(() => {
 	const previous = previousHomes.pop();
-	if (previous === undefined) delete process.env.ANTI_TRACE_HOME;
-	else process.env.ANTI_TRACE_HOME = previous;
+	if (previous === undefined) delete process.env.RESIDUALX_HOME;
+	else process.env.RESIDUALX_HOME = previous;
 });
 
 // Node's HTTP clients and fetch/undici eventually connect through a net.Socket.

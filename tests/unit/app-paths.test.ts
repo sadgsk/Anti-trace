@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync, readFileSync, realpathSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import test from "node:test";
-import { brandedPath, ensureProjectDirectory, getAppPaths, projectIdForCwd } from "../../src/storage/app-paths.ts";
+import { ensureProjectDirectory, getAppPaths, projectIdForCwd } from "../../src/storage/app-paths.ts";
+import { skillDirectories } from "../../src/harness/skills/loader.ts";
 import { tempWorkspace } from "../support/fixtures.ts";
 
 test("paths are stable, lazy, share user configuration and separate projects and profiles", t => {
@@ -28,30 +29,32 @@ test("paths are stable, lazy, share user configuration and separate projects and
 	assert.deepEqual(JSON.parse(readFileSync(a.projectInfoFile, "utf8")), { version: 1, cwd: a.cwd });
 });
 
-test("existing project configuration remains in place until a ResidualX configuration exists", t => {
+test("project MCP and skills resolve under .residualx even when only the old files exist", t => {
 	const cwd = realpathSync.native(tempWorkspace(t));
-	mkdirSync(join(cwd, ".anti-trace"));
+	mkdirSync(join(cwd, ".anti-trace", "skills"), { recursive: true });
 	const legacy = join(cwd, ".anti-trace", "mcp.json");
 	writeFileSync(legacy, "{}");
-	assert.equal(getAppPaths({ cwd }).projectMcpConfigFile, legacy);
-	mkdirSync(join(cwd, ".residualx"));
-	assert.equal(brandedPath(cwd, "mcp.json"), legacy);
 	const current = join(cwd, ".residualx", "mcp.json");
-	writeFileSync(current, "{}");
-	assert.equal(getAppPaths({ cwd }).projectMcpConfigFile, current);
+	const paths = getAppPaths({ cwd });
+	assert.equal(paths.projectMcpConfigFile, current);
+	assert.equal(skillDirectories(cwd, paths.userSkillsDir)[0]?.path, join(cwd, ".residualx", "skills"));
+	assert.equal(existsSync(join(cwd, ".residualx")), false);
 	assert.equal(readFileSync(legacy, "utf8"), "{}");
 });
 
 test("explicit appHome wins over the environment and environment roots are evaluated per call", t => {
-	const cwd = tempWorkspace(t), original = process.env.ANTI_TRACE_HOME;
+	const cwd = tempWorkspace(t), original = process.env.RESIDUALX_HOME;
 	try {
-		process.env.ANTI_TRACE_HOME = join(cwd, "environment");
+		process.env.RESIDUALX_HOME = join(cwd, "environment");
 		assert.equal(getAppPaths({ cwd }).appRoot, resolve(cwd, "environment"));
 		assert.equal(getAppPaths({ cwd }).userSkillsDir, resolve(cwd, "environment", "skills"));
 		assert.equal(getAppPaths({ cwd, appHome: join(cwd, "explicit") }).appRoot, resolve(cwd, "explicit"));
 		assert.equal(getAppPaths({ cwd, appHome: join(cwd, "explicit") }).userSkillsDir, resolve(cwd, "explicit", "skills"));
-		process.env.ANTI_TRACE_HOME = " "; assert.throws(() => getAppPaths({ cwd }), /empty/);
-	} finally { process.env.ANTI_TRACE_HOME = original; }
+		process.env.RESIDUALX_HOME = " "; assert.throws(() => getAppPaths({ cwd }), /empty/);
+	} finally {
+		if (original === undefined) delete process.env.RESIDUALX_HOME;
+		else process.env.RESIDUALX_HOME = original;
+	}
 });
 
 test("directory aliases share an identity and formerly ambiguous path names remain distinct", t => {

@@ -16,7 +16,7 @@ Requires Node.js 22 or newer.
 npm install -g residualx
 ```
 
-After installation, launch `rex` or `residualx`. Existing installations keep their configuration and session directories. Shell tools use Bash on macOS and Linux. On Windows, ResidualX prefers PowerShell 7 and falls back to Windows PowerShell 5.1. Git for Windows also enables Git Bash. If ResidualX cannot find a custom installation, set `RESIDUALX_GIT_BASH_PATH` to the absolute path of Git for Windows' `bin\bash.exe`.
+After installation, launch `rex` or `residualx`. Configuration and sessions are stored in `~/.residualx` by default. On first launch, use `/config` to add a model. Shell tools use Bash on macOS and Linux. On Windows, ResidualX prefers PowerShell 7 and falls back to Windows PowerShell 5.1. Git for Windows also enables Git Bash. If ResidualX cannot find a custom installation, set `RESIDUALX_GIT_BASH_PATH` to the absolute path of Git for Windows' `bin\bash.exe`.
 
 ## Quick start
 

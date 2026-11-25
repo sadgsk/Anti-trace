@@ -20,8 +20,8 @@ function launch(cwd: string, appHome: string, tty: boolean) {
 		args.push("--import", "data:text/javascript," + encodeURIComponent(shim));
 	}
 	args.push(fileURLToPath(new URL("../../src/cli/bin.ts", import.meta.url)), "--yolo");
-	const child = spawn(process.execPath, args, { cwd, env: { ...process.env, ANTI_TRACE_HOME: appHome,
-		CLI_AGENT_CONFIG: join(cwd, "byok.json") }, windowsHide: true });
+	const child = spawn(process.execPath, args, { cwd, env: { ...process.env, RESIDUALX_HOME: appHome,
+		RESIDUALX_CONFIG: join(cwd, "byok.json") }, windowsHide: true });
 	let output = "";
 	child.stdout.setEncoding("utf8").on("data", data => { output += data; });
 	child.stderr.setEncoding("utf8").on("data", data => { output += data; });

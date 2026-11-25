@@ -104,9 +104,9 @@ test("multiple configurations require a choice and explicit paths take priority 
 	const cwd = tempWorkspace(t), paths = getAppPaths({ cwd }), first = writeConfig(paths), second = writeConfig(paths, "second.json");
 	const choose = runtime(paths), initial = choose.reload(); assert.equal(initial.ok, false); assert.match(initial.message, /多个模型配置/);
 	assert.equal(choose.reload({ configPath: second }).ok, true);
-	const envOverride = new ByokRuntime({ cwd, paths, env: { CLI_AGENT_CONFIG: first } }, () => {});
+	const envOverride = new ByokRuntime({ cwd, paths, env: { RESIDUALX_CONFIG: first } }, () => {});
 	assert.equal(envOverride.reload().ok, true); assert.equal(envOverride.configPath, first);
-	const explicit = new ByokRuntime({ cwd, paths, configPath: second, env: { CLI_AGENT_CONFIG: join(cwd, "missing.json") } }, () => {});
+	const explicit = new ByokRuntime({ cwd, paths, configPath: second, env: { RESIDUALX_CONFIG: join(cwd, "missing.json") } }, () => {});
 	assert.equal(explicit.reload().ok, true); assert.equal(explicit.configPath, second);
 });
 

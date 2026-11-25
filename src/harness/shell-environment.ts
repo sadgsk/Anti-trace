@@ -47,10 +47,9 @@ export function detectShellEnvironment(
 		bashCandidates.push(win32.join(root, "bin", "bash.exe"));
 	}
 	const validBash = (path: string) => probe.isFile(path) && probe.run(path, ["--version"])?.startsWith("GNU bash,");
-	const bashVariable = value("RESIDUALX_GIT_BASH_PATH") ? "RESIDUALX_GIT_BASH_PATH" : "ANTI_TRACE_GIT_BASH_PATH";
-	const explicitBash = value(bashVariable);
+	const explicitBash = value("RESIDUALX_GIT_BASH_PATH") || undefined;
 	if (explicitBash && (!win32.isAbsolute(explicitBash) || !validBash(explicitBash))) {
-		throw new Error(`Invalid ${bashVariable}: ${explicitBash}. Set it to Git for Windows' bin\\bash.exe.`);
+		throw new Error(`Invalid RESIDUALX_GIT_BASH_PATH: ${explicitBash}. Set it to Git for Windows' bin\\bash.exe.`);
 	}
 	const bash = explicitBash ?? [...new Set(bashCandidates)].find(validBash);
 	let powershell: PowerShellConfig | undefined;

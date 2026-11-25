@@ -17,7 +17,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
-public static class AntiTraceMcpHost {
+public static class ResidualXMcpHost {
     [StructLayout(LayoutKind.Sequential)] struct BasicLimits {
         public long ProcessTime, JobTime;
         public uint Flags;
@@ -92,7 +92,7 @@ public static class AntiTraceMcpHost {
     }
 }
 '@
-exit ([AntiTraceMcpHost]::Run($env:_ANTI_TRACE_MCP_NODE, $env:_ANTI_TRACE_MCP_HOST))
+exit ([ResidualXMcpHost]::Run($env:_RESIDUALX_MCP_NODE, $env:_RESIDUALX_MCP_HOST))
 } catch {
     [Console]::Error.WriteLine('MCP process owner could not start.')
     exit 1
@@ -105,6 +105,6 @@ export function stdioLaunch(command: string, args: string[], env: Record<string,
 	return {
 		command: join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
 		args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(windowsHost, "utf16le").toString("base64")],
-		env: { ...env, _ANTI_TRACE_MCP_NODE: process.execPath, _ANTI_TRACE_MCP_HOST: host, _ANTI_TRACE_MCP_ARGV: JSON.stringify([command, ...args]) },
+		env: { ...env, _RESIDUALX_MCP_NODE: process.execPath, _RESIDUALX_MCP_HOST: host, _RESIDUALX_MCP_ARGV: JSON.stringify([command, ...args]) },
 	};
 }

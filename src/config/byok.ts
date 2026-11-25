@@ -69,7 +69,7 @@ export interface LoadedByokConfig {
 
 export function explicitConfigPath(options: Pick<LoadByokConfigOptions, "configPath" | "env">): string | undefined {
 	const env = options.env ?? process.env;
-	return options.configPath ?? env.RESIDUALX_CONFIG ?? env.CLI_AGENT_CONFIG;
+	return options.configPath ?? env.RESIDUALX_CONFIG;
 }
 
 /** Read the BYOK catalog, validate every entry, then select the current model. */

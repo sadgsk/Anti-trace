@@ -2,8 +2,8 @@
 // POSIX uses a process group; on Windows the outer launcher owns a Job Object.
 import spawn from "cross-spawn";
 const payload = process.platform === "win32" && process.argv[2] === "--env-payload";
-const [command, ...args] = payload ? JSON.parse(process.env._ANTI_TRACE_MCP_ARGV) : process.argv.slice(2);
-if (payload) for (const key of ["_ANTI_TRACE_MCP_NODE", "_ANTI_TRACE_MCP_HOST", "_ANTI_TRACE_MCP_ARGV"]) delete process.env[key];
+const [command, ...args] = payload ? JSON.parse(process.env._RESIDUALX_MCP_ARGV) : process.argv.slice(2);
+if (payload) for (const key of ["_RESIDUALX_MCP_NODE", "_RESIDUALX_MCP_HOST", "_RESIDUALX_MCP_ARGV"]) delete process.env[key];
 const child = spawn(command, args, { shell: false, windowsHide: true, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"] });
 let stopping = false;
 function stop() {
