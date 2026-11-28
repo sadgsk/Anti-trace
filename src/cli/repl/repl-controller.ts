@@ -80,6 +80,7 @@ export class ReplController {
 	private nextId = 1;
 	private showThinking = true;
 	private readonly streamedBlocks = new Set<number>();
+	private phaseWithoutTools: ReplSnapshot["phase"] = "idle";
 	private disposed = false;
 	private stopping?: Promise<void>;
 	readonly permissions: PermissionPolicy;
@@ -182,7 +183,7 @@ export class ReplController {
 			this.interruptCleanup = undefined;
 			this.flushLive();
 			this.assistantId = undefined;
-			if (!this.snapshot.closed) this.update({ busy: false, acceptsSteering: false, modelStatus: this.harness.describeSettings?.(), display: this.readDisplay(),
+			if (!this.snapshot.closed) this.update({ busy: false, acceptsSteering: false, phase: "idle", modelStatus: this.harness.describeSettings?.(), display: this.readDisplay(),
 				transcript: [...this.snapshot.transcript, ...this.snapshot.activeItems], activeItems: [] });
 		}
 		return true;
@@ -598,7 +599,7 @@ export class ReplController {
 				break;
 			case "message_update":
 				if (event.assistantMessageEvent.type === "thinking_start") this.update({ phase: "thinking" });
-				else if (event.assistantMessageEvent.type === "thinking_end") this.update({ phase: "idle" });
+				else if (event.assistantMessageEvent.type === "thinking_end" || event.assistantMessageEvent.type === "toolcall_end") this.update({ phase: "idle" });
 				else if (event.assistantMessageEvent.type === "text_start") this.update({ phase: "streaming" });
 				else if (event.assistantMessageEvent.type === "toolcall_start") this.update({ phase: "tool" });
 				if (event.assistantMessageEvent.type === "text_delta" || event.assistantMessageEvent.type === "thinking_delta") {
@@ -636,11 +637,11 @@ export class ReplController {
 			case "tool_execution_start":
 				this.flushLive();
 				this.write(`[${event.toolName}] running`, undefined, "info", true);
-				this.update({ phase: "tool", activeItems: [...this.snapshot.activeItems, { id: this.nextId++, kind: "tool", callId: event.toolCallId,
+				this.update({ activeItems: [...this.snapshot.activeItems, { id: this.nextId++, kind: "tool", callId: event.toolCallId,
 					name: event.toolName, args: event.args as Record<string, unknown>, status: "running", startedAt: Date.now() }] });
 				break;
 			case "tool_execution_update":
-				this.update({ activeItems: this.snapshot.activeItems.map(item => item.kind === "tool" && item.callId === event.toolCallId
+				this.update({ activeItems: this.snapshot.activeItems.map(item => item.kind === "tool" && item.status === "running" && item.callId === event.toolCallId
 					? { ...item, partial: event.partialResult as NonNullable<Extract<TranscriptItem, { kind: "tool" }>["partial"]> } : item) });
 				break;
 			case "tool_execution_end": {
@@ -648,7 +649,7 @@ export class ReplController {
 				const details = (event.result as { details?: { exitCode?: number | null; timedOut?: boolean } })?.details;
 				const failed = event.isError || details?.timedOut || (typeof details?.exitCode === "number" && details.exitCode !== 0);
 				this.write(`[${event.toolName}] ${event.isError ? "error" : "ok"}${preview ? `: ${preview}` : ""}`, undefined, "info", true);
-				this.update({ phase: "tool", activeItems: this.snapshot.activeItems.map(item => item.kind === "tool" && item.callId === event.toolCallId
+				this.update({ activeItems: this.snapshot.activeItems.map(item => item.kind === "tool" && item.status === "running" && item.callId === event.toolCallId
 					? { ...item, status: failed ? "error" : "success", result: event.result as NonNullable<Extract<TranscriptItem, { kind: "tool" }>["result"]>, endedAt: Date.now() } : item) });
 				break;
 			}
@@ -690,7 +691,13 @@ export class ReplController {
 	}
 
 	private update(change: Partial<ReplSnapshot>): void {
-		this.snapshot = { ...this.snapshot, ...change };
+		const next = { ...this.snapshot, ...change };
+		this.phaseWithoutTools = change.phase ?? this.phaseWithoutTools;
+		if (change.phase !== undefined || change.activeItems !== undefined) {
+			const running = next.activeItems.some(item => item.kind === "tool" && item.status === "running");
+			next.phase = running ? "tool" : this.phaseWithoutTools;
+		}
+		this.snapshot = next;
 		for (const listener of this.listeners) listener();
 	}
 

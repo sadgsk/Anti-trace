@@ -302,14 +302,20 @@ test("abort after a thinking delta cancels the stream without making its partial
 	});
 });
 
-test("parallel tool deltas preserve call identity and JSON, and invalid tool arguments fail", async () => {
+test("parallel tool deltas commit by tool index while preserving text and reasoning positions, and invalid arguments fail", async () => {
 	await withHttp((res, index) => res.end(index === 0 ? sse(
-		delta({ tool_calls: [{ index: 1, id: "b", function: { name: "two", arguments: '{"n":' } }, { index: 0, id: "a", function: { name: "one", arguments: "{}" } }] }),
+		delta({ reasoning_content: "before tools" }),
+		delta({ tool_calls: [{ index: 1, id: "b", function: { name: "two", arguments: '{"n":' } }] }),
+		delta({ content: "between tools" }),
+		delta({ tool_calls: [{ index: 0, id: "a", function: { name: "one", arguments: "{}" } }] }),
 		delta({ tool_calls: [{ index: 1, function: { arguments: "2}" } }] }, "tool_calls"),
 	) : sse(delta({ tool_calls: [{ index: 0, id: "c", function: { name: "noop", arguments: "[]" } }] }, "tool_calls"))), async (url) => {
 		const first = await collect(model(url));
 		assert.equal(first.message.stopReason, "toolUse");
-		assert.deepEqual(first.message.content.filter(block => block.type === "toolCall").map(block => [block.id, block.name, block.arguments]), [["b", "two", { n: 2 }], ["a", "one", {}]]);
+		assert.deepEqual(first.message.content.map(block => block.type === "toolCall" ? [block.id, block.name, block.arguments]
+			: block.type === "thinking" ? block.thinking : block.text), ["before tools", ["a", "one", {}], "between tools", ["b", "two", { n: 2 }]]);
+		assert.deepEqual(first.events.flatMap(event => event.type === "toolcall_end" ? [[event.toolCall.id, event.contentIndex, event.earlyExecution]] : []),
+			[["a", 1, undefined], ["b", 3, undefined]]);
 		const invalid = (await collect(model(url))).message;
 		assert.equal(invalid.stopReason, "error");
 		assert.equal(invalid.content.some(block => block.type === "toolCall"), false);

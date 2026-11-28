@@ -34,6 +34,8 @@ function promptHeader(options: BuildSystemPromptOptions): string {
 
 Working directory: ${cwd}
 
+Issue independent tool calls together. When a later call depends on an earlier result, wait for that result before issuing it.
+
 Available tools:
 ${toolsList}${delegation}${options.toolNames.includes("skill") ? `
 

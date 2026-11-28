@@ -131,6 +131,28 @@ for (const api of protocols) {
 			assert.deepEqual(api === "openai-responses" ? thought.replay.payload.item : thought.replay.payload.block, api === "openai-responses" ? rThink() : aThink());
 		});
 	});
+	test(`${api}: a complete tool block can execute before the server sends its terminal event`, async () => {
+		const frames = api === "openai-responses" ? responses([rTool()]) : anthropic([aTool()]);
+		const end = frames.findIndex(frame => frame.type === (api === "openai-responses" ? "response.output_item.done" : "content_block_stop"));
+		let response: ServerResponse;
+		await withHttp(res => {
+			response = res;
+			res.write(sse(frames.slice(0, end + 1)));
+		}, async url => {
+			const stream = await streamModel(model(api, url), { messages: [user] }, { apiKey: "local", signal: AbortSignal.timeout(5000) });
+			const ids: string[] = [];
+			for await (const event of stream) {
+				if (event.type !== "toolcall_end") continue;
+				assert.equal(event.earlyExecution, true);
+				assert.deepEqual(event.toolCall.arguments, { n: 1 });
+				assert.notEqual(event.toolCall, event.partial.content[event.contentIndex]);
+				ids.push(event.toolCall.id);
+				response.end(sse(frames.slice(end + 1)));
+			}
+			assert.equal((await stream.result()).stopReason, "toolUse");
+			assert.deepEqual(ids, ["call_1"]);
+		});
+	});
 	test(`${api}: actual Agent executes two tools and passes results and native reasoning back`, async () => {
 		await withHttp((res, n) => res.end(sse(n === 0 ? thoughtAndTools(api) : ok(api))), async (url, requests) => {
 			const executed: number[] = [];
@@ -172,6 +194,26 @@ for (const api of protocols) {
 			assert.equal(result.message.stopReason, "length", result.message.errorMessage);
 			assert.ok(result.message.content.some(b => b.type === "thinking"));
 			assert.ok(!result.message.content.some(b => b.type === "toolCall" || (b.type === "thinking" && b.replay)));
+		});
+	});
+	test(`${api}: queued tool starts retain their original blocks after output truncation`, async () => {
+		const frames = api === "openai-responses" ? responses([rTool(), rTool("call_2")], "max_output_tokens")
+			: anthropic([aTool(), aTool("call_2")], "max_tokens");
+		await withHttp(res => res.end(sse(frames)), async url => {
+			const stream = await streamModel(model(api, url), { messages: [user] }, { apiKey: "local" });
+			const final = await stream.result();
+			assert.equal(final.stopReason, "length");
+			assert.deepEqual(final.content, []);
+			const ids: string[] = [];
+			for await (const event of stream) {
+				if (event.type !== "toolcall_start") continue;
+				assert.equal(event.partial.content.length, event.contentIndex + 1);
+				const block = event.partial.content[event.contentIndex];
+				assert.ok(block?.type === "toolCall");
+				assert.deepEqual(block.arguments, {});
+				ids.push(block.id);
+			}
+			assert.deepEqual(ids, ["call_1", "call_2"]);
 		});
 	});
 	test(`${api}: cancellation during thinking closes reader and never commits native replay`, async () => {
@@ -300,6 +342,39 @@ test("Responses stream rejects inconsistent item identity, JSON arrays, duplicat
 	const duplicate = responses([rTool(), { ...rTool(), id: "fc_other" }]);
 	const cases = [mismatch, responses([rTool("call_1", "[]")]), duplicate, [{ type: "response.failed", response: { error: { message: "failure" } } }], responses([rText()], "content_filter")];
 	await withHttp((res, n) => res.end(sse(cases[n])), async url => { for (const _ of cases) assert.equal((await collect(model("openai-responses", url))).message.stopReason, "error"); });
+});
+
+test("Responses admits interleaved completed calls in source order and final-only calls at the terminal boundary", async () => {
+	const calls = [rTool("first"), rTool("second"), rTool("terminal")];
+	const starts = calls.slice(0, 2).map((item, output_index) => ({ type: "response.output_item.added", output_index, item: { ...item, arguments: "", status: "in_progress" } }));
+	const ends = [1, 0].map(output_index => ({ type: "response.output_item.done", output_index, item: calls[output_index] }));
+	const terminal = { type: "response.completed", response: { status: "completed", output: calls } };
+	await withHttp(res => res.end(sse([...starts, ...ends, terminal])), async url => {
+		const { message, events } = await collect(model("openai-responses", url));
+		assert.equal(message.stopReason, "toolUse");
+		assert.deepEqual(events.flatMap(event => event.type === "toolcall_end" ? [[event.toolCall.id, event.earlyExecution]] : []),
+			[["first", true], ["second", true], ["terminal", undefined]]);
+	});
+});
+
+test("Responses commits out-of-order item starts in final output order after an admitted prefix", async () => {
+	const output = [rTool("prefix"), rText("between calls"), rTool("first"), rTool("second")];
+	const frames = [0, 3, 2].flatMap(output_index => {
+		const item = output[output_index]!;
+		return [
+			{ type: "response.output_item.added", output_index, item: { ...item, arguments: "", status: "in_progress" } },
+			{ type: "response.output_item.done", output_index, item },
+		];
+	});
+	const completed = { type: "response.completed", response: { status: "completed", output } };
+	await withHttp(res => res.end(sse([...frames, completed])), async url => {
+		const { message, events } = await collect(model("openai-responses", url));
+		assert.equal(message.stopReason, "toolUse", message.errorMessage);
+		assert.deepEqual(message.content.map(block => block.type === "toolCall" ? block.id : block.type === "text" ? block.text : block.type),
+			["prefix", "between calls", "first", "second"]);
+		assert.deepEqual(events.flatMap(event => event.type === "toolcall_end" ? [[event.toolCall.id, event.contentIndex, event.earlyExecution]] : []),
+			[["prefix", 0, true], ["first", 2, undefined], ["second", 3, undefined]]);
+	});
 });
 
 test("Anthropic stream rejects invalid block order, invalid tool JSON, unknown stop, mismatched tools and invalid usage", async () => {

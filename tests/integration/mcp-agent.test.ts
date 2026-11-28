@@ -151,15 +151,19 @@ test("MCP loop distinguishes business, protocol and uncertain transport/timeout 
 });
 
 test("MCP cancellation in flight pairs all outstanding calls, does not dispatch later calls, and releases the binding", async t => {
-	const f = createTestHarness(t, [{ toolCalls: [call("active", echo, { text: "now" }), call("queued", echo, { text: "next" })] }, { text: "new turn" }]);
+	const f = createTestHarness(t, [{ toolCalls: [call("active", echo, { text: "now" }),
+		call("local", "read", { path: "local.txt" }), call("queued", echo, { text: "next" })] }, { text: "new turn" }]);
+	writeFileSync(join(f.root, "local.txt"), "local result");
 	t.after(() => f.harness.close());
 	f.harness.setBeforeToolCall(async () => undefined);
 	const received = deferred();
 	const remote = await httpMcpServer(t, [echoDefinition], () => { received.resolve(); });
 	await f.harness.mcp.save("user", "repo", { type: "http", url: remote.url });
 	const run = f.harness.prompt("abort remotely");
-	try { await Promise.race([received.promise, run.then(() => { throw new Error("Prompt ended without executing the MCP tool"); })]); }
-	finally { f.harness.abort(); await run; }
+	try {
+		await Promise.race([received.promise, run.then(() => { throw new Error("Prompt ended without executing the MCP tool"); })]);
+		assert.ok(!f.events.some(event => event.type === "tool_execution_start" && event.toolCallId === "local"));
+	} finally { f.harness.abort(); await run; }
 	assert.deepEqual(remote.calls.map(r => r.arguments.text), ["now"]);
 	assertToolPairs(f.agent.state.messages);
 	assert.ok(f.agent.state.messages.filter(m => m.role === "toolResult").every(m => m.isError));

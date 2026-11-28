@@ -36,13 +36,17 @@ export function ReplScreen({ repl, prompt, suggestions, cwd, columns, rows, nati
 	const compacting = state.busy && state.phase === "compacting";
 	const { items, thinkingId } = useMemo(() => {
 		const items = [...state.transcript, ...state.activeItems].filter(item => item.kind !== "assistant" || item.blocks.some(block => block.text));
-		const last = items.at(-1);
 		if (compacting) {
 			const notice: TranscriptItem = { id: -2, kind: "notice", tone: "info", text: "压缩上下文中" };
 			return { items: [...items, notice] };
 		}
 		if (!thinking) return { items };
-		if (last?.kind === "assistant" && last.durationMs === undefined && last.blocks.at(-1)?.kind === "thinking") return { items, thinkingId: last.id };
+		const liveThinking = state.activeItems.find(item => {
+			if (item.kind !== "assistant" || item.durationMs !== undefined) return false;
+			const block = item.blocks.at(-1);
+			return block?.kind === "thinking" && block.text;
+		});
+		if (liveThinking) return { items, thinkingId: liveThinking.id };
 		// Before the first reasoning delta, reserve a transient node at the same position as the forthcoming turn.
 		const pending: TranscriptItem = { id: -1, kind: "assistant", timestamp: state.startedAt, blocks: [{ kind: "thinking", index: 0, text: " " }] };
 		return { items: [...items, pending], thinkingId: pending.id };

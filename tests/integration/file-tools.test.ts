@@ -1,11 +1,76 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { createReadTool } from "../../src/harness/tools/read.ts";
 import { createWriteTool } from "../../src/harness/tools/write.ts";
 import { createEditTool } from "../../src/harness/tools/edit.ts";
 import { tempWorkspace } from "../support/fixtures.ts";
+
+test("reads and mutations declare the same resource key through a parent-directory alias", async t => {
+	const root = tempWorkspace(t), actual = join(root, "actual"), alias = join(root, "alias");
+	mkdirSync(actual);
+	symlinkSync(actual, alias, process.platform === "win32" ? "junction" : "dir");
+	const read = createReadTool(root), edit = createEditTool(root), write = createWriteTool(root);
+	const [r, e, w] = await Promise.all([
+		read.getFileAccess!({ path: "alias/sub/new.txt" }),
+		edit.getFileAccess!({ path: "actual/sub/new.txt", edits: [] }),
+		write.getFileAccess!({ path: process.platform === "win32" ? "ACTUAL/sub/new.txt" : "actual/./sub/new.txt", content: "" }),
+	]);
+	assert.deepEqual([r[0]?.mode, e[0]?.mode, w[0]?.mode], ["read", "write", "write"]);
+	assert.equal(r[0]?.path, e[0]?.path);
+	assert.equal(e[0]?.path, w[0]?.path);
+});
+
+test("hard link names share scheduling and mutation locks", async t => {
+	const root = tempWorkspace(t);
+	writeFileSync(join(root, "original"), "old");
+	linkSync(join(root, "original"), join(root, "alias"));
+	const read = createReadTool(root), write = createWriteTool(root), edit = createEditTool(root);
+	const args = { path: "original", content: "replaced" };
+	const aliasEdit = { path: "alias", edits: [{ oldText: "old", newText: "new" }] };
+	const [r, w] = await Promise.all([read.getFileAccess!({ path: "alias" }), write.getFileAccess!(args)]);
+	assert.equal(r[0].path, w[0].path);
+
+	const lease = await write.acquireExecution!(args);
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), 100);
+	try { await assert.rejects(edit.execute("edit", aliasEdit, controller.signal), /Aborted/); }
+	finally { clearTimeout(timeout); lease.release(); }
+	assert.equal(readFileSync(join(root, "original"), "utf8"), "old");
+	await edit.execute("edit", aliasEdit);
+	assert.equal(readFileSync(join(root, "original"), "utf8"), "new");
+});
+
+test("a dangling symlink uses the same lock key as its not-yet-created target", async t => {
+	const root = tempWorkspace(t);
+	const target = join(root, "target.txt"), alias = join(root, "alias.txt");
+	try { symlinkSync("target.txt", alias, "file"); }
+	catch (error) {
+		if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+		t.skip("File symlinks require Windows Developer Mode or elevated privileges");
+		return;
+	}
+	const write = createWriteTool(root);
+	const key = async (path: string) => (await write.getFileAccess!({ path, content: "" }))[0].path;
+	const before = await key(target);
+	assert.equal(await key(alias), before);
+	await write.execute("write", { path: alias, content: "created" });
+	assert.equal(readFileSync(target, "utf8"), "created");
+	assert.equal(await key(alias), before);
+});
+
+test("a dangling directory alias resolves through its target before creation", async t => {
+	const root = tempWorkspace(t);
+	const target = join(root, "target-dir"), alias = join(root, "alias-dir");
+	symlinkSync(target, alias, process.platform === "win32" ? "junction" : "dir");
+	const write = createWriteTool(root);
+	const key = async (path: string) => (await write.getFileAccess!({ path: join(path, "new.txt"), content: "" }))[0].path;
+	const before = await key(target);
+	assert.equal(await key(alias), before);
+	await write.execute("write", { path: join(target, "new.txt"), content: "created" });
+	assert.equal(await key(alias), before);
+});
 
 test("write creates nested paths with spaces and reports UTF-8 bytes", async (t) => {
 	const root = tempWorkspace(t);

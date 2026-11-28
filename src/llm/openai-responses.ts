@@ -94,12 +94,18 @@ interface ItemState {
 	summaries: Map<number, string>;
 	reasoningContent: Map<number, string>;
 	tool?: ToolCall;
+	toolPublished?: boolean;
+	toolIncomplete?: boolean;
 	args: string;
 	native?: WireObject;
 }
 
 async function readResponses(body: ReadableStream<Uint8Array>, output: AssistantMessage, stream: AssistantMessageEventStream, request: ReturnType<typeof prepareResponsesRequest>, signal?: AbortSignal): Promise<void> {
 	const items = new Map<number, ItemState>();
+	const toolIds = new Set<string>();
+	let nextAdmissionIndex = 0;
+	let orderedItemStarts = true;
+	let toolError: unknown;
 	let terminal = false;
 	const addItem = (position: number, raw: unknown): ItemState => {
 		const item = object(raw, "output item");
@@ -107,6 +113,8 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 		if (!["message", "reasoning", "function_call"].includes(item.type)) throw new Error(`不支持的 Responses output item：${item.type}`);
 		const state: ItemState = { id: string(item.id, "item.id"), type: item.type, closed: false, parts: new Map(), summaries: new Map(), reasoningContent: new Map(), args: "" };
 		if (!state.id) throw new Error("Responses item.id 不能为空。");
+		// With a gap, defer further tool admission until the final output order is known.
+		if (position !== items.size) orderedItemStarts = false;
 		items.set(position, state);
 		if (state.type === "reasoning") {
 			state.thinking = { type: "thinking", thinking: "" };
@@ -117,6 +125,28 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 			startBlock(output, stream, state.tool);
 		}
 		return state;
+	};
+	const publishTool = (state: ItemState, earlyExecution?: true) => {
+		const tool = state.tool;
+		if (!tool || state.toolPublished) return;
+		if (toolIds.has(tool.id)) throw new Error("Responses 工具 call_id 重复。");
+		tool.arguments = parseArguments(state.args);
+		toolIds.add(tool.id);
+		state.toolPublished = true;
+		endBlock(output, stream, tool, earlyExecution);
+	};
+	const publishClosedTools = () => {
+		if (!orderedItemStarts || toolError) return;
+		while (nextAdmissionIndex < items.size) {
+			const state = items.get(nextAdmissionIndex)!;
+			if (state.tool) {
+				if (!state.closed || state.toolIncomplete) return;
+				// Invalid/incomplete arguments may still end in max_output_tokens.
+				try { publishTool(state, true); }
+				catch (error) { toolError = error; return; }
+			}
+			nextAdmissionIndex++;
+		}
 	};
 	const partFor = (state: ItemState, position: number, kind: "output_text" | "refusal") => {
 		if (state.type !== "message") throw new Error("Responses 文本事件引用非 message item。");
@@ -138,6 +168,7 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 			if (state.closed && suffix) throw new Error("Responses 已结束的工具参数仍在变化。");
 			if (suffix) appendBlock(output, stream, state.tool!, suffix);
 			state.args = item.arguments;
+			state.toolIncomplete = item.status !== undefined && item.status !== "completed";
 		} else if (state.type === "reasoning") {
 			const useContent = ["content", "content-object", "content-to-summary"].includes(request.rules.responsesReasoning);
 			const parts = useContent ? reasoningParts(request.rules.responsesReasoning === "content-object" ? [item.content] : item.content, "reasoning_text") : reasoningParts(item.summary, "summary_text");
@@ -204,7 +235,11 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 		const state = items.get(index(event.output_index));
 		if (!state || (event.item_id !== undefined && state.id !== event.item_id)) throw new Error("Responses 增量引用未知 item。");
 		if (state.closed) throw new Error("Responses 已结束的 item 收到增量。");
-		if (event.type === "response.output_item.done") { finishItem(state, event.item); continue; }
+		if (event.type === "response.output_item.done") {
+			finishItem(state, event.item);
+			publishClosedTools();
+			continue;
+		}
 		if (event.type === "response.function_call_arguments.delta" || event.type === "response.function_call_arguments.done") {
 			if (!state.tool) throw new Error("Responses 参数事件引用非工具 item。");
 			const delta = event.type.endsWith(".delta") ? string(event.delta, "工具参数增量") : reconcileText(state.args, event.arguments);
@@ -253,17 +288,25 @@ async function readResponses(body: ReadableStream<Uint8Array>, output: Assistant
 	}
 	signal?.throwIfAborted();
 	if (!terminal) throw new Error("Responses SSE 在终止事件之前结束，响应不完整。");
-	if (output.stopReason === "length") return;
-	const ids = new Set<string>();
-	for (const state of items.values()) {
-		if (state.tool) {
-			if (ids.has(state.tool.id)) throw new Error("Responses 工具 call_id 重复。");
-			ids.add(state.tool.id);
-			state.tool.arguments = parseArguments(state.args);
-			endBlock(output, stream, state.tool);
+	// Arrival order can differ from response.output, including for text parts first
+	// supplied by the terminal snapshot. Commit by output_index and content_index.
+	const orderedItems = [...items.entries()].sort(([a], [b]) => a - b).map(([, state]) => state);
+	const content: AssistantMessage["content"] = [];
+	for (const state of orderedItems) {
+		if (state.tool) content.push(state.tool);
+		else if (state.thinking) content.push(state.thinking);
+		else {
+			const orderedParts = [...state.parts.entries()].sort(([a], [b]) => a - b);
+			for (const [, part] of orderedParts) content.push(part.block);
 		}
 	}
-	for (const state of items.values()) if (state.thinking && state.native) state.thinking.replay = { source: { ...request.source }, payload: { item: state.native } };
+	output.content = content;
+	if (output.stopReason === "length") return;
+	if (toolError) throw toolError;
+	for (const state of orderedItems) {
+		publishTool(state);
+		if (state.thinking && state.native) state.thinking.replay = { source: { ...request.source }, payload: { item: state.native } };
+	}
 }
 
 export const streamOpenAIResponses: StreamFn = (model, context, options) => streamRequest(model, options, () => prepareResponsesRequest(model, context, options), readResponses);

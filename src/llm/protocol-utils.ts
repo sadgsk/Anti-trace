@@ -116,19 +116,24 @@ function discardIncomplete(output: AssistantMessage): void {
 
 export type StreamBlock = TextContent | ThinkingContent | ToolCall;
 export function startBlock(output: AssistantMessage, stream: AssistantMessageEventStream, block: StreamBlock): void {
+	// A slow consumer can read the start after terminal cleanup has removed the tool.
+	const partial = block.type === "toolCall" ? { ...output, content: [...output.content, { ...block }] } : output;
 	output.content.push(block);
 	const type = block.type === "text" ? "text_start" : block.type === "thinking" ? "thinking_start" : "toolcall_start";
-	stream.push({ type, contentIndex: output.content.length - 1, partial: output });
+	stream.push({ type, contentIndex: output.content.length - 1, partial });
 }
 export function appendBlock(output: AssistantMessage, stream: AssistantMessageEventStream, block: StreamBlock, delta: string): void {
 	if (block.type === "text") block.text += delta;
 	else if (block.type === "thinking") block.thinking += delta;
 	stream.push({ type: block.type === "text" ? "text_delta" : block.type === "thinking" ? "thinking_delta" : "toolcall_delta", contentIndex: output.content.indexOf(block), delta, partial: output });
 }
-export function endBlock(output: AssistantMessage, stream: AssistantMessageEventStream, block: StreamBlock): void {
+export function endBlock(output: AssistantMessage, stream: AssistantMessageEventStream, block: StreamBlock, earlyExecution?: true): void {
 	const contentIndex = output.content.indexOf(block);
-	if (block.type === "toolCall") stream.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: output });
-	else stream.push({ type: block.type === "text" ? "text_end" : "thinking_end", contentIndex, content: block.type === "text" ? block.text : block.thinking, partial: output });
+	if (block.type === "toolCall") {
+		stream.push({ type: "toolcall_end", contentIndex, toolCall: structuredClone(block), partial: output, earlyExecution });
+	} else {
+		stream.push({ type: block.type === "text" ? "text_end" : "thinking_end", contentIndex, content: block.type === "text" ? block.text : block.thinking, partial: output });
+	}
 }
 export function tokenCount(value: unknown): number {
 	if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error("接口返回无效 usage。");

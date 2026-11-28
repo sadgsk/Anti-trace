@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readdirSync, renameSync, unlinkS
 import { dirname, join } from "node:path";
 import { Type } from "typebox";
 import type { AgentMessage, AgentTool, SessionSettings, ToolCall, ToolResultMessage } from "../types.ts";
-import { appendEntry, loadSession, readSessionRows, sessionNeedsTailRepair, SESSION_VERSION, type SessionFile, type SessionHeader } from "./session.ts";
+import { appendEntry, loadSession, readSessionRows, sessionNeedsTailRepair, SESSION_VERSION, type LoadedSession, type SessionFile, type SessionHeader } from "./session.ts";
 
 export interface SubagentSettings extends SessionSettings {
 	modelId?: string;
@@ -87,13 +87,26 @@ function repairedResult(call: ToolCall, recovered?: ControlResult): ToolResultMe
 	};
 }
 
+/** Materialize a crashed stream once, in model order, before admitting another writer. */
+function repairToolBatch(file: SessionFile, loaded: LoadedSession, recover?: (call: ToolCall) => ControlResult | undefined): void {
+	if (loaded.interruptedAssistant) {
+		appendEntry(file, { type: "message", message: loaded.interruptedAssistant });
+		loaded.messages.push(loaded.interruptedAssistant);
+	}
+	for (const call of pendingCalls(loaded.messages)) {
+		const message = loaded.uncommittedToolResults?.get(call.id) ?? repairedResult(call, recover?.(call));
+		appendEntry(file, { type: "message", message });
+		loaded.messages.push(message);
+	}
+}
+
 function resumableMessages(messages: AgentMessage[]): AgentMessage[] {
-	// Calls from an incomplete model response never reached the executor. Keep the audit
-	// transcript on disk and omit both sides of that batch from the next model request.
+	// Incomplete calls without early execution are omitted. Retain a streamed call and
+	// its paired outcome so a resumed task can account for side effects already performed.
 	let incompleteTurn = false;
 	return messages.filter(message => {
 		if (message.role !== "toolResult") incompleteTurn = message.role === "assistant" &&
-			(message.stopReason === "aborted" || message.stopReason === "error");
+			!message.partialToolExecution && (message.stopReason === "aborted" || message.stopReason === "error");
 		return !incompleteTurn;
 	});
 }
@@ -142,7 +155,7 @@ export class SubagentManager {
 			this.remember(task);
 			if (task.state.status !== "running") continue;
 			const file = { header, path, entries: loaded.entries, flushed: true };
-			for (const call of pendingCalls(loaded.messages)) appendEntry(file, { type: "message", message: repairedResult(call) });
+			repairToolBatch(file, loaded);
 			this.commit(task, { status: "paused" });
 		}
 	}
@@ -199,29 +212,26 @@ export class SubagentManager {
 		if (!this.tasks.size) this.releaseOwner();
 	}
 
-	recoverParent(messages: AgentMessage[]): void {
+	recoverParent(messages: AgentMessage[], hasInterruptedAssistant = false): void {
 		if (!this.parent.flushed) return;
-		if (!pendingCalls(messages).length && !sessionNeedsTailRepair(this.parent.path)) return;
+		if (!hasInterruptedAssistant && !pendingCalls(messages).length && !sessionNeedsTailRepair(this.parent.path)) return;
 		this.acquireOwner();
 		try {
 			// Another writer may have finished between the original read and our exclusive claim.
 			const latest = loadSession(this.parent.path, readSessionRows(this.parent.path, true));
 			this.parent.entries = latest.entries;
-			messages.length = 0;
-			for (const message of latest.messages) messages.push(message);
-			for (const call of pendingCalls(messages)) {
-				let recovered: ControlResult | undefined;
+			repairToolBatch(this.parent, latest, call => {
 				if (call.name === "agent_task" && call.arguments.action === "start") {
 					const task = this.creationIds.get(call.id);
 					// A start result acknowledges creation; its report belongs only to wait_agent.
-					if (task) recovered = this.status(task);
+					if (task) return this.status(task);
 				} else if (call.name === "wait_agent" && typeof call.arguments.agent_id === "string") {
-					recovered = { agent_id: call.arguments.agent_id, status: "interrupted" };
+					return { agent_id: call.arguments.agent_id, status: "interrupted" };
 				}
-				const message = repairedResult(call, recovered);
-				appendEntry(this.parent, { type: "message", message });
-				messages.push(message);
-			}
+				return undefined;
+			});
+			messages.length = 0;
+			for (const message of latest.messages) messages.push(message);
 		} finally { this.releaseIdleClaim(); }
 	}
 
@@ -322,7 +332,7 @@ export class SubagentManager {
 				if (controller.signal.aborted) {
 					const loaded = loadSession(task.path);
 					const file = { path: task.path, header: task.header, entries: loaded.entries, flushed: true };
-					for (const call of pendingCalls(loaded.messages)) appendEntry(file, { type: "message", message: repairedResult(call) });
+					repairToolBatch(file, loaded);
 					outcome = { status: "paused" };
 				}
 				this.commit(task, outcome);

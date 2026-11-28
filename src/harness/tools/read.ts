@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { type Static, Type } from "typebox";
 import type { AgentTool, ImageContent, TextContent } from "../../types.ts";
 import { imageContentFromBytes, shrinkImageBytes } from "./image.ts";
+import { fileAccessKey } from "./file-mutation.ts";
 import { resolveCwdPath } from "./path-utils.ts";
 
 const DEFAULT_MAX_LINES = 2000;
@@ -29,6 +30,8 @@ export function createReadTool(cwd: string): AgentTool<typeof readSchema, ReadTo
 		label: "read",
 		description: `Read a text file or an image (jpg, png, gif, webp). Images are returned as attachments. Text output is truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
 		parameters: readSchema,
+		executionMode: "parallel",
+		getFileAccess: async args => [{ path: await fileAccessKey(cwd, args.path), mode: "read" }],
 		async execute(_toolCallId, { path: inputPath, offset, limit }, signal) {
 			const absolutePath = await resolveCwdPath(cwd, inputPath, signal);
 			const imageResult = await readImageResult(absolutePath, inputPath, signal);

@@ -48,6 +48,7 @@ test("MCP registration isolates bad definitions, reports collisions and pins per
 	assert.ok(acquired.instructions[0]!.length < 2200);
 	assert.equal(acquired.tools[0]!.resolvePermission!({}).scopeKey, "identity");
 	const resources = new McpResourceSource().acquire(context);
+	assert.ok([...acquired.tools, ...resources.tools].every(tool => tool.executionMode === "sequential"));
 	const [list, read] = resources.tools;
 	const first = read!.resolvePermission!({ server: "docs", uri: "file:///one" });
 	assert.notEqual(first.actionKey, read!.resolvePermission!({ server: "docs", uri: "file:///two" }).actionKey);

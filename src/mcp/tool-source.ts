@@ -58,6 +58,7 @@ export class McpToolSource implements ToolSource {
 				label: safeText(serverId + " / " + definition.name) + (definition.annotations?.readOnlyHint === true ? " (server hint: read-only)" : "") };
 			tools.push({
 				name, label: identity.label, parameters: definition.inputSchema,
+				executionMode: "sequential",
 				description: safeText(definition.description ?? definition.title ?? identity.label),
 				resolvePermission: () => identity,
 				async execute(_callId, args, signal, onUpdate) {

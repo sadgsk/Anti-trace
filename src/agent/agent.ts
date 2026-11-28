@@ -32,10 +32,29 @@ import type {
 import { runAgentLoop } from "./loop.ts";
 
 function defaultConvertToLlm(messages: AgentMessage[]): Message[] {
-	return messages.filter(
-		(message): message is Message =>
-			message.role === "user" || message.role === "assistant" || message.role === "toolResult",
-	);
+	const result: Message[] = [];
+	for (let i = 0; i < messages.length; i++) {
+		const message = messages[i];
+		if (message.role === "assistant" && message.partialToolExecution) {
+			// An interrupted stream has no replayable native reasoning/signature. Preserve the actual
+			// tool effects as context on the next prompt, including when the session is reopened.
+			const content: UserMessage["content"] = [{ type: "text", text:
+				`Tool execution record from an interrupted model response (${message.stopReason}). Check these outcomes before repeating an operation.` }];
+			for (const block of message.content) {
+				if (block.type === "toolCall") content.push({ type: "text", text: `${block.id}: ${block.name}(${JSON.stringify(block.arguments)})` });
+				else if (block.type === "text") content.push(block);
+			}
+			while (messages[i + 1]?.role === "toolResult") {
+				const next = messages[++i];
+				if (next.role === "toolResult") content.push(
+					{ type: "text", text: `Result for ${next.toolCallId} (${next.isError ? "error" : "success"}):` }, ...next.content);
+			}
+			result.push({ role: "user", isMeta: true, content, timestamp: message.timestamp });
+		} else if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
+			result.push(message);
+		}
+	}
+	return result;
 }
 
 type AgentStateInit = Partial<

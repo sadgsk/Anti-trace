@@ -441,8 +441,14 @@ async function readSSE(
 	if (finishReason === "toolUse" && !toolCalls.size) throw new Error("Chat 返回 tool_calls 结束原因，但没有工具调用。");
 	if (finishReason === "stop" && toolCalls.size) throw new Error("Chat 返回工具调用，但结束原因不是 tool_calls。");
 	if (finishReason !== "length") {
+		const orderedTools = [...toolCalls.entries()].sort(([left], [right]) => left - right).map(([, tool]) => tool);
+		if (orderedTools.length) {
+			// Delta events keep their original slots. Only the terminal message uses wire order.
+			let nextTool = 0;
+			output = { ...output, content: blocks.map(block => block.type === "toolCall" ? orderedTools[nextTool++]! : block) };
+		}
 		const ids = new Set<string>();
-		for (const tool of toolCalls.values()) {
+		for (const tool of orderedTools) {
 			if (!tool.id || !tool.name || ids.has(tool.id)) throw new Error("Chat 工具调用缺少 ID／名称，或 ID 重复。");
 			ids.add(tool.id);
 			let args: unknown;
@@ -455,7 +461,7 @@ async function readSSE(
 				tool.replay = { source: { ...request.source }, payload: { googleThoughtSignature: tool.pendingSignature } };
 				delete tool.pendingSignature;
 			}
-			stream.push({ type: "toolcall_end", contentIndex: blocks.indexOf(tool), toolCall: tool, partial: output });
+			stream.push({ type: "toolcall_end", contentIndex: output.content.indexOf(tool), toolCall: tool, partial: output });
 		}
 		// Attach replay only after the whole stream (including trailing errors/usage) is valid.
 		for (const block of blocks) {

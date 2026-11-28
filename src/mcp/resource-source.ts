@@ -51,6 +51,7 @@ export class McpResourceSource implements ToolSource {
 			if (context.reservedNames.has(name)) { diagnostics.push("MCP 工具名称冲突: " + name); continue; }
 			const properties = { server: { type: "string", enum: servers }, ...(read ? { uri: { type: "string", pattern: absoluteResourceUri.source } } : {}) };
 			tools.push({ name, label: name,
+				executionMode: "sequential",
 				description: read ? "Read one URI from the specified MCP server." : "List resources and URI templates from one MCP server.",
 				parameters: { type: "object", properties, required: read ? ["server", "uri"] : ["server"], additionalProperties: false },
 				resolvePermission(args) {

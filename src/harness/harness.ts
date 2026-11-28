@@ -1,7 +1,7 @@
 import { Agent } from "../agent/agent.ts";
 import { join } from "node:path";
 import { ByokConfigError } from "../config/errors.ts";
-import type { AgentContext, AgentEvent, AgentMessage, AgentTool, AssistantMessage, BeforeModelRequestContext, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences, UserMessage } from "../types.ts";
+import type { AgentContext, AgentEvent, AgentMessage, AgentTool, AgentToolResult, AssistantMessage, BeforeModelRequestContext, BeforeToolCallContext, BeforeToolCallResult, ImageContent, Model, ModelReference, ModelRequestSettings, SessionSettings, StreamFn, ThinkingLevel, ThinkingPreferences, ToolExecutionMode, UserMessage } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { validateModelThinking } from "../llm/adapter.ts";
 import {
@@ -17,6 +17,7 @@ import { buildSystemPrompt } from "./prompt.ts";
 import { getShellEnvironment, type ShellEnvironment } from "./shell-environment.ts";
 import {
 	appendEntry,
+	appendToolCheckpoint,
 	createSessionFile,
 	listSessions as listSessionFiles,
 	loadSession,
@@ -60,6 +61,8 @@ export interface HarnessOptions extends Partial<HarnessModelSettings>, StorageOp
 	sessionsRoot?: string;
 	/** Additional tool providers acquired once per submission. */
 	toolSources?: readonly ToolSource[];
+	/** Overrides the harness default of scheduling independent calls concurrently. */
+	toolExecution?: ToolExecutionMode;
 	resolveModel?: (reference: ModelReference) => HarnessModelSettings;
 	/** Supply an already detected environment when embedding the harness. */
 	shellEnvironment?: ShellEnvironment;
@@ -145,6 +148,7 @@ export class Harness {
 		this.modelRef = options.modelRef ? { ...options.modelRef } : undefined;
 		this.resolveModel = options.resolveModel;
 		this.agent = new Agent({
+			toolExecution: options.toolExecution ?? "parallel",
 			streamFn: (model, context, settings) => {
 				const catalog = this.includeTaskCatalog ? this.tasks?.catalog() : undefined;
 				return options.streamFn(model, catalog ? { ...context, systemPrompt: `${context.systemPrompt}\n\n${catalog}` } : context, settings);
@@ -181,12 +185,27 @@ export class Harness {
 					skillAccess: { activeTools: () => this.getActiveSkillTools(), permissionTools: name => this.getSkillPermissionTools(name) } }, signal);
 			};
 		} else this.resetSession();
+		let checkpointResults = false;
 		this.agent.subscribe((event) => {
+			if (event.type === "turn_start") checkpointResults = false;
+			if (event.type === "tool_execution_start" && event.streaming && this.agent.state.streamingMessage?.role === "assistant") {
+				this.tasks?.claimForToolBatch();
+				appendToolCheckpoint(this.session, { type: "stream_tool_start", ...event.streaming,
+					call: { type: "toolCall", id: event.toolCallId, name: event.toolName, arguments: event.args as Record<string, unknown> } });
+				checkpointResults = true;
+			} else if (event.type === "tool_execution_end" && checkpointResults) {
+				const { content, details } = event.result as AgentToolResult;
+				appendToolCheckpoint(this.session, { type: "stream_tool_result", message: { role: "toolResult",
+					toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError, content: content ?? [], details, timestamp: Date.now() } });
+			}
 			if (event.type !== "message_end") {
 				return;
 			}
-			if (event.message.role === "assistant" && event.message.content.some(block => block.type === "toolCall")) {
-				this.tasks?.claimForToolBatch();
+			if (event.message.role === "assistant") {
+				const calls = event.message.content.filter(block => block.type === "toolCall");
+				if (calls.length) this.tasks?.claimForToolBatch();
+				// A single terminal call publishes immediately. Concurrent outcomes may wait for siblings.
+				if (calls.length > 1) checkpointResults = true;
 			}
 			appendEntry(this.session, { type: "message", message: event.message });
 			// A steer starts its permission scope when delivered after the whole tool batch.
@@ -386,6 +405,7 @@ export class Harness {
 		if (!message) return { status: "error", message: "未获得模型执行结果。" };
 		if (message.stopReason === "aborted") return { status: "aborted", message: message.errorMessage ?? "已中断。" };
 		if (message.errorMessage || message.stopReason === "error") return { status: "error", message: message.errorMessage || "请求失败。" };
+		if (message.stopReason === "length" && message.partialToolExecution) return { status: "error", message: "模型回复已截断，请核对已经执行的工具结果。" };
 		if (message.stopReason === "length" && isContextOverflow(message, window)) return { status: "error", message: "上下文超限，请求未恢复。" };
 		return { status: "success" };
 	}
@@ -633,7 +653,7 @@ export class Harness {
 		const existing = this.session.path === filePath ? this.tasks : undefined;
 		const manager = existing ?? this.createTaskManager(session);
 		try {
-			manager.recoverParent(loaded.messages);
+			manager.recoverParent(loaded.messages, Boolean(loaded.interruptedAssistant));
 			touchSession(filePath);
 		} catch (error) {
 			if (!existing) manager.closeIdle();

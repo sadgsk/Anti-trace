@@ -24,6 +24,7 @@ import { LocaleProvider } from "../../src/tui/locale/LocaleProvider.tsx";
 import { UiLocale } from "../../src/cli/locale.ts";
 import type { TerminalStreams } from "../../src/cli/ink/terminal-host.ts";
 import type { HarnessEvent } from "../../src/harness/harness.ts";
+import type { AssistantMessage } from "../../src/types.ts";
 import type { TranscriptFrame } from "../../src/tui/layout/TranscriptViewport.tsx";
 import { waitFor } from "../support/fixtures.ts";
 class Input extends PassThrough { isTTY = true; isRaw = false; setRawMode(value: boolean) { this.isRaw = value; return this; } }
@@ -132,11 +133,63 @@ test("profile validation, collisions, concurrent edits and failed application pr
 		assert.throws(() => f.byok.profiles.prepare({ ...values, fileName: "collision", apiKey: "x" }), /同名/);
 	} finally { f.close(); }
 });
+function eventDrivenRepl(prompt = async () => {}) {
+	let emit!: (event: HarnessEvent) => void;
+	const signal = new AbortController().signal;
+	const repl = new ReplController({ harness: {
+		prompt, abort() {}, newSession() {}, resumeAt: () => false, listSessions: () => [],
+		setContextWindow() {}, manualCompact: async () => "nothing-to-compact", contextUsage: () => ({ used: 0, window: undefined }),
+		subscribe(fn) { emit = event => { void fn(event, signal); }; return () => {}; },
+	}, interactive: true });
+	return { repl, emit };
+}
+
+test("streaming tool cards finish independently and keep the phase live across assistant completion", async () => {
+	const { repl, emit } = eventDrivenRepl();
+	const message: AssistantMessage = { role: "assistant", content: [], model: "fake", stopReason: "toolUse", timestamp: 0 };
+	const start = (id: string) => emit({ type: "tool_execution_start", toolCallId: id, toolName: "read", args: { path: id } });
+	const end = (id: string) => emit({ type: "tool_execution_end", toolCallId: id, toolName: "read", result: { content: [] }, isError: false });
+	try {
+		emit({ type: "message_start", message });
+		start("a");
+		emit({ type: "message_update", message, assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "hello", partial: message } });
+		assert.equal(repl.getSnapshot().phase, "tool");
+		end("a");
+		assert.equal(repl.getSnapshot().phase, "streaming");
+		start("b");
+		start("c");
+		end("c");
+		emit({ type: "message_end", message: { ...message, content: [{ type: "text", text: "hello" }] } });
+		assert.equal(repl.getSnapshot().phase, "tool");
+		assert.deepEqual(repl.getSnapshot().activeItems.flatMap(item => item.kind === "tool" ? [[item.callId, item.status]] : []),
+			[["a", "success"], ["b", "running"], ["c", "success"]]);
+		end("b");
+		assert.equal(repl.getSnapshot().phase, "idle");
+	} finally { await repl.dispose(); }
+});
+
+test("reasoning after a streamed tool call animates its existing assistant card", async () => {
+	const f = fixture();
+	let finish!: () => void;
+	const { repl, emit } = eventDrivenRepl(() => new Promise<void>(resolve => { finish = resolve; }));
+	const turn = repl.submit(createPromptDraft("read the file"));
+	const message: AssistantMessage = { role: "assistant", content: [], model: "fake", stopReason: "toolUse", timestamp: 0 };
+	try {
+		emit({ type: "message_start", message });
+		emit({ type: "tool_execution_start", toolCallId: "a", toolName: "read", args: { path: "a" } });
+		emit({ type: "message_update", message, assistantMessageEvent: { type: "thinking_delta", contentIndex: 1, delta: "Considering the file", partial: message } });
+		emit({ type: "tool_execution_end", toolCallId: "a", toolName: "read", result: { content: [] }, isError: false });
+		const view = createElement(ReplScreen, { repl, prompt: f.app.prompt, suggestions: f.app.suggestions, cwd: f.root, columns: 100, rows: 28 });
+		const frame = await snapshot(view, 100, 28, /Considering the file/);
+		assert.match(frame, /思考中[^\n]*\n[^\n]*Considering the file/);
+		assert.doesNotMatch(frame, /思考过程/);
+	} finally { finish(); await turn; await repl.dispose(); f.close(); }
+});
+
 test("long thinking remains contiguous through streaming, completion, scroll and full/half-screen resizing", async () => {
 	const f = fixture();
 	try {
-		let listener!: (event: HarnessEvent) => void;
-		const repl = new ReplController({ harness: { prompt: async () => {}, abort() {}, subscribe(fn) { listener = event => { void fn(event, new AbortController().signal); }; return () => {}; }, newSession() {}, listSessions: () => [], resumeAt: () => false, setContextWindow() {}, manualCompact: async () => "nothing-to-compact" as const, contextUsage: () => ({ used: 0, window: undefined }) }, interactive: true });
+		const { repl, emit: listener } = eventDrivenRepl();
 		const message: any = { role: "assistant", content: [], model: "fake", stopReason: "stop", timestamp: 0 };
 		listener({ type: "message_start", message });
 		let text = "";

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
-import { appendEntry, createSessionFile, findMostRecentSession, listSessions, loadSession, sessionTitleFromUserText } from "../../src/harness/session.ts";
-import type { AssistantMessage, UserMessage } from "../../src/types.ts";
+import { appendEntry, appendToolCheckpoint, createSessionFile, findMostRecentSession, listSessions, loadSession, sessionTitleFromUserText } from "../../src/harness/session.ts";
+import type { AssistantMessage, ToolCall, ToolResultMessage, UserMessage } from "../../src/types.ts";
 import { tempWorkspace } from "../support/fixtures.ts";
 import { createTestHarness } from "../support/harness.ts";
 import { projectSessionHistory } from "../../src/tui/transcript.ts";
@@ -22,6 +22,44 @@ test("sessions flush only after an assistant response and round-trip Unicode and
 	assert.equal(sessionTitleFromUserText("  \t\n"), "untitled");
 	assert.equal(sessionTitleFromUserText("abcdefghijk"), "abcdefghij");
 });
+
+for (const crash of ["streaming", "assistant committed", "first result committed", "terminal batch"] as const) {
+	test(`resume pairs calls once in source order after a crash with ${crash}`, async t => {
+		const { root, sessionsRoot, harness, agent } = createTestHarness(t);
+		const file = createSessionFile(root, sessionsRoot);
+		appendEntry(file, { type: "message", message: user("make both changes") });
+		const calls: ToolCall[] = ["first", "second"].map(id => ({
+			type: "toolCall", name: "write", id, arguments: { path: id, content: "done" },
+		}));
+		const model = "test", timestamp = 3;
+		// Admission can differ from model order, and result 2 can finish before result 1.
+		if (crash !== "terminal batch") {
+			for (const index of [1, 0]) appendToolCheckpoint(file, { type: "stream_tool_start", index, model, timestamp, call: calls[index]! });
+		}
+		const known: ToolResultMessage = { role: "toolResult", toolCallId: "second", toolName: "write",
+			content: [{ type: "text", text: "completed second write" }], details: { bytes: 4 }, timestamp: 4, isError: false };
+		if (crash !== "terminal batch") appendToolCheckpoint(file, { type: "stream_tool_result", message: known });
+		if (crash !== "streaming") appendEntry(file, { type: "message", message: {
+			role: "assistant", content: calls, model, timestamp, stopReason: "toolUse" } });
+		if (crash === "terminal batch") appendToolCheckpoint(file, { type: "stream_tool_result", message: known });
+		if (crash === "first result committed") appendEntry(file, { type: "message", message: {
+			...known, toolCallId: "first", content: [{ type: "text", text: "completed first write" }] } });
+
+		assert.equal(await harness.resumeAt(1), true);
+		const messages = agent.state.messages;
+		const results = messages.filter(message => message.role === "toolResult");
+		assert.deepEqual(results.map(message => message.toolCallId), ["first", "second"]);
+		assert.deepEqual(results[1], known);
+		assert.equal(results[0]?.isError, crash !== "first result committed");
+		const reply = messages.find(message => message.role === "assistant");
+		assert.equal(reply?.partialToolExecution, crash === "streaming" || undefined);
+		assert.deepEqual(reply?.content, calls);
+		const saved = readFileSync(file.path, "utf8");
+		assert.equal(await harness.resumeAt(1), true);
+		assert.equal(readFileSync(file.path, "utf8"), saved);
+		assert.deepEqual(loadSession(file.path).messages, messages);
+	});
+}
 
 test("discovery isolates projects, orders by mtime and ignores corrupt files", (t) => {
 	const root = tempWorkspace(t), sessions = join(root, "sessions");

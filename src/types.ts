@@ -94,6 +94,8 @@ export interface AssistantMessage {
 	content: (TextContent | ThinkingContent | ToolCall)[];
 	model: string;
 	stopReason: StopReason;
+	/** An incomplete model response already dispatched at least one complete tool call. */
+	partialToolExecution?: true;
 	/** Native terminal reason/status, when supplied by the protocol. */
 	rawStopReason?: string;
 	/** Message-level opaque metadata, including Gemini's final-text signature. */
@@ -174,7 +176,8 @@ export type AssistantMessageEvent =
 	| { type: "thinking_end"; contentIndex: number; content: string; partial: AssistantMessage }
 	| { type: "toolcall_start"; contentIndex: number; partial: AssistantMessage }
 	| { type: "toolcall_delta"; contentIndex: number; delta: string; partial: AssistantMessage }
-	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage }
+	/** earlyExecution marks a complete provider item eligible to run before the response ends. */
+	| { type: "toolcall_end"; contentIndex: number; toolCall: ToolCall; partial: AssistantMessage; earlyExecution?: true }
 	| {
 			type: "done";
 			reason: Extract<StopReason, "stop" | "length" | "toolUse">;
@@ -194,6 +197,11 @@ export type StreamFn = (
 
 // Tools：模型看到的是 Tool；loop 真正调用的是 AgentTool.execute
 export type ToolExecutionMode = "sequential" | "parallel";
+
+export interface ToolFileAccess {
+	readonly path: string;
+	readonly mode: "read" | "write";
+}
 
 export interface AgentToolResult<T = unknown> {
 	/** A completed tool request can carry a business error with useful content. */
@@ -220,6 +228,8 @@ export interface ToolPermission {
 
 export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = unknown> extends Tool<TParameters> {
 	label: string;
+	/** Host-derived canonical file keys used to schedule calls within the same batch. */
+	getFileAccess?: (params: Static<TParameters>) => readonly ToolFileAccess[] | Promise<readonly ToolFileAccess[]>;
 	/** Reserve a shared resource from permission preview through execution. */
 	acquireExecution?: (params: Static<TParameters>, signal?: AbortSignal) => Promise<{
 		execute: AgentTool<TParameters, TDetails>["execute"];
@@ -352,7 +362,8 @@ export type AgentEvent =
 	| { type: "message_start"; message: AgentMessage }
 	| { type: "message_update"; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
 	| { type: "message_end"; message: AgentMessage }
-	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown }
+	| { type: "tool_execution_start"; toolCallId: string; toolName: string; args: unknown;
+		streaming?: { index: number; model: string; timestamp: number } }
 	| { type: "tool_execution_update"; toolCallId: string; toolName: string; args: unknown; partialResult: unknown }
 	| { type: "tool_execution_end"; toolCallId: string; toolName: string; result: unknown; isError: boolean };
 

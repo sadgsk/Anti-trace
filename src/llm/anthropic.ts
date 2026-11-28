@@ -95,6 +95,8 @@ interface BlockState {
 }
 async function readAnthropic(body: ReadableStream<Uint8Array>, output: AssistantMessage, stream: AssistantMessageEventStream, request: ReturnType<typeof prepareAnthropicRequest>, signal?: AbortSignal): Promise<void> {
 	const blocks = new Map<number, BlockState>();
+	const toolIds = new Set<string>();
+	let blockError: unknown;
 	let started = false;
 	let stopped = false;
 	let reason: string | undefined;
@@ -166,6 +168,23 @@ async function readAnthropic(body: ReadableStream<Uint8Array>, output: Assistant
 		if (!state || state.closed) throw new Error("Anthropic 增量引用未知或已结束的内容块。");
 		if (event.type === "content_block_stop") {
 			state.closed = true;
+			// A truncated block may still be followed by max_tokens. Defer its error until
+			// the terminal reason is known, and never admit a tool past that block.
+			if (!blockError) {
+				try {
+					if (state.block.type === "toolCall") {
+						if (toolIds.has(state.block.id)) throw new Error("Anthropic 工具 ID 重复。");
+						if (state.args && Object.keys(state.initialInput!).length) throw new Error("Anthropic 工具同时返回非空初始参数和 JSON 增量。");
+						state.block.arguments = state.args ? parseArguments(state.args) : state.initialInput!;
+						toolIds.add(state.block.id);
+						endBlock(output, stream, state.block, true);
+					} else if (state.nativeType === "thinking" && request.rules.thinkingSignature === "required" && !state.signature) {
+						throw new Error("Anthropic 完整 thinking 块缺少签名。");
+					} else if (state.nativeType === "redacted_thinking" && !state.data) {
+						throw new Error("Anthropic redacted thinking 缺少数据。");
+					}
+				} catch (error) { blockError = error; }
+			}
 			if (state.block.type !== "toolCall") endBlock(output, stream, state.block);
 			continue;
 		}
@@ -188,19 +207,9 @@ async function readAnthropic(body: ReadableStream<Uint8Array>, output: Assistant
 	if ([...blocks.values()].some(block => !block.closed)) throw new Error("Anthropic 响应含有未结束的内容块。");
 	const tools = [...blocks.values()].filter(state => state.block.type === "toolCall");
 	if ((reason === "tool_use") !== (tools.length > 0)) throw new Error("Anthropic 工具调用与 stop_reason 不一致。");
-	const ids = new Set<string>();
-	// Validate every block before committing any replay metadata or completed tool events.
+	if (blockError) throw blockError;
+	// Signature replay requires a complete, valid response even after tool admission.
 	for (const state of blocks.values()) {
-		if (state.block.type === "toolCall") {
-			if (ids.has(state.block.id)) throw new Error("Anthropic 工具 ID 重复。");
-			ids.add(state.block.id);
-			if (state.args && Object.keys(state.initialInput!).length) throw new Error("Anthropic 工具同时返回非空初始参数和 JSON 增量。");
-			state.block.arguments = state.args ? parseArguments(state.args) : state.initialInput!;
-		} else if (state.nativeType === "thinking" && request.rules.thinkingSignature === "required" && !state.signature) throw new Error("Anthropic 完整 thinking 块缺少签名。");
-		else if (state.nativeType === "redacted_thinking" && !state.data) throw new Error("Anthropic redacted thinking 缺少数据。");
-	}
-	for (const state of blocks.values()) {
-		if (state.block.type === "toolCall") endBlock(output, stream, state.block);
 		if (state.block.type === "thinking") state.block.replay = { source: { ...request.source }, payload: { block: state.nativeType === "redacted_thinking" ? { type: "redacted_thinking", data: state.data! } : { type: "thinking", thinking: state.block.thinking, ...(state.signature !== undefined ? { signature: state.signature } : {}) } } };
 	}
 }

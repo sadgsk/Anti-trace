@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFileSync, closeSync, fstatSync, mkdirSync, openSync, readFileSync, readdirSync, readSync, statSync, truncateSync, utimesSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { AgentMessage, ImageContent, SessionSettings, UserMessage } from "../types.ts";
+import type { AgentMessage, AssistantMessage, ImageContent, SessionSettings, ToolCall, ToolResultMessage, UserMessage } from "../types.ts";
 import { THINKING_LEVELS } from "../llm/rules.ts";
 import { extensionForImageMimeType } from "./tools/image.ts";
 import { canonicalWorkspace, ensureProjectDirectory, getAppPaths, projectIdForCwd, type AppPaths } from "../storage/app-paths.ts";
@@ -41,6 +41,11 @@ export interface CompactionEntry {
 
 export interface SessionSettingsEntry extends SessionSettings { type: "settings" }
 export type SessionEntry = SessionMessageEntry | CompactionEntry | SessionSettingsEntry;
+
+/** Write-ahead records for a tool that can run before its assistant message is persisted. */
+type ToolCheckpoint =
+	| { type: "stream_tool_start"; model: string; timestamp: number; index: number; call: ToolCall }
+	| { type: "stream_tool_result"; message: ToolResultMessage };
 
 export interface SessionFile {
 	storage?: AppPaths;
@@ -95,37 +100,37 @@ export function appendEntry(session: SessionFile, entry: SessionEntry): void {
 	if (!hasAssistant) {
 		return;
 	}
+	flushSession(session);
+}
 
-	if (!session.flushed) {
-		if (session.header.name === undefined) {
-			let userText = "";
-			for (const item of session.entries) {
-				if (item.type !== "message" || item.message.role !== "user" || item.message.isMeta) {
-					continue;
-				}
-				userText = item.message.content
-					.filter((block): block is { type: "text"; text: string } => block.type === "text")
-					.map((block) => block.text)
-					.join("");
-				break;
-			}
-			session.header.name = sessionTitleFromUserText(userText);
+export function appendToolCheckpoint(session: SessionFile, checkpoint: ToolCheckpoint): void {
+	if (!session.flushed) flushSession(session);
+	appendFileSync(session.path, `${JSON.stringify(checkpoint)}\n`);
+}
+
+function flushSession(session: SessionFile): void {
+	if (session.header.name === undefined) {
+		let userText = "";
+		for (const item of session.entries) {
+			if (item.type !== "message" || item.message.role !== "user" || item.message.isMeta) continue;
+			userText = item.message.content
+				.filter((block): block is { type: "text"; text: string } => block.type === "text")
+				.map((block) => block.text)
+				.join("");
+			break;
 		}
-		if (session.storage) ensureProjectDirectory(session.storage);
-		mkdirSync(dirname(session.path), { recursive: true, mode: 0o700 });
-		const fd = openSync(session.path, "wx", 0o600);
-		try {
-			writeFileSync(fd, `${JSON.stringify(session.header)}\n`);
-			for (const item of session.entries) {
-				writeFileSync(fd, `${JSON.stringify(item)}\n`);
-			}
-		} finally {
-			closeSync(fd);
-		}
-		session.flushed = true;
-		return;
+		session.header.name = sessionTitleFromUserText(userText);
 	}
-
+	if (session.storage) ensureProjectDirectory(session.storage);
+	mkdirSync(dirname(session.path), { recursive: true, mode: 0o700 });
+	const fd = openSync(session.path, "wx", 0o600);
+	try {
+		writeFileSync(fd, `${JSON.stringify(session.header)}\n`);
+		for (const item of session.entries) writeFileSync(fd, `${JSON.stringify(item)}\n`);
+	} finally {
+		closeSync(fd);
+	}
+	session.flushed = true;
 }
 
 export interface LoadedSession {
@@ -134,6 +139,10 @@ export interface LoadedSession {
 	messages: AgentMessage[];
 	entries: SessionEntry[];
 	settings?: SessionSettings;
+	/** Only present if the process stopped before publishing the final assistant message. */
+	interruptedAssistant?: AssistantMessage;
+	/** Completed tool outcomes that have not yet been published as ordered messages. */
+	uncommittedToolResults?: Map<string, ToolResultMessage>;
 }
 
 /** A crash can leave a partial final write. Browsing is read-only; the owner repairs it before appending. */
@@ -172,6 +181,9 @@ export function loadSession(filePath: string, rows = readSessionRows(filePath)):
 	const messages: AgentMessage[] = [];
 	let firstUserText = "";
 	let settings: SessionSettings | undefined;
+	let interruptedAssistant: AssistantMessage | undefined;
+	const startedCalls = new Map<number, ToolCall>();
+	const uncommittedToolResults = new Map<string, ToolResultMessage>();
 
 	for (const parsed of rows) {
 		if (typeof parsed !== "object" || parsed === null) {
@@ -201,6 +213,25 @@ export function loadSession(filePath: string, rows = readSessionRows(filePath)):
 			continue;
 		}
 
+		if (row.type === "stream_tool_start") {
+			const { call, index, model, timestamp } = parsed as Extract<ToolCheckpoint, { type: "stream_tool_start" }>;
+			if (call?.type !== "toolCall" || typeof call.id !== "string" || typeof call.name !== "string" ||
+				!Number.isInteger(index) || index < 0 || typeof model !== "string" || typeof timestamp !== "number") {
+				throw new Error(`Invalid streaming tool call in ${filePath}`);
+			}
+			interruptedAssistant ??= { role: "assistant", model, timestamp, content: [],
+				stopReason: "aborted", errorMessage: "Tool execution interrupted before the model response completed.", partialToolExecution: true };
+			startedCalls.set(index, call);
+			continue;
+		}
+		if (row.type === "stream_tool_result") {
+			const { message } = parsed as Extract<ToolCheckpoint, { type: "stream_tool_result" }>;
+			if (message?.role !== "toolResult" || typeof message.toolCallId !== "string" || !Array.isArray(message.content)) {
+				throw new Error(`Invalid streaming tool result in ${filePath}`);
+			}
+			uncommittedToolResults.set(message.toolCallId, message);
+			continue;
+		}
 		if (row.type === "settings") {
 			const value = parsed as SessionSettingsEntry;
 			if (!value.thinking || !THINKING_LEVELS.includes(value.thinking.effort) ||
@@ -222,6 +253,13 @@ export function loadSession(filePath: string, rows = readSessionRows(filePath)):
 			if (!message || typeof message.role !== "string") {
 				throw new Error(`Invalid message entry in ${filePath}`);
 			}
+			if (message.role === "toolResult") {
+				uncommittedToolResults.delete(message.toolCallId);
+			} else {
+				if (message.role !== "assistant" || !interruptedAssistant) uncommittedToolResults.clear();
+				interruptedAssistant = undefined;
+				startedCalls.clear();
+			}
 			entries.push({ type: "message", message });
 			if (
 				firstUserText.length === 0 &&
@@ -239,6 +277,9 @@ export function loadSession(filePath: string, rows = readSessionRows(filePath)):
 		}
 
 		if (row.type === "compaction") {
+			interruptedAssistant = undefined;
+			startedCalls.clear();
+			uncommittedToolResults.clear();
 			const compaction = parsed as CompactionEntry;
 			if (typeof compaction.summary !== "string" || !Array.isArray(compaction.keptMessages)
 				|| (compaction.skillMessages !== undefined && (!Array.isArray(compaction.skillMessages) || compaction.skillMessages.some(message => message?.role !== "user" || message.isMeta !== true || !Array.isArray(message.content))))
@@ -269,12 +310,15 @@ export function loadSession(filePath: string, rows = readSessionRows(filePath)):
 	if (!header) {
 		throw new Error(`Empty session file: ${filePath}`);
 	}
+	if (interruptedAssistant) interruptedAssistant.content = [...startedCalls].sort(([a], [b]) => a - b).map(([, call]) => call);
 
 	return {
 		header,
 		entries,
 		messages,
 		settings,
+		...(interruptedAssistant && { interruptedAssistant }),
+		...(uncommittedToolResults.size > 0 && { uncommittedToolResults }),
 		name: header.name ?? sessionTitleFromUserText(firstUserText),
 	};
 }

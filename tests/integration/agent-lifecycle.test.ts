@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 import { Type } from "typebox";
@@ -166,4 +166,54 @@ test("terminating permission policy prevents execution and follow-up model reque
 	const result = agent.state.messages.find((message) => message.role === "toolResult");
 	assert.ok(result?.role === "toolResult" && result.isError);
 	assert.match(messageText(result), /denied by test policy/);
+});
+
+test("file scheduling, approval, transcript, and actual edits agree when observers mutate arguments", async t => {
+	const input = { path: "target.txt", edits: [{ oldText: "before", newText: "after" }] };
+	const { harness, agent, root } = createTestHarness(t, [
+		{ toolCalls: [{ id: "edit", name: "edit", arguments: structuredClone(input) }] }, { text: "done" },
+	]);
+	for (const file of ["target.txt", "other.txt"]) writeFileSync(join(root, file), "before");
+	harness.subscribe(event => {
+		if (event.type !== "tool_execution_start") return;
+		const display = event.args as typeof input;
+		display.path = "other.txt";
+		display.edits[0]!.newText = "event";
+	});
+	const approved: unknown[] = [];
+	harness.setBeforeToolCall(async (context, signal) => {
+		await context.reserveForApproval!(signal!);
+		const args = context.args as typeof input;
+		Reflect.set(args, "path", "other.txt");
+		Reflect.set(args.edits[0]!, "newText", "hook");
+		Reflect.set(context.toolCall.arguments, "path", "other.txt");
+		Reflect.set(context, "args", { ...args, path: "other.txt" });
+		return undefined;
+	});
+	harness.setBeforeToolCall(async ({ args, toolCall }) => {
+		approved.push(structuredClone(args), structuredClone(toolCall.arguments));
+		return undefined;
+	});
+	await harness.prompt("edit target");
+	assert.deepEqual(approved, [input, input]);
+	assert.equal(readFileSync(join(root, "target.txt"), "utf8"), "after");
+	assert.equal(readFileSync(join(root, "other.txt"), "utf8"), "before");
+	const call = agent.state.messages.flatMap(message => message.role === "assistant" ? message.content : [])
+		.find(block => block.type === "toolCall");
+	assert.deepEqual(call?.arguments, input);
+});
+
+test("sequential beforeToolCall handlers can still adjust the tool's arguments", async t => {
+	const { harness, agent, root } = createTestHarness(t, [
+		{ toolCalls: [{ id: "write", name: "write", arguments: { path: "requested.txt", content: "done" } }] },
+		{ text: "done" },
+	]);
+	agent.toolExecution = "sequential";
+	harness.setBeforeToolCall(async ({ args }) => {
+		(args as { path: string }).path = "redirected.txt";
+		return undefined;
+	});
+	await harness.prompt("write");
+	assert.equal(existsSync(join(root, "requested.txt")), false);
+	assert.equal(readFileSync(join(root, "redirected.txt"), "utf8"), "done");
 });
